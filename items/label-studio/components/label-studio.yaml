@@ -1,0 +1,65 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: heartexlabs/label-studio:1.23.0
+    endpoints:
+      primary:
+        containerPort: 8080
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        path: /health
+        endpoint: primary
+        # First boot runs the full Django migration chain against SQLite —
+        # several minutes on a nano profile — so the gate opens late and the
+        # budget must outlast it (observed ~3-4 min to first listen in live E2E).
+        # failureThreshold is capped at 10 by the probe schema, so the wait
+        # is carried by the initial delay rather than by more retries.
+        initialDelaySeconds: 240
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+    envVars:
+      - key: LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK
+        value:
+          type: LITERAL
+          value: 'true'
+    volumes:
+      data:
+        sizeGib: 10
+        mountPath: /label-studio/data
+  contract:
+    inputs:
+      adminEmail:
+        schema:
+          type: STRING
+          format: EMAIL
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Admin email
+        target:
+          envVarKey: LABEL_STUDIO_USERNAME
+        description: Email address for the bootstrap admin account
+      adminPassword:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Admin password
+        target:
+          envVarKey: LABEL_STUDIO_PASSWORD
+        generator:
+          byteLength: 24
+          encoding: ALPHANUMERIC
+        description: Auto-generated admin password; rotate from the Configuration tab
+    outputs: {}

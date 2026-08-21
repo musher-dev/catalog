@@ -1,0 +1,74 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: ghcr.io/open-webui/open-webui:v0.10.2
+    endpoints:
+      primary:
+        containerPort: 8080
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        path: /health
+        endpoint: primary
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      data:
+        sizeGib: 8
+        mountPath: /app/backend/data
+  contract:
+    inputs:
+      enableOllamaApi:
+        schema:
+          type: BOOLEAN
+          default: 'false'
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Enable Ollama API
+        target:
+          envVarKey: ENABLE_OLLAMA_API
+        description: >-
+          Enable the Ollama backend integration. Off by default because no Ollama
+          ships with this deployment; turn on only when an Ollama endpoint is
+          reachable (and set the base URL), otherwise the UI logs pointless
+          connection errors (docs.openwebui.com env-configuration).
+      ollamaBaseUrl:
+        schema:
+          type: STRING
+          default: http://ollama:11434
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Ollama base URL
+        target:
+          envVarKey: OLLAMA_BASE_URL
+        description: >-
+          Base URL of the Ollama API the WebUI talks to when the Ollama
+          integration is enabled. The default points at a sibling `ollama`
+          service that is NOT part of this deployment; replace it with your own
+          endpoint when enabling.
+      webuiSecretKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: WebUI secret key
+        target:
+          envVarKey: WEBUI_SECRET_KEY
+        generator:
+          byteLength: 32
+          encoding: HEX
+        description: Secret key used to sign session tokens
+    outputs: {}

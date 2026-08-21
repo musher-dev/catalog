@@ -1,0 +1,45 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: qdrant/qdrant:v1.18.3
+    endpoints:
+      primary:
+        containerPort: 6333
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        path: /healthz
+        endpoint: primary
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      data:
+        sizeGib: 8
+        mountPath: /qdrant/storage
+  contract:
+    inputs:
+      apiKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: API key
+        target:
+          envVarKey: QDRANT__SERVICE__API_KEY
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: Auto-generated bearer token required by clients to authenticate
+          against the Qdrant HTTP API
+    outputs: {}

@@ -1,0 +1,42 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: postgres
+  version: 1
+spec:
+  listingKind: COMPONENT
+  displayName: PostgreSQL
+  summary: The open-source relational database — SQL, ACID transactions, and JSONB in one engine
+  description: |
+    ## What it is
+    PostgreSQL is an open-source object-relational database with three
+    decades of development behind its reputation for reliability and
+    standards conformance. It combines full SQL with ACID transactions,
+    rich indexing, and JSONB document storage in a single engine.
+
+    ## When to use
+    - Your application needs a general-purpose relational database and
+      you'd rather default to Postgres than pick a specialist store.
+    - You're deploying another catalog item or your own workload that
+      expects a Postgres connection string.
+    - You want relational and document (JSONB) data in one engine instead
+      of running two databases.
+
+    ## Defaults
+    Single-container deployment of `postgres:17.10-alpine` listening on
+    the standard port 5432 as a private TCP endpoint — reachable by your
+    other workloads, not exposed to the public internet. You supply the
+    database password at deploy; the user defaults to `postgres` and the
+    database name to `app`. A 10 GiB persistent volume mounted at
+    `/var/lib/postgresql/data` keeps the data directory across restarts.
+  category: INFRASTRUCTURE
+  lifecycleStage: STABLE
+  tags:
+    - database
+    - sql
+    - postgres
+    - relational
+  homepageUrl: https://www.postgresql.org
+  sourceRepoUrl: https://github.com/postgres/postgres
+  license: PostgreSQL
+  icon: media/icon.png

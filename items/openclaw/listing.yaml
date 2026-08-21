@@ -1,0 +1,53 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: openclaw
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: OpenClaw
+  summary: Self-hosted AI agent gateway with a browser Control UI, bring-your-own model keys
+  description: |
+    ## What it is
+    OpenClaw (formerly Clawdbot/Moltbot) is a self-hosted AI agent gateway.
+    It connects your own LLM API keys (OpenAI, Anthropic, local models) to
+    a browser-based Control UI with stateful memory, scheduled tasks, and
+    tool execution — a private, always-on assistant rather than a hosted
+    chatbot subscription.
+
+    ## When to use
+    - You want a persistent AI assistant on infrastructure you control,
+      with keys, config, and session history staying on your deployment.
+    - You want an agent that runs scheduled tasks and tools around the
+      clock, not just while a chat tab is open.
+    - You're experimenting with agent workflows across multiple model
+      providers behind one gateway.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.7.1`
+    with the Control UI on port 18789 behind the platform's HTTPS edge.
+    Access is gated by an auto-generated gateway token — copy it from the
+    deployment's Configuration tab and enter it on your first visit, then
+    add your model-provider keys under Settings. The deployment's public
+    origin is written into the gateway's browser-origin allowlist
+    automatically; override it only for a custom domain. Two persistent
+    volumes (10 GiB
+    at `/home/node/.openclaw`, 1 GiB at `/home/node/.config/openclaw`)
+    keep configuration, session history, and the OAuth-token encryption
+    key across restarts.
+
+    Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
+    the interactive CLI and is not available in this deployment yet.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - agents
+    - assistant
+    - gateway
+    - automation
+  homepageUrl: https://openclaw.ai
+  sourceRepoUrl: https://github.com/openclaw/openclaw
+  supportUrl: https://docs.openclaw.ai
+  license: MIT
+  icon: media/icon.png

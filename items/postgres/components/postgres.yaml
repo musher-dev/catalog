@@ -1,0 +1,68 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: postgres:17.10-alpine
+    endpoints:
+      primary:
+        containerPort: 5432
+        protocol: TCP
+        visibility: PRIVATE
+    envVars:
+      - key: PGDATA
+        value:
+          type: LITERAL
+          value: /var/lib/postgresql/data/pgdata
+    volumes:
+      data:
+        sizeGib: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      postgresPassword:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Database password
+        target:
+          envVarKey: POSTGRES_PASSWORD
+      postgresUser:
+        schema:
+          type: STRING
+          default: postgres
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Database user
+        target:
+          envVarKey: POSTGRES_USER
+      postgresDb:
+        schema:
+          type: STRING
+          default: app
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Database name
+        target:
+          envVarKey: POSTGRES_DB
+    outputs:
+      address:
+        schema:
+          type: STRING
+          semanticType: POSTGRES
+        description: >-
+          Mesh-internal `host:port` of the database endpoint (for example
+          `db-myapp.internal:5432`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's CONNECTION input to
+          point that workload at this database.
+        valueFrom: DERIVED
+        value: null

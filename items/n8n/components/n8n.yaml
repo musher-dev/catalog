@@ -1,0 +1,109 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: n8nio/n8n:2.31.6
+    endpoints:
+      primary:
+        containerPort: 5678
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        # /healthz/readiness answers 200 only once the DB is connected and
+        # migrated; bare /healthz answers as soon as the process is reachable,
+        # which would declare readiness before n8n can serve traffic
+        # (docs.n8n.io monitor-n8n).
+        path: /healthz/readiness
+        endpoint: primary
+        # n8n runs DB migrations before it becomes ready on a nano profile, so
+        # give the startup gate generous runway. With the agent's startup-probe
+        # fix, non-200s during boot count as "not ready yet" (never a kill);
+        # the effective budget is initial_delay + (success + failure + 30)
+        # attempts at 1s.
+        initialDelaySeconds: 45
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+    envVars:
+      # n8n builds webhook URLs from N8N_PROTOCOL + N8N_HOST; the platform
+      # fronts every public endpoint with HTTPS, so pin the protocol.
+      - key: N8N_PROTOCOL
+        value:
+          type: LITERAL
+          value: https
+      # One TLS-terminating proxy hop (the gateway) sits in front of n8n; this
+      # makes n8n trust X-Forwarded-* from it (docs.n8n.io
+      # configure-webhook-urls-with-reverse-proxy).
+      - key: N8N_PROXY_HOPS
+        value:
+          type: LITERAL
+          value: '1'
+    volumes:
+      data:
+        sizeGib: 4
+        mountPath: /home/node/.n8n
+  contract:
+    inputs:
+      n8nHost:
+        schema:
+          type: STRING
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Public hostname
+        target:
+          envVarKey: N8N_HOST
+        platformDefault:
+          source: PUBLIC_HOSTNAME
+        description: >-
+          Public hostname n8n uses for webhook URLs. Leave blank to use this
+          deployment's own generated hostname; override only for a custom domain.
+      webhookUrl:
+        schema:
+          type: STRING
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Webhook base URL
+        target:
+          envVarKey: WEBHOOK_URL
+        platformDefault:
+          source: PUBLIC_URL
+        description: >-
+          Full public base URL n8n registers webhooks under. Without it n8n
+          composes protocol://host:port and leaks the internal container port
+          into webhook URLs behind the TLS-terminating gateway. Leave blank to
+          use this deployment's own https URL; override only for a custom domain.
+      editorBaseUrl:
+        schema:
+          type: STRING
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Editor base URL
+        target:
+          envVarKey: N8N_EDITOR_BASE_URL
+        platformDefault:
+          source: PUBLIC_URL
+        description: >-
+          Public URL of the n8n editor, used in emails and OAuth/SAML redirects.
+          Leave blank to use this deployment's own https URL; override only for
+          a custom domain.
+      timezone:
+        schema:
+          type: STRING
+          default: UTC
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Timezone
+        target:
+          envVarKey: GENERIC_TIMEZONE
+        description: IANA timezone for scheduled workflows
+    outputs: {}

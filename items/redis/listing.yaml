@@ -1,0 +1,41 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: redis
+  version: 1
+spec:
+  listingKind: COMPONENT
+  displayName: Redis
+  summary: In-memory data store for caching, queues, sessions, and pub/sub
+  description: |
+    ## What it is
+    Redis is an in-memory data structure store serving sub-millisecond
+    reads and writes over strings, hashes, lists, sets, sorted sets, and
+    streams. Teams reach for it as a cache, session store, message broker,
+    and lightweight queue.
+
+    ## When to use
+    - You're adding a cache or session store in front of a slower primary
+      database.
+    - You need a lightweight queue, rate limiter, or pub/sub channel
+      between your services.
+    - You're deploying another workload that expects a Redis URL.
+
+    ## Defaults
+    Single-container deployment of `redis:8.8.1-alpine` listening on the
+    standard port 6379 as a private TCP endpoint — reachable by your other
+    workloads, not exposed to the public internet. The server runs with
+    append-only-file persistence enabled, journaling writes to the 5 GiB
+    persistent volume mounted at `/data` so data survives restarts. No
+    additional configuration is required at deploy.
+  category: INFRASTRUCTURE
+  lifecycleStage: STABLE
+  tags:
+    - cache
+    - key-value
+    - redis
+    - message-broker
+  homepageUrl: https://redis.io
+  sourceRepoUrl: https://github.com/redis/redis
+  license: RSALv2 / SSPLv1 / AGPL-3.0
+  icon: media/icon.png

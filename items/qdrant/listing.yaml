@@ -1,0 +1,45 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: qdrant
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: Qdrant
+  summary: Rust vector database for similarity search and RAG retrieval on CPU hardware
+  description: |
+    ## What it is
+    Qdrant is an open-source vector database written in Rust. It serves
+    similarity search, recommendation, and RAG retrieval workloads at
+    production latencies on commodity CPU hardware — no GPU required —
+    with payload filtering built into the query engine.
+
+    ## When to use
+    - You're building a RAG pipeline and want a dedicated vector store
+      rather than bolting pgvector onto an existing Postgres.
+    - You need filtered vector search with payload metadata at low
+      latency.
+    - You're serving embedding-based recommendations or semantic search
+      from your own infrastructure.
+
+    ## Defaults
+    Single-container deployment of `qdrant/qdrant:v1.18.3` with the HTTP
+    API on port 6333 behind the platform's HTTPS edge; the gRPC port 6334
+    exists in Qdrant but is not exposed by this listing. Clients
+    authenticate with an auto-generated API key — copy or rotate it from
+    the deployment's Configuration tab. An 8 GiB persistent volume
+    mounted at `/qdrant/storage` keeps collections and vectors across
+    restarts.
+  category: INFRASTRUCTURE
+  lifecycleStage: STABLE
+  tags:
+    - vector-database
+    - embeddings
+    - similarity-search
+    - rag
+    - ai
+  homepageUrl: https://qdrant.tech
+  sourceRepoUrl: https://github.com/qdrant/qdrant
+  supportUrl: https://qdrant.tech/documentation
+  license: Apache-2.0
+  icon: media/icon.png

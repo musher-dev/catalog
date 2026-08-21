@@ -1,0 +1,62 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: flowiseai/flowise:3.1.3
+    endpoints:
+      primary:
+        containerPort: 3000
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        path: /api/v1/ping
+        endpoint: primary
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    envVars:
+      - key: DATABASE_PATH
+        value:
+          type: LITERAL
+          value: /root/.flowise
+      - key: SECRETKEY_PATH
+        value:
+          type: LITERAL
+          value: /root/.flowise
+      - key: BLOB_STORAGE_PATH
+        value:
+          type: LITERAL
+          value: /root/.flowise/storage
+      - key: LOG_PATH
+        value:
+          type: LITERAL
+          value: /root/.flowise/logs
+    volumes:
+      data:
+        sizeGib: 5
+        mountPath: /root/.flowise
+  contract:
+    inputs:
+      flowiseSecretKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Secret key
+        target:
+          envVarKey: FLOWISE_SECRETKEY_OVERWRITE
+        generator:
+          byteLength: 32
+          encoding: HEX
+        description: Auto-generated key used to encrypt credentials stored in flows;
+          keeps them decryptable across restarts
+    outputs: {}

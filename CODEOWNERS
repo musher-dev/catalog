@@ -1,0 +1,12 @@
+# Code owners for the Musher catalog.
+#
+# A catch-all is deliberate here: this repository is a single curated content
+# corpus with one owning team, so every path wants the same reviewer. (The
+# platform monorepo bans a catch-all because its review gate is paired with a
+# branch ruleset that turns one into blanket review — that pairing does not
+# exist here.)
+#
+# GitHub silently ignores an owner without write access, so verify access when
+# adding one.
+
+*   @justinmerrell

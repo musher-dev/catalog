@@ -1,0 +1,43 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3
+    endpoints:
+      primary:
+        containerPort: 4000
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        # /health/liveliness (LiteLLM's spelling) is the pure unauthenticated
+        # alive signal; /health/readiness is DB/cache-coupled (proxy/health docs).
+        path: /health/liveliness
+        endpoint: primary
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      masterKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Master key
+        target:
+          envVarKey: LITELLM_MASTER_KEY
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: Auto-generated admin token. Prefix with 'sk-' is added automatically
+          by LiteLLM
+    outputs: {}

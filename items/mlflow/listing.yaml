@@ -1,0 +1,46 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: mlflow
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: MLflow
+  summary: Experiment tracking and model registry for ML teams — runs, metrics, artifacts
+  description: |
+    ## What it is
+    MLflow is the de-facto standard for tracking machine-learning
+    experiments, packaging code, and managing a model registry. The
+    tracking UI gives a single pane of glass over runs, parameters,
+    metrics, and artifacts produced by your training pipelines.
+
+    ## When to use
+    - You're self-hosting an experiment-tracking server in front of your
+      team's notebooks and CI runs.
+    - You want a registry to promote models from training pipelines into
+      production serving infrastructure.
+    - You're comparing training runs across parameters and metrics and
+      need the artifacts archived next to them.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.14.0` running
+    `mlflow server` with the tracking UI on port 5000 behind the
+    platform's HTTPS edge. The backend store defaults to SQLite and
+    artifacts are server-proxied onto the 20 GiB persistent volume at
+    `/mlflow` — suitable for a small team. First boot creates the database
+    schema before the server listens, so allow a couple of minutes before
+    the app reports ready. Production teams upgrade the two store URIs to
+    Postgres + S3-compatible storage; that path is documented upstream and
+    exposed as deploy parameters, but not pre-configured by this listing.
+  category: AI_ML
+  lifecycleStage: STABLE
+  tags:
+    - ml
+    - mlops
+    - experiment-tracking
+    - model-registry
+  homepageUrl: https://mlflow.org
+  sourceRepoUrl: https://github.com/mlflow/mlflow
+  supportUrl: https://mlflow.org/docs
+  license: Apache-2.0
+  icon: media/icon.png

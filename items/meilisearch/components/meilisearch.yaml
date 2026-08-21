@@ -1,0 +1,53 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: getmeili/meilisearch:v1.50.0
+    endpoints:
+      primary:
+        containerPort: 7700
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        path: /health
+        endpoint: primary
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    envVars:
+      - key: MEILI_ENV
+        value:
+          type: LITERAL
+          value: production
+      - key: MEILI_NO_ANALYTICS
+        value:
+          type: LITERAL
+          value: 'true'
+    volumes:
+      data:
+        sizeGib: 8
+        mountPath: /meili_data
+  contract:
+    inputs:
+      masterKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Master key
+        target:
+          envVarKey: MEILI_MASTER_KEY
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: Auto-generated bearer token for admin and indexing API access
+    outputs: {}

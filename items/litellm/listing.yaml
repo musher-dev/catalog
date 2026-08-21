@@ -1,0 +1,48 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: litellm
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: LiteLLM
+  summary: OpenAI-compatible proxy that fronts 100+ LLM providers with keys, budgets, and logging
+  description: |
+    ## What it is
+    LiteLLM is an OpenAI-compatible proxy that fronts 100+ LLM providers
+    (OpenAI, Anthropic, Bedrock, Vertex, Mistral, Azure, local Ollama)
+    behind one API. Add virtual API keys, per-key budgets, rate limits,
+    request logging, and streaming routing without rewriting your
+    application.
+
+    ## When to use
+    - You want a single OpenAI-compatible endpoint that swaps providers
+      without changing client code.
+    - You need centralized API-key management, spend tracking, and
+      per-team budgets across multiple LLM vendors.
+    - You want provider fallbacks and load balancing in front of your
+      model traffic.
+
+    ## Defaults
+    Single-container deployment of
+    `ghcr.io/berriai/litellm:v1.83.14-stable.patch.3` with the proxy on
+    port 4000 behind the platform's HTTPS edge. A master key is
+    auto-generated (copy it from the deployment's Configuration tab;
+    LiteLLM prefixes it with `sk-`) and is required for admin endpoints;
+    configure provider upstreams from the dashboard. This deployment runs
+    stateless — no database and no persistent volume — so it suits the
+    basic proxy mode; durable virtual-key and spend state needs the
+    documented database setup, which this listing does not configure.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - proxy
+    - gateway
+    - openai-compatible
+  homepageUrl: https://www.litellm.ai
+  sourceRepoUrl: https://github.com/BerriAI/litellm
+  supportUrl: https://docs.litellm.ai
+  license: MIT
+  icon: media/icon.png

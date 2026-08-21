@@ -1,0 +1,44 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: codercom/code-server:4.130.0
+    endpoints:
+      primary:
+        containerPort: 8080
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        path: /healthz
+        endpoint: primary
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      data:
+        sizeGib: 8
+        mountPath: /home/coder
+  contract:
+    inputs:
+      password:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Access password
+        target:
+          envVarKey: PASSWORD
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: Password used to authenticate to the code-server web UI
+    outputs: {}

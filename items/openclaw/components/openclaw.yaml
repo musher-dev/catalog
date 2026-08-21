@@ -1,0 +1,135 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      # Latest stable calendar release (beta tags are not pinned for the catalog).
+      ref: ghcr.io/openclaw/openclaw:2026.7.1
+    # Converge config through OpenClaw's own `config set` CLI, then exec the
+    # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
+    #
+    # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
+    # CONFIG-FILE-ONLY — verified against 2026.7.1, whose bundle declares no
+    # matching env var — and without this deployment's public origin in it the
+    # gateway rejects the browser with "Browser origin not allowed".
+    #
+    # `config set` (not a hand-written openclaw.json) is what upstream's own
+    # container guide uses, and it is the only form that works: the CLI writes a
+    # normalized document carrying the `meta.lastTouchedVersion` stamp the gateway
+    # expects, whereas a hand-rolled file is rejected as clobbered config
+    # ("existing config is missing gateway.mode"). Verified live: after
+    # `config set`, the origin survives gateway startup and /readyz returns 200.
+    #
+    # Run unconditionally on every boot rather than behind a first-boot guard —
+    # the config lives on a persistent volume, so a guard would pin the very first
+    # boot's origin forever and leave a re-deployed app permanently unreachable.
+    # `config set` is declarative, so re-applying is a no-op.
+    command: >-
+      sh -c 'set -e;
+      node /app/dist/index.js config set --batch-json
+      "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
+      {\"path\":\"gateway.bind\",\"value\":\"lan\"},
+      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
+      exec node openclaw.mjs gateway'
+    endpoints:
+      primary:
+        containerPort: 18789
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        # /readyz is the machine-readable gate; /healthz can return the Control UI
+        # HTML shell with a 200, which would falsely read as ready.
+        path: /readyz
+        endpoint: primary
+        # Node boot + SQLite migrations run before the gate opens on first start.
+        initialDelaySeconds: 45
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+      liveness:
+        path: /healthz
+        endpoint: primary
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+    envVars:
+      # OPENCLAW_GATEWAY_BIND is deliberately left at its default (routable) bind:
+      # the "loopback" guidance assumes a reverse proxy sharing the container's
+      # network namespace, but here the platform edge is a separate hop, so a
+      # loopback bind would make containerPort 18789 unreachable.
+      #
+      # No mDNS advertising inside a container network (also auto-disabled when
+      # the runtime detects a container; kept explicit for intent).
+      - key: OPENCLAW_DISABLE_BONJOUR
+        value:
+          type: LITERAL
+          value: "1"
+    volumes:
+      # Core state: openclaw.json, SQLite session DBs, installed plugins, .env, and
+      # the agent workspace (default /home/node/.openclaw/workspace lives inside
+      # this directory, so a single claim covers config + workspace).
+      config:
+        sizeGib: 10
+        mountPath: /home/node/.openclaw
+      # Master encryption key for OAuth-backed auth profiles. Kept as its own claim
+      # because OpenClaw intentionally places this key outside the config directory,
+      # so connected-channel tokens survive restarts and stay decryptable.
+      auth-secrets:
+        sizeGib: 1
+        mountPath: /home/node/.config/openclaw
+  contract:
+    inputs:
+      # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
+      # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
+      # matching the project's `openssl rand -hex 32` guidance.
+      gatewayToken:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Gateway token
+        target:
+          envVarKey: OPENCLAW_GATEWAY_TOKEN
+        generator:
+          byteLength: 32
+          encoding: HEX
+        description: >-
+          Master token authenticating the Control UI, WebSocket streams, and HTTP API.
+      publicOrigin:
+        schema:
+          type: STRING
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Public origin
+        target:
+          envVarKey: OPENCLAW_PUBLIC_ORIGIN
+        platformDefault:
+          source: PUBLIC_URL
+        description: >-
+          Public https origin of this deployment's Control UI, written into
+          gateway.controlUi.allowedOrigins at first boot so browser sessions from
+          the public hostname are accepted. Leave blank to use this deployment's
+          own generated URL; override only for a custom domain.
+      timezone:
+        schema:
+          type: STRING
+          default: UTC
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Timezone
+        # The container consumes the standard TZ variable (upstream compose maps
+        # its host-side OPENCLAW_TZ input onto TZ; OPENCLAW_TZ itself is not read
+        # by the gateway runtime).
+        target:
+          envVarKey: TZ
+        description: IANA timezone for the agent's scheduled tasks and temporal reasoning.
+    outputs: {}

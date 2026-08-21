@@ -1,0 +1,12 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: qdrant
+  version: 1
+spec:
+  components:
+    web:
+      component: ./components/qdrant.yaml
+      size: general.standard.small
+      connections: {}
+  parameters: {}

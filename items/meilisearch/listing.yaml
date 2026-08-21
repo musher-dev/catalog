@@ -1,0 +1,44 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: meilisearch
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: Meilisearch
+  summary: Millisecond full-text search engine with typo tolerance, facets, and filters
+  description: |
+    ## What it is
+    Meilisearch is an open-source search engine written in Rust. It serves
+    millisecond-latency full-text search with native typo tolerance,
+    faceted filters, synonyms, and relevance ranking — all from a single
+    binary with no external dependencies.
+
+    ## When to use
+    - You want Algolia-style search-as-you-type on infrastructure you
+      control.
+    - You're indexing structured documents (products, articles, posts)
+      and need ranked search with filters and facets.
+    - You need search your frontend can query directly with scoped,
+      client-safe tokens.
+
+    ## Defaults
+    Single-container deployment of `getmeili/meilisearch:v1.50.0` with the
+    HTTP API on port 7700 behind the platform's HTTPS edge, running in
+    production mode with telemetry disabled. A master key is
+    auto-generated for admin and indexing access — copy it from the
+    deployment's Configuration tab and mint scoped tenant tokens for
+    client-facing searches. An 8 GiB persistent volume mounted at
+    `/meili_data` keeps indexes across restarts.
+  category: DEVELOPER_TOOLS
+  lifecycleStage: STABLE
+  tags:
+    - search
+    - full-text
+    - indexing
+    - typo-tolerance
+  homepageUrl: https://www.meilisearch.com
+  sourceRepoUrl: https://github.com/meilisearch/meilisearch
+  supportUrl: https://www.meilisearch.com/docs
+  license: MIT
+  icon: media/icon.png

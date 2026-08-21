@@ -1,0 +1,43 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: code-server
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: code-server
+  summary: VS Code in the browser, running on infrastructure you control
+  description: |
+    ## What it is
+    code-server runs the full VS Code editor on a remote server and serves
+    it to any modern browser. The editor, extensions, terminal, and
+    workspace all live on the server — the device you connect from only
+    needs a browser.
+
+    ## When to use
+    - You want one consistent dev environment reachable from a laptop,
+      tablet, or Chromebook with no local toolchain setup.
+    - You want to edit and compile on a capable server while working from
+      a thin client.
+    - You need a disposable, always-on workspace for a project or course
+      that outlives any single machine.
+
+    ## Defaults
+    Single-container deployment of `codercom/code-server:4.130.0` with the
+    web UI published on port 8080 behind the platform's HTTPS edge. Access
+    is gated by an auto-generated password — copy or rotate it from the
+    deployment's Configuration tab. An 8 GiB persistent volume is mounted
+    at `/home/coder`, so projects, extensions, and settings survive
+    restarts.
+  category: DEVELOPER_TOOLS
+  lifecycleStage: STABLE
+  tags:
+    - ide
+    - vscode
+    - editor
+    - remote-development
+  homepageUrl: https://coder.com
+  sourceRepoUrl: https://github.com/coder/code-server
+  supportUrl: https://coder.com/docs/code-server
+  license: MIT
+  icon: media/icon.png

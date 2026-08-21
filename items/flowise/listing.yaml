@@ -1,0 +1,49 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: flowise
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: Flowise
+  summary: Drag-and-drop builder that turns LLM chains and agents into APIs and chat widgets
+  description: |
+    ## What it is
+    Flowise is an open-source visual builder for LLM applications. Drag
+    nodes (models, vector stores, retrievers, tools, agents) onto a
+    canvas, wire them together, and expose the result as a REST API or an
+    embeddable chat widget. Sister project to Langflow in the same
+    "agents on a canvas" niche; Flowise is chains-first where Langflow is
+    nodes-first.
+
+    ## When to use
+    - You want to ship an LLM agent or RAG endpoint without writing
+      orchestration code.
+    - You need an embeddable chat widget or REST API your application can
+      call into.
+    - You're iterating on prompt/retrieval chains with non-engineers who
+      work better on a canvas than in code.
+
+    ## Defaults
+    Single-container deployment of `flowiseai/flowise:3.1.3` with the web
+    UI on port 3000 behind the platform's HTTPS edge; you create the admin
+    account from the sign-up screen on first launch. SQLite-backed by
+    default (pointing it at Postgres is documented upstream but not
+    configured by this listing). A persistent encryption key is
+    auto-generated at deploy so credentials stored in your flows stay
+    decryptable across restarts, and a 5 GiB persistent volume mounted at
+    `/root/.flowise` holds the database, flow storage, and logs.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - agents
+    - rag
+    - low-code
+    - visual-builder
+  homepageUrl: https://flowiseai.com
+  sourceRepoUrl: https://github.com/FlowiseAI/Flowise
+  supportUrl: https://docs.flowiseai.com
+  license: Apache-2.0
+  icon: media/icon.png

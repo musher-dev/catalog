@@ -1,0 +1,50 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: langflow
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: Langflow
+  summary: Visual canvas for prototyping LLM agents and RAG pipelines, exportable as APIs
+  description: |
+    ## What it is
+    Langflow is an open-source, drag-and-drop visual builder for chaining
+    LLM calls, retrievers, agents, and tools. Drop nodes onto a canvas,
+    wire them up, and ship a runnable agent or expose the flow as an API —
+    no orchestration boilerplate.
+
+    ## When to use
+    - You're prototyping multi-step LLM workflows and want to iterate
+      visually before exporting to code.
+    - You want a low-friction RAG/agent canvas that non-engineering
+      stakeholders can read and tweak.
+    - You're comparing prompt, model, and retrieval variants side by side
+      on the same flow.
+
+    ## Defaults
+    Single-container deployment of `langflowai/langflow:1.11.0` with the
+    web UI on port 7860 behind the platform's HTTPS edge. Auto-login is
+    disabled: sign in with the admin username (default `admin`) and the
+    auto-generated password from the deployment's Configuration tab. A
+    separate auto-generated secret key encrypts provider API keys stored
+    in your flows. SQLite-backed by default — fine for personal and
+    small-team use; the Postgres path is documented upstream but not
+    configured by this listing. A 5 GiB persistent volume mounted at
+    `/app/langflow` holds both config and the database, so flows survive
+    container recreation. Marked beta because Langflow ships breaking
+    changes more frequently than monthly.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - agents
+    - rag
+    - low-code
+    - visual-builder
+  homepageUrl: https://www.langflow.org
+  sourceRepoUrl: https://github.com/langflow-ai/langflow
+  supportUrl: https://docs.langflow.org
+  license: MIT
+  icon: media/icon.png

@@ -1,0 +1,47 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: label-studio
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: Label Studio
+  summary: Open-source data labeling for text, image, audio, video, and time-series datasets
+  description: |
+    ## What it is
+    Label Studio is an open-source data labeling platform supporting text,
+    images, audio, video, time-series, and multi-modal datasets. Build
+    labeling templates, manage annotators, integrate ML-assisted
+    pre-labeling, and export to every major training framework's format.
+
+    ## When to use
+    - You're building an ML training set and need a flexible labeling UI
+      your annotators can use without ML expertise.
+    - You want self-hosted control over PII-sensitive labeling work that
+      can't go through SaaS providers.
+    - You're reviewing or correcting model predictions with a
+      human-in-the-loop workflow.
+
+    ## Defaults
+    Single-container deployment of `heartexlabs/label-studio:1.23.0` with
+    the web UI on port 8080 behind the platform's HTTPS edge.
+    SQLite-backed — suitable for personal and small-team labeling. The
+    admin account is created from the email/password parameters at deploy
+    (the password is auto-generated; rotate it from the deployment's
+    Configuration tab), and open self-signup is disabled — invite
+    annotators by link. First boot runs the full database migration
+    chain, so expect a few minutes before the app reports ready. A 10 GiB
+    persistent volume mounted at `/label-studio/data` keeps projects,
+    annotations, and uploads across restarts.
+  category: AI_ML
+  lifecycleStage: STABLE
+  tags:
+    - labeling
+    - annotation
+    - training-data
+    - ml
+  homepageUrl: https://labelstud.io
+  sourceRepoUrl: https://github.com/HumanSignal/label-studio
+  supportUrl: https://labelstud.io/guide
+  license: Apache-2.0
+  icon: media/icon.png

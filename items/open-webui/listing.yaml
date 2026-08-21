@@ -1,0 +1,47 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: open-webui
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: Open WebUI
+  summary: Self-hosted, multi-user chat interface for Ollama and OpenAI-compatible LLMs
+  description: |
+    ## What it is
+    Open WebUI is a self-hosted web interface for chatting with LLMs —
+    local models served by Ollama or any OpenAI-compatible API. It adds
+    multi-user accounts with role-based access, RAG over uploaded
+    documents, and a library of reusable prompts and model presets.
+
+    ## When to use
+    - You want a private, multi-user chat front-end for models you host
+      yourself or reach through your own API keys.
+    - You want RAG over your own documents without sending them to a
+      third-party service.
+    - You're standardizing one chat UI for a team across several model
+      providers.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/open-webui/open-webui:v0.10.2`
+    with the web UI on port 8080 behind the platform's HTTPS edge. The
+    first account you register becomes the admin. The Ollama integration
+    is off by default because no Ollama ships with this deployment — turn
+    it on and set the base URL once you have an endpoint to point at (or
+    configure an OpenAI-compatible API from the connection settings). A
+    session-token signing key is auto-generated, and an 8 GiB persistent
+    volume mounted at `/app/backend/data` keeps accounts, chats, and
+    uploaded documents across restarts.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - chat
+    - ollama
+    - rag
+  homepageUrl: https://openwebui.com
+  sourceRepoUrl: https://github.com/open-webui/open-webui
+  supportUrl: https://docs.openwebui.com
+  license: Open WebUI License (BSD-3-Clause with branding clause)
+  icon: media/icon.png

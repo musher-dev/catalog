@@ -1,0 +1,34 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: redis:8.8.1-alpine
+    command: redis-server --appendonly yes
+    endpoints:
+      primary:
+        containerPort: 6379
+        protocol: TCP
+        visibility: PRIVATE
+    volumes:
+      data:
+        sizeGib: 5
+        mountPath: /data
+  contract:
+    inputs: {}
+    outputs:
+      address:
+        schema:
+          type: STRING
+          semanticType: REDIS
+        description: >-
+          Mesh-internal `host:port` of the cache endpoint (for example
+          `cache-myapp.internal:6379`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's CONNECTION input to
+          point that workload at this cache.
+        valueFrom: DERIVED
+        value: null

@@ -1,0 +1,46 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: n8n
+  version: 1
+spec:
+  listingKind: BLUEPRINT
+  displayName: n8n
+  summary: Fair-code workflow automation with 400+ integrations and a built-in code node
+  description: |
+    ## What it is
+    n8n is a fair-code workflow automation tool for technical teams. Build
+    automations visually on a node canvas across hundreds of SaaS, API,
+    and database integrations, and drop into JavaScript in a code node
+    whenever the visual building blocks aren't enough.
+
+    ## When to use
+    - You want to wire SaaS tools, APIs, and databases into automated
+      workflows without writing and hosting glue services.
+    - You need self-hosted automation where the data and credentials stay
+      on infrastructure you control.
+    - You're triggering workflows from inbound webhooks and want the
+      webhook endpoints on your own domain.
+
+    ## Defaults
+    Single-container deployment of `n8nio/n8n:2.31.6` with the web UI on
+    port 5678 behind the platform's HTTPS edge; you create the owner
+    account from the setup screen on first launch. Webhook, editor, and
+    host URLs default to this deployment's own public https URL — override
+    them only when fronting n8n with a custom domain. The readiness probe
+    waits for `/healthz/readiness`, so first boot reports ready only after
+    database migrations finish. A 4 GiB persistent volume mounted at
+    `/home/node/.n8n` keeps workflows, credentials, and execution history
+    across restarts.
+  category: AUTOMATION
+  lifecycleStage: STABLE
+  tags:
+    - automation
+    - workflow
+    - integration
+    - low-code
+  homepageUrl: https://n8n.io
+  sourceRepoUrl: https://github.com/n8n-io/n8n
+  supportUrl: https://docs.n8n.io
+  license: Sustainable Use License
+  icon: media/icon.png

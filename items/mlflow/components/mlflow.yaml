@@ -1,0 +1,90 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: ghcr.io/mlflow/mlflow:v3.14.0
+    # The official image ships NO ENTRYPOINT/CMD (its Dockerfile is a bare
+    # `pip install mlflow`); without an explicit server command the container
+    # inherits python:slim's `python3`, reads EOF, and exits immediately. The
+    # server reads MLFLOW_HOST / MLFLOW_PORT / MLFLOW_BACKEND_STORE_URI /
+    # MLFLOW_ARTIFACTS_DESTINATION from the environment, so the bare command
+    # suffices (https://mlflow.org/docs/latest/api_reference/cli.html).
+    command: mlflow server
+    endpoints:
+      primary:
+        containerPort: 5000
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        # /health is MLflow's dedicated auth-bypassing 200 "OK"; the root
+        # serves the heavy React bundle (mlflow/server/__init__.py).
+        path: /health
+        endpoint: primary
+        # First boot creates the SQLite schema before the server listens; the
+        # old 30s + 3-failure gate expired mid-init and the agent SIGTERM'd the
+        # container (observed live). Same shape as the label-studio budget.
+        initialDelaySeconds: 120
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+    envVars:
+      - key: MLFLOW_HOST
+        value:
+          type: LITERAL
+          value: 0.0.0.0
+      - key: MLFLOW_PORT
+        value:
+          type: LITERAL
+          value: '5000'
+      # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
+      # protection) whose default allowlist rejects both the platform health
+      # probe (Host carries the host-mapped port, not :5000) and gateway
+      # traffic on the public hostname. The container port binds loopback-only
+      # on the compute host and is reachable solely through the platform edge,
+      # so Host validation adds nothing here — disable it rather than chase
+      # every proxied hostname (https://mlflow.org/docs/latest/self-hosting/security/).
+      - key: MLFLOW_SERVER_ALLOWED_HOSTS
+        value:
+          type: LITERAL
+          value: '*'
+    volumes:
+      data:
+        sizeGib: 20
+        mountPath: /mlflow
+  contract:
+    inputs:
+      backendStoreUri:
+        schema:
+          type: STRING
+          default: sqlite:////mlflow/mlflow.db
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Backend store URI
+        target:
+          envVarKey: MLFLOW_BACKEND_STORE_URI
+        description: SQLAlchemy URI for the tracking metadata store. Default uses
+          local SQLite; production should use Postgres.
+      artifactsDestination:
+        schema:
+          type: STRING
+          default: /mlflow/mlruns
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Artifact storage destination
+        # MLFLOW_ARTIFACTS_DESTINATION (not MLFLOW_DEFAULT_ARTIFACT_ROOT): the
+        # server proxies artifact reads/writes to this destination, so remote
+        # clients never interpret the path against their own filesystem
+        # (https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/).
+        target:
+          envVarKey: MLFLOW_ARTIFACTS_DESTINATION
+        description: Where the tracking server stores proxied run artifacts. Default
+          uses the local volume; production should use s3:// or gs://.
+    outputs: {}

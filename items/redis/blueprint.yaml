@@ -1,0 +1,12 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: redis
+  version: 1
+spec:
+  components:
+    cache:
+      component: ./components/redis.yaml
+      size: general.standard.small
+      connections: {}
+  parameters: {}
