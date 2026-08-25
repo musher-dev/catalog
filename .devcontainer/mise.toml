@@ -1,0 +1,22 @@
+# Developer tools with no devcontainer Feature.
+#
+# Everything that has a Feature is pinned in devcontainer.json and baked into
+# the image. Everything else is pinned here, whatever it is distributed as —
+# mise resolves each tool for the container's own CPU architecture, which is
+# what a hand-placed release binary does not do. Claude Code is the exception:
+# it self-updates through its own installer (scripts/lib/base-setup.sh).
+#
+# actionlint must stay in step with .github/workflows/*.yml if a workflow ever
+# installs it itself. Two environments, one version — CI is not a mise host and
+# does not read this file.
+#
+# Pinned exactly rather than to a range. A range resolves the newest match
+# through the GitHub API on every run, so a degraded API takes the whole setup
+# down before it reaches a single check.
+#
+# Change a version here, then rebuild the container or run `mise install`.
+# Docs: https://mise.jdx.dev
+
+[tools]
+"actionlint"   = "1.7.11"
+"npm:lefthook" = "2.1.10"

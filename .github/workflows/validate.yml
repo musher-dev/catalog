@@ -1,0 +1,48 @@
+# Validates the catalog corpus against musher-dev/spec.
+#
+# The schemas are fetched from the tip of the public musher-dev/spec repository
+# at run time rather than vendored, so this job also tells us when a spec change
+# stops accepting an item that used to validate — which is the whole point of not
+# holding a copy. The scheduled run is what catches that in the window between a
+# spec change and the next catalog PR.
+#
+# No credential is involved: musher-dev/spec is public and the suite reads no
+# token.
+name: validate
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  schedule:
+    - cron: '17 6 * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: validate-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '24'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Typecheck
+        run: npm run typecheck
+
+      - name: Lint the workflows
+        uses: rhysd/actionlint@main
+
+      - name: Validate the corpus
+        run: npm test

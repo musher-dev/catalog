@@ -1,0 +1,135 @@
+// musher-dev/catalog dev container.
+//
+// Trimmed from the same musher-dev/development-container template
+// musher-dev/spec uses, and trimmed further. This repository holds YAML and
+// validates it against the published spec: it builds no images, runs no
+// services, needs no database, and has no compose stack. Docker-in-Docker,
+// Python, Go, Java, Deno, uv, Bun and the postgres client are all deliberately
+// absent.
+//
+// Kept: Node for the test suite, Task as the runner, shellcheck and actionlint
+// for the scripts and workflows, gh for release work, and Claude Code.
+{
+  "name": "Musher Catalog",
+
+  // Pinned to the LTS, not the floating :ubuntu tag — that one rolls to interim
+  // releases some upstream Features do not support.
+  "image": "mcr.microsoft.com/devcontainers/base:ubuntu-24.04",
+
+  "workspaceMount": "source=${localWorkspaceFolder},target=/workspaces/${localWorkspaceFolderBasename},type=bind,consistency=cached",
+  "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
+
+  // Every Feature is version-pinned and captured in devcontainer-lock.json.
+  // Tools with no Feature (lefthook, actionlint) live in
+  // .devcontainer/mise.toml; Claude Code self-updates via its own installer.
+  //
+  // Node is pinned to 24 because the test suite is TypeScript run directly by
+  // Node's type stripping — there is no build step, and no version below 23.6
+  // can execute it.
+  "features": {
+    "ghcr.io/devcontainers/features/common-utils:2": {
+      "installZsh": true,
+      "configureZshAsDefaultShell": true,
+      "installOhMyZsh": true,
+      "installOhMyZshConfig": true,
+      "upgradePackages": true
+    },
+    "ghcr.io/devcontainers/features/git:1": {},
+    "ghcr.io/devcontainers/features/github-cli:1": { "version": "2.96.0" },
+    "ghcr.io/devcontainers/features/node:2": { "version": "24.18.0" },
+    "ghcr.io/devcontainers-extra/features/go-task:1": { "version": "3.52.0" },
+    "ghcr.io/lukewiwa/features/shellcheck:0": { "version": "v0.11.0" }
+  },
+
+  "containerUser": "vscode",
+  "remoteUser": "vscode",
+
+  "init": true,
+  "shutdownAction": "stopContainer",
+
+  // Loaded at `docker run` time so shells and `task` runs see the same values.
+  "runArgs": ["--env-file", "${localWorkspaceFolder}/.devcontainer/.env"],
+
+  // Named volumes, so a `gh auth login` and a Claude sign-in survive a rebuild.
+  "mounts": [
+    "source=musher-catalog-${devcontainerId}-gh-config,target=/home/vscode/.config/gh,type=volume",
+    "source=musher-catalog-${devcontainerId}-claude-config,target=/home/vscode/.claude,type=volume"
+  ],
+
+  "containerEnv": {
+    // mise's manifest lives under .devcontainer/, not the repo root.
+    "MISE_GLOBAL_CONFIG_FILE": "${containerWorkspaceFolder}/.devcontainer/mise.toml",
+    "MISE_TRUSTED_CONFIG_PATHS": "${containerWorkspaceFolder}",
+
+    "XDG_CACHE_HOME": "/home/vscode/.cache",
+    "NPM_CONFIG_CACHE": "/home/vscode/.cache/npm",
+
+    "MUSHER_INSTALL_CLAUDE": "1"
+  },
+
+  "remoteEnv": {
+    "PATH": "/home/vscode/.local/share/mise/shims:/home/vscode/.local/bin:${containerEnv:PATH}"
+  },
+
+  // Host-side: creates .devcontainer/.env from the template and strips CRLF so
+  // --env-file above has a valid target on a fresh clone. Run through `bash -c`
+  // so CRLF in the script files cannot break the strip-and-run bootstrap.
+  "initializeCommand": [
+    "bash",
+    "-c",
+    "find .devcontainer/scripts -name '*.sh' -exec sed -i 's/\\r$//' {} + 2>/dev/null; bash .devcontainer/scripts/initialize.sh"
+  ],
+
+  "waitFor": "postCreateCommand",
+  "postCreateCommand": {
+    "fix-crlf": "find .devcontainer/scripts -type f -name '*.sh' -exec sed -i 's/\\r$//' {} +",
+    "setup": ["bash", ".devcontainer/scripts/post-create.sh"]
+  },
+  "postStartCommand": ["bash", ".devcontainer/scripts/startup.sh"],
+
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        // VS Code does not read .editorconfig on its own, and .editorconfig is
+        // this repository's single source for whitespace and line endings.
+        "editorconfig.editorconfig",
+        "redhat.vscode-yaml",
+        "timonwong.shellcheck",
+        "eamodio.gitlens",
+        "bierner.markdown-mermaid",
+        "github.copilot",
+        "github.copilot-chat"
+      ],
+      "settings": {
+        "editor.formatOnSave": true,
+        "editor.rulers": [80, 100],
+
+        // Whitespace, line endings and encoding are NOT set here. .editorconfig
+        // states them once, for every editor, and the EditorConfig extension
+        // above applies them inside the container. Restating them made VS Code
+        // trim trailing whitespace from Markdown, where two trailing spaces are
+        // a hard line break and .editorconfig deliberately preserves them.
+
+        "terminal.integrated.defaultProfile.linux": "zsh",
+        "terminal.integrated.profiles.linux": {
+          "bash": { "path": "/bin/bash" },
+          "zsh": { "path": "/bin/zsh" }
+        },
+
+        // Authoring aid: red-squiggle an item in the editor against the same
+        // schemas `npm test` validates it with — the tip of the public
+        // musher-dev/spec repository. One source here and in the test suite, or
+        // the editor and the build disagree about what an item has to satisfy.
+        "yaml.schemas": {
+          "https://raw.githubusercontent.com/musher-dev/spec/main/specifications/listing/v1/schemas/dist/listing.schema.json": "items/*/listing.yaml",
+          "https://raw.githubusercontent.com/musher-dev/spec/main/specifications/blueprint/v1/schemas/dist/blueprint.schema.json": "items/*/blueprint.yaml",
+          "https://raw.githubusercontent.com/musher-dev/spec/main/specifications/component/v1/schemas/dist/component.schema.json": "items/*/components/*.yaml"
+        },
+
+        // The corpus is authored YAML, not generated. Keep the formatter off it
+        // so a drive-by save does not reflow a document nobody edited.
+        "[yaml]": { "editor.formatOnSave": false }
+      }
+    }
+  }
+}
