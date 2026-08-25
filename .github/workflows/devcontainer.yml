@@ -1,0 +1,66 @@
+# Dev container integrity.
+#
+# The container is the thing nobody can validate on their own machine without
+# building it, so this workflow is where its three failure modes are caught: a
+# broken script, a lockfile that has drifted from devcontainer.json, and an
+# .env template that no longer matches what the tasks read.
+name: Dev Container
+
+on:
+  push:
+    branches: [main]
+    paths: ['.devcontainer/**', 'Taskfile.yml', '.github/workflows/devcontainer.yml']
+  pull_request:
+    paths: ['.devcontainer/**', 'Taskfile.yml', '.github/workflows/devcontainer.yml']
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: devcontainer-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  shellcheck:
+    name: ShellCheck
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ludeeus/action-shellcheck@master
+        env:
+          # SCRIPTDIR resolves `# shellcheck source=` from each script's own
+          # directory. Without it every sourced library is SC1091 noise.
+          SHELLCHECK_OPTS: -x -S style --source-path=SCRIPTDIR
+        with:
+          scandir: .devcontainer/scripts
+
+  lockfile:
+    name: Feature Lockfile
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      # --frozen-lockfile fails if devcontainer-lock.json is missing or if its
+      # resolved Feature digests drift from devcontainer.json. Building is also
+      # the only real proof the Feature set still resolves together.
+      - name: Build the container and enforce devcontainer-lock.json is current
+        run: npx -y @devcontainers/cli build --workspace-folder . --frozen-lockfile
+
+  env-check:
+    name: Env Template Sync
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      # No repo-token. Nothing in this repository authenticates to GitHub: the
+      # spec is public, and this workflow is path-filtered so it runs rarely
+      # enough that the unauthenticated release-download limit is not a concern.
+      - uses: go-task/setup-task@v2
+        with:
+          version: 3.52.0
+      - name: Verify .env and .env.example stay in sync
+        run: |
+          cp .devcontainer/.env.example .devcontainer/.env
+          task env:check
