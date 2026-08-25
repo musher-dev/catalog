@@ -89,8 +89,8 @@ spec:
     outputs: {}
 ```
 
-**`blueprint.yaml`** — references the component file by stem and binds compute
-per node:
+**`blueprint.yaml`** — references the component file by repo-local path and
+binds compute per node:
 
 ```yaml
 specVersion: v1
@@ -99,11 +99,15 @@ metadata: { slug: my-app, version: 1 }
 spec:
   components:
     web:                        # graph-local node name (map order = graph order)
-      component: my-app         # components/my-app.yaml
-      size: general.standard.small   # binding Compute Profile
+      component: ./components/my-app.yaml   # must begin ./ and end .yaml
+      size: general.standard.small          # binding Compute Profile
       connections: {}           # inbound wires, keyed by consumer input
   parameters: {}                # empty ⇒ derived from merged USER inputs
 ```
+
+The `./` prefix is load-bearing, not decorative: a bare name is not
+distinguishable from the UUID a published reference uses, so without it no
+validator could tell which resolver the reference wanted.
 
 **`listing.yaml`**
 
@@ -131,18 +135,35 @@ spec:
 
 A multi-service item adds more entries under `spec.components` — unique node
 names, one `components/<name>.yaml` per reference — and wires `connections`
-between declared component outputs and inputs. A `COMPONENT`-kind listing still
+between declared component outputs and inputs. A wire's two ends must agree on
+`schema.type`, and on `schema.semanticType` wherever the consuming input names
+one. A `COMPONENT`-kind listing still
 authors a trivial single-node `blueprint.yaml` wrapping its one component.
 
 ## Validation
 
-This repository runs **no validation of its own**. The Musher platform is the
-sole validator: item contracts are enforced when the platform syncs this repo,
-and a malformed item is rejected there.
+```sh
+npm install
+npm test
+```
 
-The practical consequence is that a mistake here is not caught at commit time.
-Review carefully, and keep changes to one item per pull request so a rejection
-is easy to attribute.
+Every item is validated against the schemas at the tip of the public
+[`musher-dev/spec`](https://github.com/musher-dev/spec) repository, **fetched at
+run time rather than vendored** — so what the corpus is judged against is the
+contract as it currently stands, not a copy of it that has quietly fallen
+behind. The repository is public, so no credential is involved. The suite
+covers the three phases a client can decide offline: the YAML profile, the JSON
+Schema bundles, and the semantic rules that bind an item's documents to each
+other and to its directory. See [`tests/README.md`](tests/README.md).
+
+The Musher platform remains the **sole authority**. These tests are the same
+contracts applied early, not a second one: they run the phases that need no
+network, and they cannot see the `capability` phase at all — whether a Compute
+Profile is actually offered, whether a published component exists, whether a
+version is monotonic. An item that passes here can still be rejected at sync.
+
+Keep changes to one item per pull request, so a rejection that only the platform
+can raise is easy to attribute.
 
 ## Contributing
 
