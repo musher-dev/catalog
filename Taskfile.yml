@@ -1,0 +1,141 @@
+# Musher Catalog Taskfile
+# Usage: task [task-name]
+# List tasks: task --list
+#
+# This file stays at the repo root because Task only discovers `Taskfile.*`
+# there: `--taskfile` would work but would break bare `task <name>`.
+#
+# musher-dev/spec splits its tasks across taskfiles/. This repository has one
+# build surface — validate the corpus — so splitting would cost a reader two
+# files to answer one question. Split it when there is a second surface.
+#
+# The tasks wrap npm scripts rather than replacing them. `npm test` stays the
+# thing CI runs and the thing that works in a bare checkout with no Task
+# installed; `task` is the ergonomics layer the dev container advertises.
+
+version: '3'
+
+vars:
+  SHELL_SOURCES: .devcontainer/scripts
+  ENV_FILE: .devcontainer/.env
+  ENV_EXAMPLE: .devcontainer/.env.example
+
+tasks:
+  default:
+    desc: List available tasks
+    cmds:
+      - task --list
+    silent: true
+
+  # ===========================================================================
+  # Entry points
+  # ===========================================================================
+
+  setup:
+    desc: Install dependencies and git hooks
+    cmds:
+      - task: setup:deps
+      - task: setup:hooks
+
+  check:
+    desc: Run every check CI runs
+    cmds:
+      - task: check:types
+      - task: check:catalog
+      - task: check:shell
+      - task: check:workflow
+
+  # ===========================================================================
+  # Validation
+  # ===========================================================================
+
+  test:
+    desc: Validate the catalog corpus against musher-dev/spec
+    aliases: [check:catalog]
+    cmds:
+      - npm test
+
+  test:item:
+    desc: Validate one item — task test:item -- redis
+    summary: |
+      Runs only the suites for a single item.
+
+      Every per-item suite is named `items/<slug>`, so the runner's name filter
+      is anchored: an unanchored `redis` would also pull in a future
+      `redis-stack`.
+
+      Usage: task test:item -- <slug>
+    cmds:
+      - >-
+        node --disable-warning=ExperimentalWarning --test
+        --test-name-pattern='^items/{{.CLI_ARGS}}$'
+        "tests/**/*.test.ts"
+
+  typecheck:
+    desc: Typecheck the test suite
+    aliases: [check:types]
+    cmds:
+      - npm run typecheck
+
+  # ===========================================================================
+  # Linting
+  #
+  # Both linters are pinned in .devcontainer/mise.toml (actionlint) or as a
+  # devcontainer Feature (shellcheck), so a container has them and a bare
+  # checkout may not. Each skips with a note rather than failing the run.
+  # ===========================================================================
+
+  check:shell:
+    desc: Lint the dev container scripts
+    status:
+      - '! command -v shellcheck'
+    cmds:
+      # -P makes shellcheck resolve `# shellcheck source=` directives from the
+      # script directories rather than from wherever it was invoked, which is
+      # the whole difference between following a sourced library and reporting
+      # SC1091 against every one of them.
+      - >-
+        shellcheck -x -S style
+        -P {{.SHELL_SOURCES}}:{{.SHELL_SOURCES}}/lib
+        {{.SHELL_SOURCES}}/*.sh {{.SHELL_SOURCES}}/lib/*.sh
+
+  check:workflow:
+    desc: Lint the GitHub Actions workflows
+    status:
+      - '! command -v actionlint'
+    cmds:
+      - actionlint
+
+  # ===========================================================================
+  # Setup internals
+  # ===========================================================================
+
+  setup:deps:
+    desc: Install npm dependencies from the lockfile
+    cmds:
+      # `ci` rather than `install`: the lockfile decides. An environment that
+      # silently resolved different versions than CI reproduces nothing.
+      - npm ci
+
+  setup:hooks:
+    desc: Install lefthook git hooks
+    status:
+      - '! command -v lefthook'
+    cmds:
+      - lefthook install
+
+  # ===========================================================================
+  # Dev container environment
+  # ===========================================================================
+
+  env:check:
+    desc: Report keys in .env.example missing from your .env
+    cmds:
+      - bash {{.SHELL_SOURCES}}/env-check.sh
+
+  env:reset:
+    desc: Recreate .devcontainer/.env from the template
+    prompt: This overwrites {{.ENV_FILE}}. Continue?
+    cmds:
+      - cp {{.ENV_EXAMPLE}} {{.ENV_FILE}}
+      - 'echo "env: {{.ENV_FILE}} recreated from {{.ENV_EXAMPLE}}"'

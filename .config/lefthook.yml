@@ -1,0 +1,56 @@
+# Git hooks. Lefthook discovers this file itself, by searching
+# `lefthook.*` -> `.lefthook.*` -> `.config/lefthook.*` and stopping at the
+# first match — which is why it is the one config here not passed by path, and
+# why a stray lefthook.yml at the repo root would silently shadow it.
+#
+# Keep min_version in step with .devcontainer/mise.toml.
+min_version: 2.1.10
+
+# The split between the two hooks is about the network.
+#
+# `npm test` fetches the spec bundles from musher-dev/spec on every run — that
+# is the point of it — so it cannot be a pre-commit job: a commit on a train
+# would fail for a reason that has nothing to do with the commit. Pre-commit
+# holds the checks that are local and fast; pre-push holds the one that is
+# neither.
+pre-commit:
+  parallel: true
+  jobs:
+    - name: types
+      glob: 'tests/**/*.ts'
+      run: task typecheck
+
+    - name: shell
+      glob: '.devcontainer/**/*.sh'
+      run: task check:shell
+
+    - name: workflow
+      glob: '.github/workflows/*.{yml,yaml}'
+      run: task check:workflow
+
+pre-push:
+  jobs:
+    - name: validate
+      run: task test
+
+commit-msg:
+  jobs:
+    - name: conventional-commits
+      run: |
+        sh -ceu '
+        first_line=$(head -n 1 "$1")
+        case "$first_line" in
+          Merge*) exit 0 ;;
+        esac
+        pattern="^(feat|fix|chore|docs|style|refactor|perf|test|ci|build|revert)(\\(.+\\))?(!)?: .+"
+        if ! printf "%s\n" "$first_line" | grep -Eq "$pattern"; then
+          printf "%s\n" "ERROR: Commit message does not follow Conventional Commits format." >&2
+          printf "%s\n" "" >&2
+          printf "%s\n" "  Expected: <type>(<scope>): <description>" >&2
+          printf "  Got:      %s\n" "$first_line" >&2
+          printf "%s\n" "" >&2
+          printf "%s\n" "  Types:  feat, fix, chore, docs, style, refactor, perf, test, ci, build, revert" >&2
+          printf "%s\n" "  Scopes: items, tests, devcontainer, ci, docs, repo, deps" >&2
+          exit 1
+        fi
+        ' -- {1}
