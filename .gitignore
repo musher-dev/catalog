@@ -1,0 +1,18 @@
+# Tooling
+node_modules/
+*.tsbuildinfo
+
+# Dev container local state
+.devcontainer/.env
+
+# Personal lefthook overrides, auto-merged beside .config/lefthook.yml.
+/.config/lefthook-local.yml
+
+# Task runner cache
+.task/
+
+# Editor / OS
+.DS_Store
+Thumbs.db
+.idea/
+*.swp

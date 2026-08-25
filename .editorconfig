@@ -1,0 +1,28 @@
+# Editor behaviour, for every editor.
+#
+# This is the single source for whitespace, line endings and encoding. The
+# devcontainer deliberately does NOT restate these in
+# customizations.vscode.settings: two statements of the same rule drift, and
+# these two already had — VS Code trimmed trailing whitespace from Markdown
+# while the rule below preserves it.
+#
+# It stays at the repo root because EditorConfig walks up from the file being
+# edited and accepts no config-path flag.
+root = true
+
+[*]
+charset = utf-8
+end_of_line = lf
+insert_final_newline = true
+trim_trailing_whitespace = true
+indent_style = space
+indent_size = 2
+
+# Two trailing spaces are a hard line break in Markdown, so trimming them
+# silently changes how the prose renders.
+[*.md]
+trim_trailing_whitespace = false
+
+# Tabs are syntax in a Makefile, not indentation.
+[Makefile]
+indent_style = tab
