@@ -10,3 +10,12 @@
 # adding one.
 
 *   @justinmerrell
+
+# Tooling, workflows, catalog items and the test suite. The last matching
+# pattern wins, so these override the catch-all above rather than adding to it.
+
+/.config/         @amiralis1365
+/.devcontainer/   @amiralis1365
+/.github/         @amiralis1365
+/items/           @amiralis1365
+/tests/           @amiralis1365
