@@ -24,7 +24,7 @@ spec:
       providers behind one gateway.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.8.1`
+    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.7.1`
     with the Control UI on port 18789 behind the platform's HTTPS edge.
     Access is gated by an auto-generated gateway token — copy it from the
     deployment's Configuration tab and enter it on your first visit, then
@@ -35,15 +35,6 @@ spec:
     at `/home/node/.openclaw`, 1 GiB at `/home/node/.config/openclaw`)
     keep configuration, session history, and the OAuth-token encryption
     key across restarts.
-
-    Tools installed into the container home itself rather than into
-    OpenClaw's state directory — a Claude Code CLI login, a browser
-    downloaded on first use — fall outside those volumes and are
-    reinstalled after a redeploy.
-
-    This release consolidates memory and learns skills in the background
-    by default, so the deployment can call your model provider even when
-    no one is chatting. Both are switchable off under Settings.
 
     Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
     the interactive CLI and is not available in this deployment yet.
