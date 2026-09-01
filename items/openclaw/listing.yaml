@@ -36,6 +36,22 @@ spec:
     keep configuration, session history, and the OAuth-token encryption
     key across restarts.
 
+    ## Access and security
+    Every connection must present the gateway token, so the Control UI is
+    never open to an unauthenticated visitor.
+
+    Behind that, OpenClaw adds a one-time device-pairing approval for each
+    new browser, normally run as `openclaw devices approve` on the Gateway
+    host. A one-click deployment gives you no host shell, so the container
+    runs that approval itself and pairing completes without your involvement.
+    Each browser still gets its own device identity, which you can revoke
+    individually with `openclaw devices revoke`.
+
+    The practical consequence is that the gateway token is what guards an
+    admin surface that can run tools and shell commands: anyone holding it
+    can pair a browser. Treat the token as a secret and rotate it from the
+    Configuration tab if it leaks.
+
     Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
     the interactive CLI and is not available in this deployment yet.
   category: AI_ML

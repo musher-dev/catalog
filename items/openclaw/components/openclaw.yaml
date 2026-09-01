@@ -28,12 +28,58 @@ spec:
     # the config lives on a persistent volume, so a guard would pin the very first
     # boot's origin forever and leave a re-deployed app permanently unreachable.
     # `config set` is declarative, so re-applying is a no-op.
+    #
+    # GATEWAY AUTH IS UNTOUCHED. `gateway.auth.mode` stays at its default
+    # (`token`), so every Control UI connection still has to present
+    # OPENCLAW_GATEWAY_TOKEN or it is rejected at the WebSocket handshake. The
+    # loop below deals with a SECOND, separate gate that runs only after that
+    # token check has already passed.
+    #
+    # That second gate is device pairing, and it deadlocks a one-click
+    # deployment: a new browser's pairing request can only be approved by an
+    # already-paired admin session, and on a fresh deployment nothing is ever
+    # paired. Left alone, the Control UI is permanently unreachable, reporting
+    # "device pairing required (requestId: ...)" and naming a CLI that a catalog
+    # user has no host shell to run.
+    #
+    # So the container approves them itself. Upstream anticipates exactly this:
+    # `shouldPreserveLocalCliSharedAuthScopes` in the 2026.7.1 bundle
+    # (dist/message-handler-*.js) carries a dedicated `cli_container_local`
+    # locality that preserves operator scopes for a token-authenticated CLI
+    # running inside the gateway's own container. `devices approve` therefore
+    # works over loopback with no pairing of its own.
+    #
+    # Chosen over `gateway.controlUi.dangerouslyDisableDeviceAuth`, which also
+    # clears the gate but does so by discarding device identity altogether. This
+    # keeps it: every browser still binds a device keypair and gets its own
+    # revocable device token, `openclaw security audit` stays clean, and the
+    # mechanism survives 2026.8.x, where that key is retired and inert.
+    #
+    # It does not widen WHO reaches the gate — a pairing request can only be
+    # created by a caller that already passed token auth — but it does mean a
+    # leaked token can enrol a browser without a human approving it. The token
+    # is the boundary; rotate it if it leaks.
+    #
+    # Two greps rather than a JSON parser because the image ships no jq, and a
+    # node -e script cannot be quoted inside this scalar. `requestId` appears
+    # only on pending entries (paired devices carry `deviceId`), and the second
+    # grep takes the UUID out of the match. Failures are swallowed on purpose:
+    # for the first few seconds the gateway is not listening yet.
     command: >-
       sh -c 'set -e;
       node /app/dist/index.js config set --batch-json
       "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
       {\"path\":\"gateway.bind\",\"value\":\"lan\"},
       {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
+      (while :; do
+      node /app/dist/index.js devices list --json 2>/dev/null
+      | grep -o "\"requestId\":[[:space:]]*\"[^\"]*\""
+      | grep -o "[0-9a-f-]\{36\}"
+      | while read -r id; do
+      node /app/dist/index.js devices approve "$id" >/dev/null 2>&1 || true;
+      done || true;
+      sleep 5;
+      done) &
       exec node openclaw.mjs gateway'
     endpoints:
       primary:
