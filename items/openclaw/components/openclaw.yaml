@@ -8,12 +8,12 @@ spec:
     source:
       type: IMAGE
       # Latest stable calendar release (beta tags are not pinned for the catalog).
-      ref: ghcr.io/openclaw/openclaw:2026.8.1
+      ref: ghcr.io/openclaw/openclaw:2026.7.1
     # Converge config through OpenClaw's own `config set` CLI, then exec the
     # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
     #
     # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
-    # CONFIG-FILE-ONLY — re-verified against 2026.8.1, whose bundle declares no
+    # CONFIG-FILE-ONLY — verified against 2026.7.1, whose bundle declares no
     # matching env var — and without this deployment's public origin in it the
     # gateway rejects the browser with "Browser origin not allowed".
     #
@@ -22,25 +22,19 @@ spec:
     # normalized document carrying the `meta.lastTouchedVersion` stamp the gateway
     # expects, whereas a hand-rolled file is rejected as clobbered config
     # ("existing config is missing gateway.mode"). Verified live: after
-    # `config set`, the origin survives gateway startup and /startupz returns 200.
+    # `config set`, the origin survives gateway startup and /readyz returns 200.
     #
     # Run unconditionally on every boot rather than behind a first-boot guard —
     # the config lives on a persistent volume, so a guard would pin the very first
     # boot's origin forever and leave a re-deployed app permanently unreachable.
     # `config set` is declarative, so re-applying is a no-op.
-    #
-    # `--bind lan --port 18789` repeats on argv what `config set` just wrote, the
-    # way upstream's own docker-compose.yml does. `gateway.bind` DEFAULTS TO
-    # `loopback`, so the listener is only reachable through the platform edge
-    # because something sets it; passing it here means that no longer depends
-    # solely on the persisted config being intact.
     command: >-
       sh -c 'set -e;
       node /app/dist/index.js config set --batch-json
       "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
       {\"path\":\"gateway.bind\",\"value\":\"lan\"},
       {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
-      exec node openclaw.mjs gateway --bind lan --port 18789'
+      exec node openclaw.mjs gateway'
     endpoints:
       primary:
         containerPort: 18789
@@ -48,64 +42,27 @@ spec:
         visibility: PUBLIC
     health:
       readiness:
-        # /startupz reports "startup finished, not draining" WITHOUT consulting
-        # channel health, which is what upstream designates for orchestrator
-        # traffic admission. /readyz additionally runs deep per-channel checks,
-        # so one lapsed Telegram or Discord credential would 503 and pull an
-        # otherwise healthy Control UI out of service (docs.openclaw.ai
-        # gateway/health#http-probes).
-        path: /startupz
+        # /readyz is the machine-readable gate; /healthz can return the Control UI
+        # HTML shell with a 200, which would falsely read as ready.
+        path: /readyz
         endpoint: primary
-        # Node boot, SQLite migrations, and (since 2026.8.1) startup-safe config
-        # migrations all run before the gate opens on first start.
+        # Node boot + SQLite migrations run before the gate opens on first start.
         initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
       liveness:
-        # /healthz is the dedicated liveness probe: "the HTTP server is live",
-        # answering {"ok":true,"status":"live"}. It is not the Control UI shell.
         path: /healthz
         endpoint: primary
         periodSeconds: 30
         timeoutSeconds: 5
         failureThreshold: 3
     envVars:
-      # Container-side paths, pinned the way upstream's docker-compose.yml pins
-      # them. They already resolve correctly here (HOME comes from the image's
-      # `node` passwd entry and no host .env is imported), but stating them makes
-      # the mountPath values below and the paths the runtime actually uses the
-      # same thing by construction rather than by inference.
-      - key: HOME
-        value:
-          type: LITERAL
-          value: /home/node
-      - key: OPENCLAW_HOME
-        value:
-          type: LITERAL
-          value: /home/node
-      - key: OPENCLAW_STATE_DIR
-        value:
-          type: LITERAL
-          value: /home/node/.openclaw
-      - key: OPENCLAW_CONFIG_DIR
-        value:
-          type: LITERAL
-          value: /home/node/.openclaw
-      - key: OPENCLAW_CONFIG_PATH
-        value:
-          type: LITERAL
-          value: /home/node/.openclaw/openclaw.json
-      - key: OPENCLAW_WORKSPACE_DIR
-        value:
-          type: LITERAL
-          value: /home/node/.openclaw/workspace
-      # The in-container listener port, matching containerPort above. This is
-      # also the port in-container CLI invocations dial.
-      - key: OPENCLAW_GATEWAY_PORT
-        value:
-          type: LITERAL
-          value: '18789'
+      # OPENCLAW_GATEWAY_BIND is deliberately left at its default (routable) bind:
+      # the "loopback" guidance assumes a reverse proxy sharing the container's
+      # network namespace, but here the platform edge is a separate hop, so a
+      # loopback bind would make containerPort 18789 unreachable.
+      #
       # No mDNS advertising inside a container network (also auto-disabled when
       # the runtime detects a container; kept explicit for intent).
       - key: OPENCLAW_DISABLE_BONJOUR
@@ -116,12 +73,6 @@ spec:
       # Core state: openclaw.json, SQLite session DBs, installed plugins, .env, and
       # the agent workspace (default /home/node/.openclaw/workspace lives inside
       # this directory, so a single claim covers config + workspace).
-      #
-      # Deliberately NOT all of /home/node (upstream's OPENCLAW_HOME_VOLUME): a
-      # Claude Code CLI login under ~/.local and ~/.claude, and a first-run
-      # Playwright Chromium under ~/.cache, therefore do not survive a redeploy.
-      # Called out in the listing; widening this claim would nest auth-secrets
-      # below inside it and belongs in its own change.
       config:
         sizeGib: 10
         mountPath: /home/node/.openclaw
