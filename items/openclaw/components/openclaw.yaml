@@ -60,11 +60,25 @@ spec:
     # leaked token can enrol a browser without a human approving it. The token
     # is the boundary; rotate it if it leaks.
     #
-    # Two greps rather than a JSON parser because the image ships no jq, and a
-    # node -e script cannot be quoted inside this scalar. `requestId` appears
-    # only on pending entries (paired devices carry `deviceId`), and the second
-    # grep takes the UUID out of the match. Failures are swallowed on purpose:
-    # for the first few seconds the gateway is not listening yet.
+    # Watch the persisted pending-pairing file rather than polling `devices
+    # list`. That call is a cold Node start against a large CLI bundle, and at
+    # two starts per five-second tick it put 10-15 seconds of apparent failure
+    # in front of a user's first connect. Reading the file costs two greps,
+    # spawns no Node process while nothing is pending, and leaves the wait at
+    # roughly one CLI start.
+    #
+    # `$HOME/.openclaw/devices/pending.json` mirrors how the runtime resolves
+    # that path (OPENCLAW_STATE_DIR, else OPENCLAW_HOME/HOME joined with
+    # `.openclaw`). This item sets no state-dir override and mounts the config
+    # volume at exactly that path, so the two agree by construction. Approval
+    # moves the entry into paired.json, so a request is approved once and the
+    # loop then finds nothing.
+    #
+    # Two greps rather than a JSON parser because the image ships no jq and a
+    # node -e script cannot be quoted inside this scalar. Every value persisted
+    # in that file carries `requestId`, and the second grep lifts the UUID out
+    # of the match. Failures are swallowed: the file does not exist at all until
+    # a browser first tries to pair.
     command: >-
       sh -c 'set -e;
       node /app/dist/index.js config set --batch-json
@@ -72,13 +86,12 @@ spec:
       {\"path\":\"gateway.bind\",\"value\":\"lan\"},
       {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
       (while :; do
-      node /app/dist/index.js devices list --json 2>/dev/null
-      | grep -o "\"requestId\":[[:space:]]*\"[^\"]*\""
+      grep -o "\"requestId\":[[:space:]]*\"[^\"]*\"" "$HOME/.openclaw/devices/pending.json" 2>/dev/null
       | grep -o "[0-9a-f-]\{36\}"
       | while read -r id; do
       node /app/dist/index.js devices approve "$id" >/dev/null 2>&1 || true;
       done || true;
-      sleep 5;
+      sleep 1;
       done) &
       exec node openclaw.mjs gateway'
     endpoints:
