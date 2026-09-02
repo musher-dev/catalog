@@ -7,7 +7,24 @@ spec:
     kind: SERVICE
     source:
       type: IMAGE
-      # Latest stable calendar release (beta tags are not pinned for the catalog).
+      # PINNED, and the pin is load-bearing rather than merely current: 2026.7.1
+      # is the last stable release in which
+      # `gateway.controlUi.dangerouslyDisableDeviceAuth` still works, and this
+      # item depends on it to be reachable at all (see the block above `command`).
+      #
+      # Verified by reading `shouldSkipControlUiPairing` in each published
+      # bundle: 2026.7.1 ends `return role === "operator" && policy.allowBypass`,
+      # while 2026.8.1 and 2026.8.2 both end `return null`, having dropped that
+      # branch. Upstream calls the key "a retired break-glass input, now fully
+      # inert" and has `doctor --fix` delete it. 2026.7.2 exists only as betas,
+      # which this catalog does not pin.
+      #
+      # So bumping this tag re-breaks the deployment silently. Anything past
+      # 2026.7.1 has to pair devices, which means either re-adding the
+      # in-container `devices approve` watcher this item used to carry, or
+      # `gateway.auth.trustedProxy.deviceAutoApprove` (2026.8.x only), which
+      # needs `gateway.auth.mode: "trusted-proxy"` and therefore a platform edge
+      # that injects an identity header. Settle that before changing the tag.
       ref: ghcr.io/openclaw/openclaw:2026.7.1
     # Converge config through OpenClaw's own `config set` CLI, then exec the
     # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
@@ -29,70 +46,49 @@ spec:
     # boot's origin forever and leave a re-deployed app permanently unreachable.
     # `config set` is declarative, so re-applying is a no-op.
     #
-    # GATEWAY AUTH IS UNTOUCHED. `gateway.auth.mode` stays at its default
-    # (`token`), so every Control UI connection still has to present
-    # OPENCLAW_GATEWAY_TOKEN or it is rejected at the WebSocket handshake. The
-    # loop below deals with a SECOND, separate gate that runs only after that
-    # token check has already passed.
+    # GATEWAY AUTH IS UNTOUCHED, despite the name of the key below.
+    # `gateway.auth.mode` stays at its default (`token`), so every Control UI
+    # connection still has to present OPENCLAW_GATEWAY_TOKEN. Verified by
+    # reading the connect path in the 2026.7.1 bundle
+    # (dist/message-handler-*.js), where three gates run in this order:
     #
-    # That second gate is device pairing, and it deadlocks a one-click
-    # deployment: a new browser's pairing request can only be approved by an
-    # already-paired admin session, and on a fresh deployment nothing is ever
-    # paired. Left alone, the Control UI is permanently unreachable, reporting
-    # "device pairing required (requestId: ...)" and naming a CLI that a catalog
-    # user has no host shell to run.
+    #   1. handleMissingDeviceIdentity()  — device identity; allowBypass admits
+    #   2. `if (!authOk) { rejectUnauthorized(authResult); return; }`
+    #   3. shouldSkipControlUiPairing()   — pairing; allowBypass skips
     #
-    # So the container approves them itself. Upstream anticipates exactly this:
-    # `shouldPreserveLocalCliSharedAuthScopes` in the 2026.7.1 bundle
-    # (dist/message-handler-*.js) carries a dedicated `cli_container_local`
-    # locality that preserves operator scopes for a token-authenticated CLI
-    # running inside the gateway's own container. `devices approve` therefore
-    # works over loopback with no pairing of its own.
+    # Gate 2 is unconditional — no isControlUi test, no allowBypass exemption —
+    # and it sits BETWEEN the two gates the key affects. So the key removes
+    # device identity and pairing while the token check stays fully enforced.
     #
-    # Chosen over `gateway.controlUi.dangerouslyDisableDeviceAuth`, which also
-    # clears the gate but does so by discarding device identity altogether. This
-    # keeps it: every browser still binds a device keypair and gets its own
-    # revocable device token, `openclaw security audit` stays clean, and the
-    # mechanism survives 2026.8.x, where that key is retired and inert.
+    # That is the intended posture for this item: anyone holding the token gets
+    # in from any browser, and no device is enrolled or allowlisted. Device
+    # pairing is a second gate that a valid token does not satisfy, it can only
+    # be cleared by an already-paired admin session, and on a fresh deployment
+    # nothing is ever paired — so left alone the Control UI is permanently
+    # unreachable, reporting "device pairing required (requestId: ...)" and
+    # naming a CLI that a catalog user has no host shell to run. Upstream was
+    # asked to let a valid token bypass pairing and declined (openclaw#29908,
+    # closed as not planned).
     #
-    # It does not widen WHO reaches the gate — a pairing request can only be
-    # created by a caller that already passed token auth — but it does mean a
-    # leaked token can enrol a browser without a human approving it. The token
-    # is the boundary; rotate it if it leaks.
+    # The alternative, carried here previously, was an in-container watcher that
+    # approved pending requests via `devices approve`. It worked and kept device
+    # identity, but it made a background process load-bearing for reachability
+    # and put a cold CLI start in front of every first connect. Traded away
+    # deliberately for a declarative key and an instant first load.
     #
-    # Watch the persisted pending-pairing file rather than polling `devices
-    # list`. That call is a cold Node start against a large CLI bundle, and at
-    # two starts per five-second tick it put 10-15 seconds of apparent failure
-    # in front of a user's first connect. Reading the file costs two greps,
-    # spawns no Node process while nothing is pending, and leaves the wait at
-    # roughly one CLI start.
-    #
-    # `$HOME/.openclaw/devices/pending.json` mirrors how the runtime resolves
-    # that path (OPENCLAW_STATE_DIR, else OPENCLAW_HOME/HOME joined with
-    # `.openclaw`). This item sets no state-dir override and mounts the config
-    # volume at exactly that path, so the two agree by construction. Approval
-    # moves the entry into paired.json, so a request is approved once and the
-    # loop then finds nothing.
-    #
-    # Two greps rather than a JSON parser because the image ships no jq and a
-    # node -e script cannot be quoted inside this scalar. Every value persisted
-    # in that file carries `requestId`, and the second grep lifts the UUID out
-    # of the match. Failures are swallowed: the file does not exist at all until
-    # a browser first tries to pair.
+    # What it costs: with no device identity there is no second factor and no
+    # per-device revocation, so a leaked token is sufficient on its own, and
+    # browsers re-present the token each session instead of holding a stored
+    # device token. `openclaw security audit` reports
+    # `gateway.control_ui.device_auth_disabled` as critical — expected here, not
+    # a regression. The token is the whole boundary; rotate it if it leaks.
     command: >-
       sh -c 'set -e;
       node /app/dist/index.js config set --batch-json
       "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
       {\"path\":\"gateway.bind\",\"value\":\"lan\"},
-      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
-      (while :; do
-      grep -o "\"requestId\":[[:space:]]*\"[^\"]*\"" "$HOME/.openclaw/devices/pending.json" 2>/dev/null
-      | grep -o "[0-9a-f-]\{36\}"
-      | while read -r id; do
-      node /app/dist/index.js devices approve "$id" >/dev/null 2>&1 || true;
-      done || true;
-      sleep 1;
-      done) &
+      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
+      {\"path\":\"gateway.controlUi.dangerouslyDisableDeviceAuth\",\"value\":true}]";
       exec node openclaw.mjs gateway'
     endpoints:
       primary:

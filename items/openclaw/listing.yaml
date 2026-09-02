@@ -38,18 +38,19 @@ spec:
 
     ## Access and security
     Every connection must present the gateway token, so the Control UI is
-    never open to an unauthenticated visitor.
+    never open to an unauthenticated visitor. Any browser holding the token
+    can connect — there is no per-device approval step to complete first.
 
-    Behind that, OpenClaw adds a one-time device-pairing approval for each
-    new browser, normally run as `openclaw devices approve` on the Gateway
-    host. A one-click deployment gives you no host shell, so the container
-    runs that approval itself and pairing completes without your involvement.
-    Each browser still gets its own device identity, which you can revoke
-    individually with `openclaw devices revoke`.
+    That differs from a default OpenClaw install, which also requires each
+    new browser to be approved once by running `openclaw devices approve` on
+    the Gateway host. A one-click deployment gives you no host shell to run
+    that from, so this item turns the device check off and leaves the token
+    as the single gate.
 
-    The practical consequence is that the gateway token is what guards an
-    admin surface that can run tools and shell commands: anyone holding it
-    can pair a browser. Treat the token as a secret and rotate it from the
+    The practical consequence is that the gateway token is the only thing
+    guarding an admin surface that can run tools and shell commands. There is
+    no second factor and no per-device revocation, so treat the token as a
+    secret, don't paste it into shared channels, and rotate it from the
     Configuration tab if it leaks.
 
     Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
