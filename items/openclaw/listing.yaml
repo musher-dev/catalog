@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: openclaw
-  version: 1
+  version: 2
 spec:
   listingKind: BLUEPRINT
   displayName: OpenClaw

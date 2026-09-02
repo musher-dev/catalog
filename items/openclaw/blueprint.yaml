@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  version: 1
+  version: 2
 spec:
   components:
     # The deployment's only public face. It authenticates the browser with a

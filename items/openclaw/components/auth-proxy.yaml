@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -17,9 +17,11 @@ spec:
       # startup, and restoring in-container CLI access. The 2026.8.1 objection
       # does not carry forward unchanged.
       #
-      # Note for any future bump BACKWARD or to a fork: this line and the pairing
-      # watcher below are coupled. `gateway.controlUi.dangerouslyDisableDeviceAuth`
-      # is NOT an option here — 2026.8.1 dropped the `allowBypass` branch from
+      # This line and the trusted-proxy config below are coupled, in BOTH
+      # directions. `deviceAutoApprove` does not exist before 2026.8.1, so this
+      # tag cannot go backward without the pairing gate returning. And
+      # `gateway.controlUi.dangerouslyDisableDeviceAuth` is not a fallback on
+      # this tag: 2026.8.1 dropped the `allowBypass` branch from
       # `shouldSkipControlUiPairing` (2026.7.1 ends
       # `return role === "operator" && policy.allowBypass`; 2026.8.x ends
       # `return null`), and upstream calls the key "a retired break-glass input,
@@ -38,7 +40,7 @@ spec:
     # normalized document carrying the `meta.lastTouchedVersion` stamp the gateway
     # expects, whereas a hand-rolled file is rejected as clobbered config
     # ("existing config is missing gateway.mode"). Verified live: after
-    # `config set`, the origin survives gateway startup and /readyz returns 200.
+    # `config set`, the origin survives gateway startup and the probe returns 200.
     #
     # Run unconditionally on every boot rather than behind a first-boot guard —
     # the config lives on a persistent volume, so a guard would pin the very first
