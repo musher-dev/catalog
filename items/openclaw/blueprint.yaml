@@ -5,8 +5,24 @@ metadata:
   version: 1
 spec:
   components:
-    web:
+    # The deployment's only public face. It authenticates the browser with a
+    # username and password, then forwards to `gateway` with the authenticated
+    # identity attached, which is what lets OpenClaw enrol the device inside the
+    # handshake instead of demanding a pairing approval no catalog user can give.
+    proxy:
+      component: ./components/auth-proxy.yaml
+      size: general.standard.small
+      connections:
+        openclawUpstream:
+          fromRole: gateway
+          fromOutput: address
+    # PRIVATE — reachable only from inside this deployment's mesh, i.e. only
+    # through `proxy`.
+    gateway:
       component: ./components/openclaw.yaml
       size: general.standard.small
-      connections: {}
+      connections:
+        publicOrigin:
+          fromRole: proxy
+          fromOutput: publicUrl
   parameters: {}

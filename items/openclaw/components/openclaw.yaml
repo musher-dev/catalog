@@ -7,30 +7,29 @@ spec:
     kind: SERVICE
     source:
       type: IMAGE
-      # PINNED, and the pin is load-bearing rather than merely current: 2026.7.1
-      # is the last stable release in which
-      # `gateway.controlUi.dangerouslyDisableDeviceAuth` still works, and this
-      # item depends on it to be reachable at all (see the block above `command`).
+      # Latest stable calendar release (beta tags are not pinned for the catalog).
       #
-      # Verified by reading `shouldSkipControlUiPairing` in each published
-      # bundle: 2026.7.1 ends `return role === "operator" && policy.allowBypass`,
-      # while 2026.8.1 and 2026.8.2 both end `return null`, having dropped that
-      # branch. Upstream calls the key "a retired break-glass input, now fully
-      # inert" and has `doctor --fix` delete it. 2026.7.2 exists only as betas,
-      # which this catalog does not pin.
+      # 2026.8.2 rather than 2026.8.1 deliberately. PR #3 bumped to 2026.8.1 and
+      # was reverted over its in-place upgrade path; 2026.8.2 is the release that
+      # hardened exactly that, stopping incomplete session migrations before
+      # claiming success, preserving newer configuration ahead of last-known-good
+      # recovery, failing updates clearly when a session migration still blocks
+      # startup, and restoring in-container CLI access. The 2026.8.1 objection
+      # does not carry forward unchanged.
       #
-      # So bumping this tag re-breaks the deployment silently. Anything past
-      # 2026.7.1 has to pair devices, which means either re-adding the
-      # in-container `devices approve` watcher this item used to carry, or
-      # `gateway.auth.trustedProxy.deviceAutoApprove` (2026.8.x only), which
-      # needs `gateway.auth.mode: "trusted-proxy"` and therefore a platform edge
-      # that injects an identity header. Settle that before changing the tag.
-      ref: ghcr.io/openclaw/openclaw:2026.7.1
+      # Note for any future bump BACKWARD or to a fork: this line and the pairing
+      # watcher below are coupled. `gateway.controlUi.dangerouslyDisableDeviceAuth`
+      # is NOT an option here — 2026.8.1 dropped the `allowBypass` branch from
+      # `shouldSkipControlUiPairing` (2026.7.1 ends
+      # `return role === "operator" && policy.allowBypass`; 2026.8.x ends
+      # `return null`), and upstream calls the key "a retired break-glass input,
+      # now fully inert" with `doctor --fix` deleting it.
+      ref: ghcr.io/openclaw/openclaw:2026.8.2
     # Converge config through OpenClaw's own `config set` CLI, then exec the
     # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
     #
     # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
-    # CONFIG-FILE-ONLY — verified against 2026.7.1, whose bundle declares no
+    # CONFIG-FILE-ONLY — re-verified against 2026.8.2, whose bundle declares no
     # matching env var — and without this deployment's public origin in it the
     # gateway rejects the browser with "Browser origin not allowed".
     #
@@ -46,62 +45,71 @@ spec:
     # boot's origin forever and leave a re-deployed app permanently unreachable.
     # `config set` is declarative, so re-applying is a no-op.
     #
-    # GATEWAY AUTH IS UNTOUCHED, despite the name of the key below.
-    # `gateway.auth.mode` stays at its default (`token`), so every Control UI
-    # connection still has to present OPENCLAW_GATEWAY_TOKEN. Verified by
-    # reading the connect path in the 2026.7.1 bundle
-    # (dist/message-handler-*.js), where three gates run in this order:
+    # AUTH LIVES IN THE auth-proxy NODE, not here. This endpoint is PRIVATE, so
+    # nothing outside the deployment's own mesh can reach the gateway at all;
+    # every browser arrives through the proxy, which authenticates it with a
+    # username and password first.
     #
-    #   1. handleMissingDeviceIdentity()  — device identity; allowBypass admits
-    #   2. `if (!authOk) { rejectUnauthorized(authResult); return; }`
-    #   3. shouldSkipControlUiPairing()   — pairing; allowBypass skips
+    # `gateway.auth.mode: "trusted-proxy"` then accepts the identity the proxy
+    # attaches as `X-Forwarded-User`, and `deviceAutoApprove` enrols that
+    # browser's device on the strength of it. That is what removes the pairing
+    # error rather than merely shortening it: upstream resolves the enrolment
+    # inside the handshake — "New browser operator devices (including Control UI
+    # and WebChat) ... resolve automatically" — so the browser never sees a
+    # rejection, and no watcher is needed. It is also the only mechanism of this
+    # shape that exists on 2026.8.x, where
+    # `gateway.controlUi.dangerouslyDisableDeviceAuth` is retired and inert.
     #
-    # Gate 2 is unconditional — no isControlUi test, no allowBypass exemption —
-    # and it sits BETWEEN the two gates the key affects. So the key removes
-    # device identity and pairing while the token check stays fully enforced.
+    # `deviceAutoApprove.scopes` names operator.admin deliberately. The default
+    # list is read/write/approvals/questions, which would leave the operator of
+    # their own single-tenant deployment unable to change settings. Upstream
+    # reports this as a critical `security audit` finding because on a shared
+    # gateway it lets every proxy-authenticated user self-grant admin; here the
+    # proxy admits exactly one credential, so the set of proxy-authenticated
+    # users and the set of intended admins are the same set.
     #
-    # That is the intended posture for this item: anyone holding the token gets
-    # in from any browser, and no device is enrolled or allowlisted. Device
-    # pairing is a second gate that a valid token does not satisfy, it can only
-    # be cleared by an already-paired admin session, and on a fresh deployment
-    # nothing is ever paired — so left alone the Control UI is permanently
-    # unreachable, reporting "device pairing required (requestId: ...)" and
-    # naming a CLI that a catalog user has no host shell to run. Upstream was
-    # asked to let a valid token bypass pairing and declined (openclaw#29908,
-    # closed as not planned).
-    #
-    # The alternative, carried here previously, was an in-container watcher that
-    # approved pending requests via `devices approve`. It worked and kept device
-    # identity, but it made a background process load-bearing for reachability
-    # and put a cold CLI start in front of every first connect. Traded away
-    # deliberately for a declarative key and an instant first load.
-    #
-    # What it costs: with no device identity there is no second factor and no
-    # per-device revocation, so a leaked token is sufficient on its own, and
-    # browsers re-present the token each session instead of holding a stored
-    # device token. `openclaw security audit` reports
-    # `gateway.control_ui.device_auth_disabled` as critical — expected here, not
-    # a regression. The token is the whole boundary; rotate it if it leaks.
+    # `trustedProxies` carries the RFC1918 ranges rather than a single address
+    # because the proxy's mesh IP is assigned at deploy time and no document here
+    # can name it. That is sound only because this endpoint is PRIVATE: the
+    # ranges describe who may *assert* identity headers, and nothing outside the
+    # mesh can reach the port to try. Upstream additionally rejects a source
+    # matching the gateway's own interfaces as a spoofing guard.
     command: >-
       sh -c 'set -e;
       node /app/dist/index.js config set --batch-json
       "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
       {\"path\":\"gateway.bind\",\"value\":\"lan\"},
-      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
-      {\"path\":\"gateway.controlUi.dangerouslyDisableDeviceAuth\",\"value\":true}]";
+      {\"path\":\"gateway.trustedProxies\",\"value\":[\"10.0.0.0/8\",\"172.16.0.0/12\",\"192.168.0.0/16\"]},
+      {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
+      {\"path\":\"gateway.auth.trustedProxy.userHeader\",\"value\":\"x-forwarded-user\"},
+      {\"path\":\"gateway.auth.trustedProxy.deviceAutoApprove.enabled\",\"value\":true},
+      {\"path\":\"gateway.auth.trustedProxy.deviceAutoApprove.scopes\",\"value\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]},
+      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
       exec node openclaw.mjs gateway'
     endpoints:
       primary:
+        # PRIVATE: the auth-proxy node is this deployment's only front door.
+        # Making it PUBLIC would publish an unauthenticated route straight past
+        # the proxy, because trusted-proxy mode trusts the header rather than a
+        # shared secret.
         containerPort: 18789
         protocol: HTTP
-        visibility: PUBLIC
+        visibility: PRIVATE
     health:
       readiness:
-        # /readyz is the machine-readable gate; /healthz can return the Control UI
-        # HTML shell with a 200, which would falsely read as ready.
-        path: /readyz
+        # /startupz, not /readyz. Upstream's health table (docs/gateway/health.md
+        # in 2026.8.2) assigns /startupz to "Orchestrator startup and traffic
+        # admission" and /readyz to "Operator monitoring that should surface hard
+        # channel failures", because /readyz additionally runs deep per-channel
+        # readiness. Upstream states the consequence outright: "A broken Telegram
+        # or other channel account can make /readyz return 503 without taking a
+        # healthy Control UI out of service through /startupz." On /readyz one
+        # lapsed messaging credential would pull a working Control UI from
+        # routing.
+        path: /startupz
         endpoint: primary
-        # Node boot + SQLite migrations run before the gate opens on first start.
+        # Node boot, SQLite migrations, and the startup-safe config migrations
+        # 2026.8.x runs all complete before the gate opens on first start.
         initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
@@ -139,40 +147,31 @@ spec:
         mountPath: /home/node/.config/openclaw
   contract:
     inputs:
-      # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
-      # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
-      # matching the project's `openssl rand -hex 32` guidance.
-      gatewayToken:
-        schema:
-          type: STRING
-          isSensitive: true
-        isRequired: true
-        suppliedBy: USER
-        ui:
-          label: Gateway token
-        target:
-          envVarKey: OPENCLAW_GATEWAY_TOKEN
-        generator:
-          byteLength: 32
-          encoding: HEX
-        description: >-
-          Master token authenticating the Control UI, WebSocket streams, and HTTP API.
+      # No gateway token. Under `gateway.auth.mode: "trusted-proxy"` the gateway
+      # authenticates on the proxy's identity header rather than a shared secret,
+      # so a token input would be an unused credential on the install form — and
+      # a misleading one, since pasting it into the Control UI would do nothing.
+      # The credential a user actually types lives on the auth-proxy node.
+      #
+      # Wired from the proxy's `publicUrl`, not `platformDefault: PUBLIC_URL`.
+      # This node's endpoint is PRIVATE and PUBLIC_URL must resolve to a public
+      # endpoint of the right address form (§6.1), so the platform default no
+      # longer has anything to resolve to. The browser origin this gateway must
+      # accept is the proxy's public URL, which is exactly what the wire carries.
       publicOrigin:
         schema:
           type: STRING
-        isRequired: false
-        suppliedBy: USER
-        ui:
-          label: Public origin
+          format: ENDPOINT_URL
+        isRequired: true
+        suppliedBy: CONNECTION
+        # §6.1: a wired input has no install-form control to label.
+        ui: null
         target:
           envVarKey: OPENCLAW_PUBLIC_ORIGIN
-        platformDefault:
-          source: PUBLIC_URL
         description: >-
-          Public https origin of this deployment's Control UI, written into
-          gateway.controlUi.allowedOrigins at first boot so browser sessions from
-          the public hostname are accepted. Leave blank to use this deployment's
-          own generated URL; override only for a custom domain.
+          Public https origin browsers reach this deployment on, written into
+          gateway.controlUi.allowedOrigins at boot so sessions from that
+          hostname are accepted. Supplied by the auth-proxy node.
       timezone:
         schema:
           type: STRING
@@ -187,4 +186,18 @@ spec:
         target:
           envVarKey: TZ
         description: IANA timezone for the agent's scheduled tasks and temporal reasoning.
-    outputs: {}
+    outputs:
+      # Consumed by the auth-proxy node as its `reverse_proxy` upstream. Neither
+      # document can name the hostname the platform assigns, so the wire carries
+      # it. §6.2 permits this alongside the inbound `publicOrigin` wire: an
+      # output derives from this workload's own addressing and never from an
+      # inbound connection, so the two-node cycle resolves.
+      address:
+        schema:
+          type: STRING
+          semanticType: HTTP_SERVICE
+        description: >-
+          Mesh-internal `host:port` of the OpenClaw gateway, resolvable only by
+          workloads in the same deployment. Wire it into a fronting proxy.
+        valueFrom: DERIVED
+        value: null

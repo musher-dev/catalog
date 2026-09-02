@@ -1,0 +1,163 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      # Pinned to a patch tag rather than the 2.10 series alias: a series alias
+      # moves under whoever curates the registry, which is the same objection
+      # COMP-SRC-001 raises against :latest, only slower.
+      ref: docker.io/library/caddy:2.10.2-alpine
+    # This node is the deployment's front door. It authenticates the browser with
+    # a username and password, then forwards to the OpenClaw gateway with the
+    # authenticated identity attached as `X-Forwarded-User`. OpenClaw runs in
+    # `trusted-proxy` auth mode and enrols the browser's device automatically on
+    # the strength of that header, so the pairing round trip resolves inside the
+    # handshake and never reaches the user as an error.
+    #
+    # The Caddyfile is written at boot rather than baked into an image, because a
+    # catalog item may not ship a bespoke image. Two values are only knowable at
+    # deploy time — the wired upstream address and the operator's chosen password
+    # — and Caddy stores passwords as bcrypt, so the hash is computed here with
+    # the `caddy` binary the image already carries. The plaintext password is
+    # never written to disk.
+    #
+    # Every block-opening `{` is the last token on its line, because that is what
+    # the Caddyfile grammar requires — `handle /x { respond "ok" 200 }` on one
+    # line does not parse. An inline `{placeholder}` is a single token and is not
+    # affected, which is why the `header_up` lines are fine as written.
+    #
+    # `{http.auth.user.id}` is Caddy's placeholder for the authenticated
+    # username, expanded by Caddy at request time. It survives printf as a
+    # literal and is NOT a shell expansion.
+    #
+    # `header_up` with no `+` prefix SETS the header, replacing whatever the
+    # client sent. That is the security property this whole design rests on: a
+    # browser cannot smuggle its own `X-Forwarded-User` past the proxy and have
+    # the gateway believe it. Verified end to end against Caddy 2.10.2 — a
+    # request carrying a forged `X-Forwarded-User: attacker` arrives upstream as
+    # the authenticated username instead.
+    #
+    # X-Forwarded-Proto and X-Forwarded-Host are not set here; `reverse_proxy`
+    # already sets both, and Caddy warns that restating them is redundant.
+    #
+    # /__proxy_health is matched before the authenticated route so the readiness
+    # probe is not answered with a 401. It exposes nothing but the string "ok".
+    #
+    # `reverse_proxy` upgrades WebSocket connections natively, which this item
+    # depends on: the Control UI speaks to the gateway over a WebSocket on the
+    # same port it fetched the page from.
+    command: >-
+      sh -c 'set -e;
+      HASH="$(caddy hash-password --plaintext "$PROXY_PASSWORD")";
+      printf "%s\n"
+      "{"
+      "  admin off"
+      "  auto_https off"
+      "}"
+      ":8080 {"
+      "  handle /__proxy_health {"
+      "    respond \"ok\" 200"
+      "  }"
+      "  handle {"
+      "    basic_auth {"
+      "      $PROXY_USERNAME \"$HASH\""
+      "    }"
+      "    reverse_proxy $OPENCLAW_UPSTREAM {"
+      "      header_up X-Forwarded-User {http.auth.user.id}"
+      "    }"
+      "  }"
+      "}" > /etc/caddy/Caddyfile;
+      exec caddy run --config /etc/caddy/Caddyfile --adapter caddyfile'
+    endpoints:
+      primary:
+        containerPort: 8080
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        # Unauthenticated by design — see the Caddyfile note above. A probe that
+        # had to authenticate would couple traffic admission to a user password.
+        path: /__proxy_health
+        endpoint: primary
+        initialDelaySeconds: 5
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+      liveness:
+        path: /__proxy_health
+        endpoint: primary
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # Wired from the openclaw node's `address` output by the blueprint, so the
+      # proxy learns the gateway's mesh-internal host:port without either
+      # document naming a hostname the platform assigns.
+      openclawUpstream:
+        schema:
+          type: STRING
+          semanticType: HTTP_SERVICE
+        isRequired: true
+        suppliedBy: CONNECTION
+        # A wired input has no install-form control to label, so §6.1 requires
+        # `ui` to be null here rather than merely permitting its absence.
+        ui: null
+        target:
+          envVarKey: OPENCLAW_UPSTREAM
+        description: >-
+          Mesh-internal host:port of the OpenClaw gateway this proxy fronts.
+      proxyUsername:
+        schema:
+          type: STRING
+          default: admin
+          # Caddyfile tokens are whitespace-delimited, and this value is
+          # interpolated into one. The grammar also keeps out the quoting and
+          # brace characters that would let a username restructure the file.
+          pattern: "^[A-Za-z0-9._-]{1,64}$"
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Username
+        target:
+          envVarKey: PROXY_USERNAME
+        description: >-
+          Username for signing in to the Control UI.
+      proxyPassword:
+        schema:
+          type: STRING
+          isSensitive: true
+          # 16 characters minimum. This is the only credential in front of an
+          # admin surface that can run shell commands, reachable from the public
+          # internet, so it is held to more than a memorable word.
+          pattern: "^.{16,}$"
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Password
+        target:
+          envVarKey: PROXY_PASSWORD
+        description: >-
+          Password for signing in to the Control UI. At least 16 characters.
+          Stored only as a bcrypt hash inside the running container.
+    outputs:
+      # Consumed by the openclaw node, which needs this deployment's browser
+      # origin in `gateway.controlUi.allowedOrigins`. It is the PROXY's public
+      # URL now, not the gateway's — the gateway endpoint is PRIVATE.
+      #
+      # Component spec 6.2 permits this alongside the inbound `openclawUpstream`
+      # wire: an output derives from its own workload's addressing and never from
+      # an inbound connection, so the resulting two-node cycle resolves.
+      publicUrl:
+        schema:
+          type: STRING
+          format: ENDPOINT_URL
+        description: >-
+          Public https URL of this deployment's Control UI, as the browser sees
+          it. Wire it into the gateway's browser-origin allowlist.
+        valueFrom: DERIVED
+        value: null
