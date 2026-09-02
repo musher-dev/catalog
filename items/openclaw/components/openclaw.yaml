@@ -166,8 +166,9 @@ spec:
           format: ENDPOINT_URL
         isRequired: true
         suppliedBy: CONNECTION
-        # §6.1: a wired input has no install-form control to label.
-        ui: null
+        # §6.1: a CONNECTION input never reaches the install form, so `ui` MUST
+        # be null. Omitted rather than written as an explicit `null`, matching
+        # the auth-proxy node.
         target:
           envVarKey: OPENCLAW_PUBLIC_ORIGIN
         description: >-

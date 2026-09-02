@@ -5,6 +5,21 @@ metadata:
   version: 2
 spec:
   components:
+    # `gateway` is declared before `proxy` because map order is graph order, and
+    # `proxy` consumes an output of this node. The connection graph is a legal
+    # cycle either way (blueprint §4.2), but declaring the producer first means a
+    # validator walking the map in order meets `gateway.address` before the wire
+    # that reads it.
+    #
+    # PRIVATE — reachable only from inside this deployment's mesh, i.e. only
+    # through `proxy`.
+    gateway:
+      component: ./components/openclaw.yaml
+      size: general.standard.small
+      connections:
+        publicOrigin:
+          fromRole: proxy
+          fromOutput: publicUrl
     # The deployment's only public face. It authenticates the browser with a
     # username and password, then forwards to `gateway` with the authenticated
     # identity attached, which is what lets OpenClaw enrol the device inside the
@@ -16,13 +31,4 @@ spec:
         openclawUpstream:
           fromRole: gateway
           fromOutput: address
-    # PRIVATE — reachable only from inside this deployment's mesh, i.e. only
-    # through `proxy`.
-    gateway:
-      component: ./components/openclaw.yaml
-      size: general.standard.small
-      connections:
-        publicOrigin:
-          fromRole: proxy
-          fromOutput: publicUrl
   parameters: {}

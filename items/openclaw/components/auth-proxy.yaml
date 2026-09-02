@@ -104,9 +104,10 @@ spec:
           semanticType: HTTP_SERVICE
         isRequired: true
         suppliedBy: CONNECTION
-        # A wired input has no install-form control to label, so §6.1 requires
-        # `ui` to be null here rather than merely permitting its absence.
-        ui: null
+        # §6.1: a CONNECTION input never reaches the install form, so `ui` MUST
+        # be null. Omitted rather than written as an explicit `null` — both
+        # satisfy the rule, and omission is the form that cannot be mistaken for
+        # a present-but-empty value by a consumer that distinguishes the two.
         target:
           envVarKey: OPENCLAW_UPSTREAM
         description: >-
