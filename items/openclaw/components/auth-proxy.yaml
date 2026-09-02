@@ -50,8 +50,16 @@ spec:
     # `reverse_proxy` upgrades WebSocket connections natively, which this item
     # depends on: the Control UI speaks to the gateway over a WebSocket on the
     # same port it fetched the page from.
+    # Same reasoning as the gateway node: an unresolved `openclawUpstream` wire
+    # would emit `reverse_proxy` with no upstream, which Caddy rejects at parse
+    # time with a message about the Caddyfile rather than about the wire. Name
+    # the actual cause instead.
     command: >-
       sh -c 'set -e;
+      if [ -z "${OPENCLAW_UPSTREAM:-}" ]; then
+      echo "FATAL: OPENCLAW_UPSTREAM is empty -- the openclawUpstream connection did not resolve." >&2;
+      exit 1;
+      fi;
       HASH="$(caddy hash-password --plaintext "$PROXY_PASSWORD")";
       printf "%s\n"
       "{"

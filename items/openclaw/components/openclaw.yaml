@@ -76,17 +76,33 @@ spec:
     # ranges describe who may *assert* identity headers, and nothing outside the
     # mesh can reach the port to try. Upstream additionally rejects a source
     # matching the gateway's own interfaces as a spoofing guard.
+    # Fail loudly on an unresolved wire rather than booting a broken gateway.
+    # `publicOrigin` arrives over a blueprint connection, and an empty value
+    # would otherwise be written as `allowedOrigins: [""]` -- which passes the
+    # config schema, so the gateway starts and then rejects every browser with
+    # "Browser origin not allowed". That reads as a mysterious runtime failure
+    # long after boot. Exiting here puts the cause in the container log instead.
+    #
+    # `trustedProxy.userHeader` is set BEFORE `auth.mode` switches to
+    # trusted-proxy: the schema makes `userHeader` REQUIRED inside a
+    # `strictObject`, so writing the mode first leaves a window where the auth
+    # path names a mode whose required configuration does not exist yet.
     command: >-
       sh -c 'set -e;
+      ORIGIN="${OPENCLAW_PUBLIC_ORIGIN%/}";
+      if [ -z "$ORIGIN" ]; then
+      echo "FATAL: OPENCLAW_PUBLIC_ORIGIN is empty -- the publicOrigin connection did not resolve." >&2;
+      exit 1;
+      fi;
       node /app/dist/index.js config set --batch-json
       "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
       {\"path\":\"gateway.bind\",\"value\":\"lan\"},
       {\"path\":\"gateway.trustedProxies\",\"value\":[\"10.0.0.0/8\",\"172.16.0.0/12\",\"192.168.0.0/16\"]},
-      {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
       {\"path\":\"gateway.auth.trustedProxy.userHeader\",\"value\":\"x-forwarded-user\"},
       {\"path\":\"gateway.auth.trustedProxy.deviceAutoApprove.enabled\",\"value\":true},
       {\"path\":\"gateway.auth.trustedProxy.deviceAutoApprove.scopes\",\"value\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]},
-      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]}]";
+      {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
+      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"$ORIGIN\"]}]";
       exec node openclaw.mjs gateway'
     endpoints:
       primary:
