@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: qdrant
-  version: 1
+  version: 2
 spec:
   listingKind: BLUEPRINT
   displayName: Qdrant
@@ -30,6 +30,14 @@ spec:
     the deployment's Configuration tab. An 8 GiB persistent volume
     mounted at `/qdrant/storage` keeps collections and vectors across
     restarts.
+
+    ## Dashboard
+    The deployment URL is the API root, not a web page — opening it returns
+    Qdrant's JSON version banner. The bundled Web UI is served at
+    `/dashboard`: append that path to the deployment URL to browse
+    collections, inspect points, and run queries from the browser. Paste the
+    deployment's API key into the dashboard's key field before it can read
+    anything.
   category: INFRASTRUCTURE
   lifecycleStage: STABLE
   tags:
