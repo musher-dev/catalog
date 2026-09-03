@@ -2,11 +2,11 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  version: 1
+  version: 2
 spec:
   components:
     web:
       component: ./components/mlflow.yaml
-      size: general.standard.nano
+      size: general.standard.small
       connections: {}
   parameters: {}

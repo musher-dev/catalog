@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: qdrant
-  version: 1
+  version: 2
 spec:
   components:
     web:

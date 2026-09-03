@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: mlflow
-  version: 1
+  version: 2
 spec:
   listingKind: BLUEPRINT
   displayName: MLflow
