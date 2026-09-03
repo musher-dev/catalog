@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -17,10 +17,20 @@ spec:
       readiness:
         path: /health
         endpoint: primary
-        initialDelaySeconds: 30
+        # uvicorn binds the socket only after the FastAPI lifespan returns, so
+        # nothing answers on 8080 until the whole first boot has run: ~50
+        # alembic migrations, then a cold pull of the default embedding model
+        # (sentence-transformers/all-MiniLM-L6-v2) from HuggingFace, then
+        # loading it. Every probe until then is connection-refused. The old 30s
+        # + 3-failure gate expired while the model was still loading and the
+        # agent reaped the container mid-boot (observed live). Same budget shape
+        # as label-studio and mlflow: the wait is carried by the initial delay,
+        # because retries are cheap but few. First boot only — the model cache
+        # and the DB both live in the data volume below.
+        initialDelaySeconds: 180
         timeoutSeconds: 5
         successThreshold: 1
-        failureThreshold: 3
+        failureThreshold: 10
     volumes:
       data:
         sizeGib: 8
