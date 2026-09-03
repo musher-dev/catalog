@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: label-studio
-  version: 1
+  version: 2
 spec:
   listingKind: BLUEPRINT
   displayName: Label Studio
@@ -29,10 +29,14 @@ spec:
     admin account is created from the email/password parameters at deploy
     (the password is auto-generated; rotate it from the deployment's
     Configuration tab), and open self-signup is disabled — invite
-    annotators by link. First boot runs the full database migration
-    chain, so expect a few minutes before the app reports ready. A 10 GiB
-    persistent volume mounted at `/label-studio/data` keeps projects,
-    annotations, and uploads across restarts.
+    annotators by link. The public URL, and the origins the sign-in form
+    is accepted from, both default to this deployment's own https URL —
+    override them only when fronting Label Studio with a custom domain.
+    The session signing key is auto-generated at deploy and pinned, so
+    sign-ins survive a restart. First boot runs the full database
+    migration chain, so expect a few minutes before the app reports
+    ready. A 10 GiB persistent volume mounted at `/label-studio/data`
+    keeps projects, annotations, and uploads across restarts.
   category: AI_ML
   lifecycleStage: STABLE
   tags:
