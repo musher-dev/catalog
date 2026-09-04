@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -62,4 +62,99 @@ spec:
           byteLength: 24
           encoding: ALPHANUMERIC
         description: Auto-generated admin password; rotate from the Configuration tab
+      # The two inputs below both bind this deployment's own public URL, into
+      # two settings Label Studio reads independently — base.py makes one
+      # get_env call for HOST and a separate one for CSRF_TRUSTED_ORIGINS. Only
+      # the second unblocks the login form; the first fixes the absolute links
+      # Label Studio builds. Setting the host alone, which is the obvious first
+      # move, leaves the trusted-origin list empty and the 403 where it was.
+      #
+      # Why there is a 403 at all: TLS terminates at the gateway and the
+      # container serves plain HTTP on 8080. 1.23.0 sets no
+      # SECURE_PROXY_SSL_HEADER and exposes no env var for one, so
+      # request.is_secure() is False and Django composes its expected origin as
+      # http://<host> while the browser sends https://<host>. A scheme mismatch
+      # has exactly one escape hatch, and it is CSRF_TRUSTED_ORIGINS.
+      #
+      # It shows up only at the front door. core.middleware.DisableCSRF sets
+      # _dont_enforce_csrf_checks on every request, so CsrfViewMiddleware
+      # accepts everything except the views carrying @enforce_csrf_checks —
+      # which is exactly user_login and user_signup (users/views.py). Every GET
+      # succeeds and the readiness probe passes; only the login POST is
+      # rejected. That is why the item deploys clean and is still unusable.
+      publicUrl:
+        schema:
+          type: STRING
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Public URL
+        target:
+          envVarKey: LABEL_STUDIO_HOST
+        platformDefault:
+          source: PUBLIC_URL
+        description: >-
+          Public base URL Label Studio builds absolute links from. Leave blank
+          to use this deployment's own https URL; override only for a custom
+          domain.
+      # PUBLIC_URL has to bind WITHOUT a trailing slash for this one to work.
+      # Django keeps the non-wildcard entries in a set and tests the browser's
+      # Origin header for exact membership (allowed_origins_exact, matched in
+      # CsrfViewMiddleware._origin_verified); an Origin header never carries a
+      # trailing slash, so "https://host/" matches nothing and fails exactly as
+      # an unset list does. LABEL_STUDIO_HOST above is immune — base.py strips
+      # its own trailing slash before use — which is why the same source is
+      # merely tidy there and load-bearing here.
+      #
+      # PUBLIC_HOSTNAME is not the alternative: it binds the bare host with no
+      # scheme, and the membership test above compares whole origins, so a bare
+      # host matches nothing either. Django says as much directly — since 4.0 a
+      # scheme-less entry is a check error (4_0.E001).
+      #
+      # Not a wildcard, deliberately. "https://*.musher.io" would satisfy
+      # Django — only entries containing '*' reach the subdomain-matching path
+      # — and would make every other tenant's deployment on the shared edge a
+      # trusted CSRF origin for this one.
+      csrfTrustedOrigins:
+        schema:
+          type: STRING
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Trusted origins
+        target:
+          envVarKey: LABEL_STUDIO_CSRF_TRUSTED_ORIGINS
+        platformDefault:
+          source: PUBLIC_URL
+        description: >-
+          Comma-separated origins Django accepts form POSTs from. Must match the
+          browser's Origin header exactly — scheme included, no trailing slash.
+      # SECRET_KEY takes no LABEL_STUDIO_ prefix. It is read through environ.Env
+      # in core/utils/secret_key.py rather than through get_env's
+      # LABEL_STUDIO_/HEARTEX_/bare lookup chain, so this env var name is the
+      # only one that reaches it.
+      #
+      # Left unset, Label Studio mints a key and appends it to
+      # /label-studio/data/.env. That is inside this item's volume, so it does
+      # survive a restart — but it is per-volume: a second replica mints its
+      # own, and sessions and CSRF tokens stop validating across the two.
+      # read_env() populates the environment with setdefault, so an explicit
+      # value here wins over a key already persisted in that file, at the cost
+      # of invalidating live sessions once.
+      secretKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Secret key
+        target:
+          envVarKey: SECRET_KEY
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: >-
+          Django secret key signing sessions and CSRF tokens. Auto-generated;
+          pinning it keeps sessions valid across replicas and re-creates.
     outputs: {}
