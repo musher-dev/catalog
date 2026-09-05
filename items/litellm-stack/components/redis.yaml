@@ -1,0 +1,59 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: redis:8.8.1-alpine
+    command: redis-server --appendonly yes
+    endpoints:
+      primary:
+        containerPort: 6379
+        protocol: TCP
+        visibility: PRIVATE
+    volumes:
+      data:
+        sizeGib: 5
+        mountPath: /data
+  contract:
+    inputs: {}
+    outputs:
+      address:
+        schema:
+          type: STRING
+          semanticType: REDIS
+        description: >-
+          Mesh-internal `host:port` of the cache endpoint (for example
+          `cache-myapp.internal:6379`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's CONNECTION input to
+          point that workload at this cache.
+        valueFrom: DERIVED
+        value: null
+      # The `redis://` form of the address above, for a consumer that takes one
+      # URL rather than a host and a port. LiteLLM is that consumer: its Redis
+      # settings are read out of the environment by `_redis_kwargs_from_environment`,
+      # which maps every `REDIS_<ARG>` variable onto a redis-py argument, and
+      # `url` is the one argument that carries host and port together.
+      #
+      # No credentials, and that is a property of this component rather than an
+      # omission: the server runs with no `requirepass` on a PRIVATE endpoint,
+      # so there is no password for the URI to carry. A future component that
+      # sets one would have to mark this output sensitive — a URI may embed the
+      # password inline, which is why LiteLLM's own settings API redacts a
+      # Redis `url` alongside `password`.
+      url:
+        schema:
+          type: STRING
+          format: CONNECTION_STRING
+          semanticType: REDIS
+        description: >-
+          Ready-to-use `redis://` URI for this cache — the mesh-internal host
+          and port above, with no credentials, since this deployment runs Redis
+          unauthenticated on a private endpoint. Wire it into a consuming
+          component's CONNECTION input where that workload wants one URL rather
+          than a host and a port.
+        valueFrom: DERIVED
+        value: null

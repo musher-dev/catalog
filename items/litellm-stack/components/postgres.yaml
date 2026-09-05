@@ -1,0 +1,101 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: postgres:17.10-alpine
+    endpoints:
+      primary:
+        containerPort: 5432
+        protocol: TCP
+        visibility: PRIVATE
+    envVars:
+      - key: PGDATA
+        value:
+          type: LITERAL
+          value: /var/lib/postgresql/data/pgdata
+    volumes:
+      data:
+        sizeGib: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      postgresPassword:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Database password
+        target:
+          envVarKey: POSTGRES_PASSWORD
+      postgresUser:
+        schema:
+          type: STRING
+          default: postgres
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Database user
+        target:
+          envVarKey: POSTGRES_USER
+      postgresDb:
+        schema:
+          type: STRING
+          default: app
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Database name
+        target:
+          envVarKey: POSTGRES_DB
+    outputs:
+      address:
+        schema:
+          type: STRING
+          semanticType: POSTGRES
+        description: >-
+          Mesh-internal `host:port` of the database endpoint (for example
+          `db-myapp.internal:5432`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's CONNECTION input to
+          point that workload at this database.
+        valueFrom: DERIVED
+        value: null
+      # The whole URI rather than the address, for a consumer that takes one
+      # DSN and no separate credential settings. LiteLLM is that consumer:
+      # `DATABASE_URL` is the only database setting its container reads without
+      # a config file, and Prisma parses it as a URI.
+      #
+      # DERIVED rather than DECLARED. The host and port are not knowable until
+      # the platform places this node, so no value can be written here — the
+      # same reason `address` is DERIVED. The credentials and database name it
+      # carries are this node's own USER inputs, which is what keeps the output
+      # legal: component §6.2 forbids an output that depends on a value the
+      # component received over an *inbound connection*, and none of these
+      # arrive that way. Blueprint §4.2's own worked example wires a Postgres
+      # node's `connectionString`, so a composed DSN is the shape the contract
+      # was written for.
+      #
+      # Sensitive because it embeds POSTGRES_PASSWORD. `address` is not, and
+      # that difference is the reason to keep both: a consumer that only needs
+      # to reach the server should take the address and not a copy of the
+      # password.
+      dsn:
+        schema:
+          type: STRING
+          format: CONNECTION_STRING
+          semanticType: POSTGRES
+          isSensitive: true
+        description: >-
+          Ready-to-use `postgresql://` URI for this database — the mesh-internal
+          host and port above, carrying the user, password and database name
+          this node was deployed with. Wire it into a consuming component's
+          CONNECTION input where that workload wants one connection string
+          rather than the parts.
+        valueFrom: DERIVED
+        value: null
