@@ -394,7 +394,7 @@ describe('endpoint resolution — component §5.2, §5.4, §6.1', () => {
             { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PRIVATE' } },
             {},
             {
-              inputs: { host: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'Host' }, platformDefault: { source: 'PUBLIC_HOSTNAME' } } },
+              inputs: { host: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'Host' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_HOSTNAME' } } },
               outputs: {},
             },
           ),
@@ -415,7 +415,7 @@ describe('endpoint resolution — component §5.2, §5.4, §6.1', () => {
             { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' }, },
             { readiness: { path: '/healthz' } },
             {
-              inputs: { addr: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'Address' }, platformDefault: { source: 'PUBLIC_ADDRESS' } } },
+              inputs: { addr: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'Address' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_ADDRESS' } } },
               outputs: {},
             },
           ),
@@ -433,7 +433,7 @@ describe('endpoint resolution — component §5.2, §5.4, §6.1', () => {
             { broker: { containerPort: 1883, protocol: 'TCP', visibility: 'PUBLIC' } },
             {},
             {
-              inputs: { url: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'URL' }, platformDefault: { source: 'PUBLIC_URL' } } },
+              inputs: { url: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'URL' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_URL' } } },
               outputs: {},
             },
           ),

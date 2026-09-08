@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 2
+  version: 3
 spec:
   workload:
     kind: SERVICE
@@ -45,6 +45,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Enable Ollama API
+          order: 1
         target:
           envVarKey: ENABLE_OLLAMA_API
         description: >-
@@ -52,14 +53,23 @@ spec:
           ships with this deployment; turn on only when an Ollama endpoint is
           reachable (and set the base URL), otherwise the UI logs pointless
           connection errors (docs.openwebui.com env-configuration).
+      # PRIMARY, not SECONDARY, and it belongs directly under the switch above.
+      # The six platform-default inputs elsewhere in the corpus are advanced
+      # because the platform has already computed the right value; this one's
+      # default is knowingly wrong for this deployment, and a field whose default
+      # cannot work must not sit behind a disclosure.
       ollamaBaseUrl:
         schema:
           type: STRING
+          format: ENDPOINT_URL
           default: http://ollama:11434
         isRequired: false
         suppliedBy: USER
         ui:
           label: Ollama base URL
+          order: 2
+          examples:
+            - https://ollama.example.com
         target:
           envVarKey: OLLAMA_BASE_URL
         description: >-
@@ -75,6 +85,7 @@ spec:
         suppliedBy: USER
         ui:
           label: WebUI secret key
+          order: 3
         target:
           envVarKey: WEBUI_SECRET_KEY
         generator:

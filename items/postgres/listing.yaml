@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: postgres
-  version: 1
+  version: 2
 spec:
   listingKind: COMPONENT
   displayName: PostgreSQL
@@ -25,9 +25,10 @@ spec:
     ## Defaults
     Single-container deployment of `postgres:17.10-alpine` listening on
     the standard port 5432 as a private TCP endpoint — reachable by your
-    other workloads, not exposed to the public internet. You supply the
-    database password at deploy; the user defaults to `postgres` and the
-    database name to `app`. A 10 GiB persistent volume mounted at
+    other workloads, not exposed to the public internet. The database
+    password is auto-generated at deploy — copy it from the deployment's
+    Configuration tab; the user defaults to `postgres` and the database
+    name to `app`. A 10 GiB persistent volume mounted at
     `/var/lib/postgresql/data` keeps the data directory across restarts.
   category: INFRASTRUCTURE
   lifecycleStage: STABLE

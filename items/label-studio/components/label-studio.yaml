@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 2
+  version: 3
 spec:
   workload:
     kind: SERVICE
@@ -45,6 +45,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Admin email
+          order: 1
         target:
           envVarKey: LABEL_STUDIO_USERNAME
         description: Email address for the bootstrap admin account
@@ -56,6 +57,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Admin password
+          order: 2
         target:
           envVarKey: LABEL_STUDIO_PASSWORD
         generator:
@@ -85,13 +87,19 @@ spec:
       publicUrl:
         schema:
           type: STRING
+          format: ENDPOINT_URL
         isRequired: false
         suppliedBy: USER
         ui:
           label: Public URL
+          order: 4
+          prominence: SECONDARY
+          examples:
+            - https://label-studio.example.com
         target:
           envVarKey: LABEL_STUDIO_HOST
         platformDefault:
+          type: SELF_ADDRESS
           source: PUBLIC_URL
         description: >-
           Public base URL Label Studio builds absolute links from. Leave blank
@@ -115,6 +123,12 @@ spec:
       # Django — only entries containing '*' reach the subdomain-matching path
       # — and would make every other tenant's deployment on the shared edge a
       # trusted CSRF origin for this one.
+      # No `format` here, deliberately: the value is a comma-separated list, and
+      # every member of the format vocabulary names a convention the whole
+      # scalar follows. A two-origin list is not a URL, and component 6.4 binds
+      # a client's rendering -- one told this was a single URL could normalise
+      # or trim it and corrupt the list. The shape lives in ui.examples instead,
+      # where the no-trailing-slash rule above becomes machine-readable.
       csrfTrustedOrigins:
         schema:
           type: STRING
@@ -122,9 +136,15 @@ spec:
         suppliedBy: USER
         ui:
           label: Trusted origins
+          order: 5
+          prominence: SECONDARY
+          examples:
+            - https://label-studio.example.com
+            - https://label-studio.example.com,https://alt.example.com
         target:
           envVarKey: LABEL_STUDIO_CSRF_TRUSTED_ORIGINS
         platformDefault:
+          type: SELF_ADDRESS
           source: PUBLIC_URL
         description: >-
           Comma-separated origins Django accepts form POSTs from. Must match the
@@ -149,6 +169,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Secret key
+          order: 3
         target:
           envVarKey: SECRET_KEY
         generator:
