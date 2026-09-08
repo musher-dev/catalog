@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -53,13 +53,19 @@ spec:
       n8nHost:
         schema:
           type: STRING
+          format: HOSTNAME
         isRequired: false
         suppliedBy: USER
         ui:
           label: Public hostname
+          order: 2
+          prominence: SECONDARY
+          examples:
+            - n8n.example.com
         target:
           envVarKey: N8N_HOST
         platformDefault:
+          type: SELF_ADDRESS
           source: PUBLIC_HOSTNAME
         description: >-
           Public hostname n8n uses for webhook URLs. Leave blank to use this
@@ -67,13 +73,19 @@ spec:
       webhookUrl:
         schema:
           type: STRING
+          format: ENDPOINT_URL
         isRequired: false
         suppliedBy: USER
         ui:
           label: Webhook base URL
+          order: 3
+          prominence: SECONDARY
+          examples:
+            - https://n8n.example.com
         target:
           envVarKey: WEBHOOK_URL
         platformDefault:
+          type: SELF_ADDRESS
           source: PUBLIC_URL
         description: >-
           Full public base URL n8n registers webhooks under. Without it n8n
@@ -83,13 +95,19 @@ spec:
       editorBaseUrl:
         schema:
           type: STRING
+          format: ENDPOINT_URL
         isRequired: false
         suppliedBy: USER
         ui:
           label: Editor base URL
+          order: 4
+          prominence: SECONDARY
+          examples:
+            - https://n8n.example.com
         target:
           envVarKey: N8N_EDITOR_BASE_URL
         platformDefault:
+          type: SELF_ADDRESS
           source: PUBLIC_URL
         description: >-
           Public URL of the n8n editor, used in emails and OAuth/SAML redirects.
@@ -98,11 +116,13 @@ spec:
       timezone:
         schema:
           type: STRING
+          format: TIMEZONE
           default: UTC
         isRequired: false
         suppliedBy: USER
         ui:
           label: Timezone
+          order: 1
         target:
           envVarKey: GENERIC_TIMEZONE
         description: IANA timezone for scheduled workflows
