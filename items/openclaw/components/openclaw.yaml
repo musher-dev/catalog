@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -150,6 +150,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Gateway token
+          order: 1
         target:
           envVarKey: OPENCLAW_GATEWAY_TOKEN
         generator:
@@ -160,13 +161,19 @@ spec:
       publicOrigin:
         schema:
           type: STRING
+          format: ENDPOINT_URL
         isRequired: false
         suppliedBy: USER
         ui:
           label: Public origin
+          order: 3
+          prominence: SECONDARY
+          examples:
+            - https://openclaw.example.com
         target:
           envVarKey: OPENCLAW_PUBLIC_ORIGIN
         platformDefault:
+          type: SELF_ADDRESS
           source: PUBLIC_URL
         description: >-
           Public https origin of this deployment's Control UI, written into
@@ -176,11 +183,13 @@ spec:
       timezone:
         schema:
           type: STRING
+          format: TIMEZONE
           default: UTC
         isRequired: false
         suppliedBy: USER
         ui:
           label: Timezone
+          order: 2
         # The container consumes the standard TZ variable (upstream compose maps
         # its host-side OPENCLAW_TZ input onto TZ; OPENCLAW_TZ itself is not read
         # by the gateway runtime).

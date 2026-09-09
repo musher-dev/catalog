@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -32,8 +32,19 @@ spec:
         suppliedBy: USER
         ui:
           label: Database password
+          order: 1
         target:
           envVarKey: POSTGRES_PASSWORD
+        # ALPHANUMERIC rather than HEX so the value survives being pasted into a
+        # postgresql:// URL without percent-encoding. 32 bytes matches the other
+        # machine credentials in the corpus; the 24-byte tier is for passwords a
+        # person reads and types.
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: >-
+          Auto-generated password for the database superuser; copy it from the
+          deployment's Configuration tab.
       postgresUser:
         schema:
           type: STRING
@@ -42,6 +53,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Database user
+          order: 2
         target:
           envVarKey: POSTGRES_USER
       postgresDb:
@@ -52,6 +64,7 @@ spec:
         suppliedBy: USER
         ui:
           label: Database name
+          order: 3
         target:
           envVarKey: POSTGRES_DB
     outputs:

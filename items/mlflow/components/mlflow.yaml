@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  version: 2
 spec:
   workload:
     kind: SERVICE
@@ -62,11 +62,16 @@ spec:
       backendStoreUri:
         schema:
           type: STRING
+          format: CONNECTION_STRING
           default: sqlite:////mlflow/mlflow.db
         isRequired: true
         suppliedBy: USER
         ui:
           label: Backend store URI
+          order: 1
+          examples:
+            - sqlite:////mlflow/mlflow.db
+            - postgresql://mlflow:password@postgres.internal:5432/mlflow
         target:
           envVarKey: MLFLOW_BACKEND_STORE_URI
         description: SQLAlchemy URI for the tracking metadata store. Default uses
@@ -79,6 +84,10 @@ spec:
         suppliedBy: USER
         ui:
           label: Artifact storage destination
+          order: 2
+          examples:
+            - s3://my-bucket/mlflow
+            - gs://my-bucket/mlflow
         # MLFLOW_ARTIFACTS_DESTINATION (not MLFLOW_DEFAULT_ARTIFACT_ROOT): the
         # server proxies artifact reads/writes to this destination, so remote
         # clients never interpret the path against their own filesystem
