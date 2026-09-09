@@ -31,8 +31,9 @@ spec:
           fromRole: cache
           fromOutput: url
   # Derived rather than authored. The merged USER inputs are exactly the install
-  # form this item wants — the database password, user and name, plus the two
-  # generated LiteLLM keys — and an authored block would have to restate all
-  # five to add nothing. Neither wired input appears there, which is the point:
-  # a CONNECTION input is satisfied by its wire and never reaches the form.
+  # form this item wants — the database user and name, both defaulted, beside
+  # three secrets the platform mints — and an authored block would have to
+  # restate all five to add nothing. Neither wired input appears there, which is
+  # the point: a CONNECTION input is satisfied by its wire and never reaches the
+  # form. What is left is a form with no required field on it.
   parameters: {}

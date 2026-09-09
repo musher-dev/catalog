@@ -38,12 +38,30 @@ spec:
       # which maps every `REDIS_<ARG>` variable onto a redis-py argument, and
       # `url` is the one argument that carries host and port together.
       #
+      # DECLARED for the reason postgres.yaml's `dsn` sets out at length: a
+      # DECLARED value is a template the platform interpolates after placement,
+      # while a DERIVED one is assigned the node's bare address and nothing
+      # else. A scheme is not part of an address, so `redis://` has to be
+      # written here — there is nowhere else it can come from.
+      #
       # No credentials, and that is a property of this component rather than an
       # omission: the server runs with no `requirepass` on a PRIVATE endpoint,
       # so there is no password for the URI to carry. A future component that
       # sets one would have to mark this output sensitive — a URI may embed the
       # password inline, which is why LiteLLM's own settings API redacts a
-      # Redis `url` alongside `password`.
+      # Redis `url` alongside `password`. It is also why this output takes no
+      # `${{ params.* }}` token and postgres.yaml's `dsn` takes three.
+      #
+      # ONE CAVEAT THE TEMPLATE CANNOT FIX. A SERVICE that declares no
+      # ENDPOINT_URL output has a `url` one appended at publish, and the check
+      # that suppresses it matches on the key *and* the ENDPOINT_URL format — so
+      # this CONNECTION_STRING output does not suppress it, and the appended
+      # entry lands after this one and takes the key. Until
+      # musher-dev/platform#2589 closes that, REDIS_URL reaches the proxy as the
+      # bare address whatever is written here. It is inert either way: LiteLLM
+      # reads REDIS_URL only once caching is switched on, which is a deliberate
+      # act described on the `redisUrl` input in litellm.yaml. DATABASE_URL is
+      # unaffected — `dsn` collides with no auto-derived key.
       url:
         schema:
           type: STRING
@@ -55,5 +73,5 @@ spec:
           unauthenticated on a private endpoint. Wire it into a consuming
           component's CONNECTION input where that workload wants one URL rather
           than a host and a port.
-        valueFrom: DERIVED
-        value: null
+        valueFrom: DECLARED
+        value: redis://${{ self.privateAddress.primary }}

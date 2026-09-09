@@ -36,11 +36,12 @@ spec:
     `ghcr.io/berriai/litellm:v1.83.14-stable.patch.3` on port 4000 behind
     the platform's HTTPS edge. The database connection string and the
     Redis URL are wired between the nodes, so neither is typed at
-    install — you supply the database password, and the master key and
-    the credential-encryption salt key are generated for you (copy them
-    from the deployment's Configuration tab). LiteLLM applies its own
-    schema to the empty database on first boot, which is why the first
-    deploy takes a few minutes longer than a restart.
+    install. The three secrets the stack runs on — the database password,
+    the master key, and the credential-encryption salt key — are
+    auto-generated at deploy; copy them from the deployment's
+    Configuration tab. Nothing on the install form is required. LiteLLM
+    applies its own schema to the empty database on first boot, which is
+    why the first deploy takes a few minutes longer than a restart.
 
     Configure provider upstreams from the dashboard; model definitions
     are stored in the database rather than a config file, so they survive
