@@ -55,7 +55,7 @@ spec:
 
     Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
     the interactive CLI and is not available in this deployment yet.
-  category: AI_ML
+  category: AGENTS
   lifecycleStage: BETA
   tags:
     - ai
