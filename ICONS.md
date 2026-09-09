@@ -27,7 +27,7 @@ to storefront visitors — nominative use — and remains the property of its
 respective owner. Inclusion here is not an endorsement by those projects, and
 these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 
-All 13 items carry an icon; none currently ship screenshots.
+All 14 items carry an icon; none currently ship screenshots.
 
 | Item | Source | Method | License note |
 |---|---|---|---|
@@ -36,6 +36,7 @@ All 13 items carry an icon; none currently ship screenshots.
 | `label-studio` | <https://github.com/HumanSignal.png?size=512> | GitHub org avatar | Label Studio maintainer (HumanSignal) GitHub org avatar; nominative use. |
 | `langflow` | <https://github.com/langflow-ai.png?size=512> | GitHub org avatar | Langflow mark via the langflow-ai GitHub org avatar; nominative use. |
 | `litellm` | <https://github.com/BerriAI.png?size=512> | GitHub org avatar | LiteLLM maintainer (BerriAI) GitHub org avatar; nominative use. |
+| `litellm-stack` | <https://github.com/BerriAI.png?size=512> | GitHub org avatar | Same BerriAI mark as `litellm`, copied byte-for-byte rather than re-fetched, since the item lists the same upstream software; nominative use. |
 | `meilisearch` | <https://github.com/meilisearch.png?size=512> | GitHub org avatar | Meilisearch mark via the meilisearch GitHub org avatar; nominative use. |
 | `mlflow` | <https://github.com/mlflow.png?size=512> | GitHub org avatar | MLflow mark via the mlflow GitHub org avatar; nominative use. |
 | `n8n` | <https://github.com/n8n-io.png?size=512> | GitHub org avatar | n8n mark via the n8n-io GitHub org avatar; nominative use. |

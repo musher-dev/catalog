@@ -1,0 +1,147 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      ref: postgres:17.10-alpine
+    endpoints:
+      primary:
+        containerPort: 5432
+        protocol: TCP
+        visibility: PRIVATE
+    envVars:
+      - key: PGDATA
+        value:
+          type: LITERAL
+          value: /var/lib/postgresql/data/pgdata
+    volumes:
+      data:
+        sizeGib: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      # Generated rather than typed, and the `dsn` output below is the reason.
+      # A `${{ params.<key> }}` token is substituted verbatim — the platform
+      # percent-encodes nothing — so a password carrying `@`, `/`, `:`, `#` or
+      # `?` composes a URI that parses wrong or not at all, and the failure
+      # surfaces inside Prisma minutes into a deploy rather than on the form
+      # that accepted it. ALPHANUMERIC draws from base62, which contains no
+      # character reserved in a URI, so the value is safe in the userinfo
+      # position by construction rather than by a rule the user has to obey.
+      #
+      # Nothing outside the mesh connects to this database, so there is no
+      # password for a person to choose: the proxy receives it over a wire, and
+      # the deployment's Configuration tab is where to read it for a manual
+      # `psql`. That leaves this item's install form asking for nothing at all.
+      postgresPassword:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Database password
+        target:
+          envVarKey: POSTGRES_PASSWORD
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: >-
+          Auto-generated password for this database's user. It reaches the proxy
+          inside the connection string below rather than by being typed twice.
+          Copy it from the deployment's Configuration tab if you want to connect
+          to the database by hand.
+      # Typed, and interpolated into `dsn` just as the password is — so the same
+      # percent-encoding hazard applies, with the difference that this one has a
+      # person on the other end of it. The pattern is the intersection that
+      # costs nothing: every character in it is URL-safe, and it is also exactly
+      # what Postgres accepts as an unquoted identifier, so it rejects no name a
+      # role could legally have.
+      postgresUser:
+        schema:
+          type: STRING
+          default: postgres
+          pattern: '^[A-Za-z_][A-Za-z0-9_]{0,62}$'
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Database user
+        target:
+          envVarKey: POSTGRES_USER
+      postgresDb:
+        schema:
+          type: STRING
+          default: app
+          pattern: '^[A-Za-z_][A-Za-z0-9_]{0,62}$'
+        isRequired: false
+        suppliedBy: USER
+        ui:
+          label: Database name
+        target:
+          envVarKey: POSTGRES_DB
+    outputs:
+      address:
+        schema:
+          type: STRING
+          semanticType: POSTGRES
+        description: >-
+          Mesh-internal `host:port` of the database endpoint (for example
+          `db-myapp.internal:5432`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's CONNECTION input to
+          point that workload at this database.
+        valueFrom: DERIVED
+        value: null
+      # The whole URI rather than the address, for a consumer that takes one
+      # DSN and no separate credential settings. LiteLLM is that consumer:
+      # `DATABASE_URL` is the only database setting its container reads without
+      # a config file, and Prisma parses it as a URI.
+      #
+      # DECLARED, and DECLARED does not mean static. The value below is a
+      # template the platform interpolates once the node is placed:
+      # `${{ params.<key> }}` against this node's own resolved inputs,
+      # `${{ self.privateAddress.<endpoint> }}` against its own addressing. So
+      # the host and port that are unknowable at authoring time still arrive
+      # here — writing them is not the same as knowing them now.
+      #
+      # DERIVED is the narrower thing, and the reason `address` above is one and
+      # this is not: the platform assigns every DERIVED output the same value,
+      # the node's public URL if it has one and its private `host:port`
+      # otherwise. Neither is a connection string. `format` and `semanticType`
+      # do not close the gap — they are wiring-compatibility tags the publish
+      # gate reads to check a connection's two ends agree, and they synthesise
+      # nothing. An earlier revision of this file had that backwards, and the
+      # deployment it produced handed LiteLLM a `DATABASE_URL` of
+      # `db-litellm-stack.internal:5432`, which Prisma rejects with P1012
+      # before the proxy binds a port at all.
+      #
+      # Every token resolves from this node and nothing else — its own USER
+      # inputs, its own placement — which is what keeps the output legal:
+      # component §6.2 forbids an output that depends on a value the component
+      # received over an *inbound connection*, and none of these arrive that
+      # way. Blueprint §4.2's own worked example wires a Postgres node's
+      # `connectionString`, so a composed DSN is the shape the contract was
+      # written for.
+      #
+      # Sensitive because it embeds POSTGRES_PASSWORD. `address` is not, and
+      # that difference is the reason to keep both: a consumer that only needs
+      # to reach the server should take the address and not a copy of the
+      # password.
+      dsn:
+        schema:
+          type: STRING
+          format: CONNECTION_STRING
+          semanticType: POSTGRES
+          isSensitive: true
+        description: >-
+          Ready-to-use `postgresql://` URI for this database — the mesh-internal
+          host and port above, carrying the user, password and database name
+          this node was deployed with. Wire it into a consuming component's
+          CONNECTION input where that workload wants one connection string
+          rather than the parts.
+        valueFrom: DECLARED
+        value: >-
+          postgresql://${{ params.postgresUser }}:${{ params.postgresPassword }}@${{ self.privateAddress.primary }}/${{ params.postgresDb }}

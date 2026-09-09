@@ -1,0 +1,39 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: litellm-stack
+  version: 1
+spec:
+  components:
+    # Producers first: map order is graph order, and reading the two nodes the
+    # wires come from before the node they arrive at is what makes the
+    # connections below resolvable on a single pass down the file.
+    db:
+      component: ./components/postgres.yaml
+      size: general.standard.small
+      connections: {}
+    cache:
+      component: ./components/redis.yaml
+      size: general.standard.small
+      connections: {}
+    web:
+      component: ./components/litellm.yaml
+      # The single-container `litellm` item runs on general.economy.nano because
+      # a stateless proxy is mostly idle sockets. This one is not that: with
+      # DATABASE_URL set, the first boot runs the Prisma schema setup, and every
+      # request afterwards carries a key lookup and a spend write.
+      size: general.standard.small
+      connections:
+        databaseUrl:
+          fromRole: db
+          fromOutput: dsn
+        redisUrl:
+          fromRole: cache
+          fromOutput: url
+  # Derived rather than authored. The merged USER inputs are exactly the install
+  # form this item wants — the database user and name, both defaulted, beside
+  # three secrets the platform mints — and an authored block would have to
+  # restate all five to add nothing. Neither wired input appears there, which is
+  # the point: a CONNECTION input is satisfied by its wire and never reaches the
+  # form. What is left is a form with no required field on it.
+  parameters: {}

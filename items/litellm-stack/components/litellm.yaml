@@ -1,0 +1,177 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  version: 1
+spec:
+  workload:
+    kind: SERVICE
+    source:
+      type: IMAGE
+      # Same pin as the single-container `litellm` item, and it is the tip of
+      # LiteLLM's stable track rather than merely a recent tag: the project
+      # publishes `vX.Y.Z-stable` releases beside its ordinary ones, and
+      # v1.83.14-stable.patch.3 is the highest of them.
+      ref: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3
+    # No `command`. The image's ENTRYPOINT is `docker/prod_entrypoint.sh`, whose
+    # last line is `exec litellm "$@"`, and a Musher `command` overrides the
+    # image's CMD while inheriting its ENTRYPOINT — so every word written here
+    # arrives as a `litellm` CLI argument. The stock CMD (`--port 4000`) is
+    # already the one this component wants. See the `redisUrl` input below for
+    # what that argument-only surface costs.
+    endpoints:
+      primary:
+        containerPort: 4000
+        protocol: HTTP
+        visibility: PUBLIC
+    health:
+      readiness:
+        # /health/liveliness (LiteLLM's spelling) stays the gate even though this
+        # deployment now has the database that would make /health/readiness
+        # meaningful. That route is declared with
+        # `dependencies=[Depends(user_api_key_auth)]`, so once LITELLM_MASTER_KEY
+        # is set it answers 401 to a probe carrying no key, and the deployment
+        # would never come up. /health/liveliness carries no such dependency.
+        path: /health/liveliness
+        endpoint: primary
+        # Longer than the stateless item's 30s. With DATABASE_URL set, the CLI
+        # runs the Prisma schema setup *before* uvicorn binds the port
+        # (proxy_cli.run_server), so on a first deploy nothing answers on 4000
+        # until the migration chain has finished against an empty database.
+        initialDelaySeconds: 120
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+    envVars:
+      # Lets the proxy keep model definitions, and the config rows below, in the
+      # Postgres this blueprint deploys rather than in a config file this
+      # container has no way to receive. It is also what makes the Admin UI's
+      # "Add model" flow work at all.
+      - key: STORE_MODEL_IN_DB
+        value:
+          type: LITERAL
+          value: 'True'
+      # LITELLM_MODE defaults to "DEV", and "DEV" is the one value that makes
+      # the CLI call load_dotenv() on startup — reading a stray .env out of the
+      # working directory. Setting it leaves the platform as the only thing that
+      # can put settings into this container.
+      - key: LITELLM_MODE
+        value:
+          type: LITERAL
+          value: PRODUCTION
+      # DISABLE_SCHEMA_UPDATE is deliberately NOT set. Upstream sets it on proxy
+      # replicas because their Helm chart runs migrations in a separate job;
+      # this blueprint has no such job, so the proxy applying its own schema at
+      # startup is the only thing that creates the tables the database exists
+      # for.
+  contract:
+    inputs:
+      masterKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Master key
+        target:
+          envVarKey: LITELLM_MASTER_KEY
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: >-
+          Auto-generated proxy admin credential. It authenticates the admin API,
+          mints virtual keys, and is the Admin UI password. Copy it from the
+          deployment's Configuration tab.
+      # Distinct from the master key and far less forgiving. LITELLM_SALT_KEY
+      # encrypts the provider credentials the proxy stores in Postgres, so
+      # changing it after any credential has been saved leaves every stored
+      # credential undecryptable — upstream's own guidance is "set once, never
+      # change it". It is generated rather than typed for the same reason the
+      # master key is, and it exists in this item and not in the single-container
+      # `litellm` item because there is no encrypted-at-rest credential without a
+      # database to hold it.
+      saltKey:
+        schema:
+          type: STRING
+          isSensitive: true
+        isRequired: true
+        suppliedBy: USER
+        ui:
+          label: Salt key
+        target:
+          envVarKey: LITELLM_SALT_KEY
+        generator:
+          byteLength: 32
+          encoding: ALPHANUMERIC
+        description: >-
+          Auto-generated key encrypting provider API keys at rest in the
+          database. Rotating it makes every credential already stored
+          unreadable, so treat it as fixed for the life of the deployment.
+      # The wire that turns a stateless proxy into a re-billable one. Virtual
+      # keys, teams, budgets and the spend ledger are all rows; without this
+      # input none of the tables exist and the proxy is a router with a single
+      # shared credential.
+      #
+      # DATABASE_URL is the whole of the database configuration this container
+      # needs — the CLI reads it directly, appends its connection-pool query
+      # params, and hands it to Prisma. (LiteLLM will also assemble one from
+      # DATABASE_HOST/PORT/USER/PASSWORD/NAME, which is the same value spelled
+      # in five inputs instead of one wire.)
+      databaseUrl:
+        schema:
+          type: STRING
+          format: CONNECTION_STRING
+          semanticType: POSTGRES
+          isSensitive: true
+        isRequired: true
+        suppliedBy: CONNECTION
+        ui: null
+        target:
+          envVarKey: DATABASE_URL
+        description: >-
+          Postgres connection string the proxy stores virtual keys, teams,
+          budgets and spend in. Wired from the database node in this blueprint.
+      # WHAT THIS WIRE DOES, AND THE ONE THING IT DOES NOT.
+      #
+      # It does deliver the address. REDIS_URL is read by
+      # `_redis_kwargs_from_environment()`, which maps every `REDIS_<ARG>`
+      # variable onto a redis-py argument, and RedisCache drops a null host,
+      # port and password before calling `get_redis_client()` — so this URL
+      # alone is a complete connection, with no REDIS_HOST/REDIS_PORT beside it.
+      #
+      # It does not, on its own, switch Redis on. `redis_usage_cache` — the
+      # client the proxy shares tpm/rpm counters, spend and router state through
+      # — is assigned in exactly one place, `ProxyConfig._init_cache`, reached
+      # only from the `litellm_settings.cache is True` branch of `load_config`.
+      # No environment variable reaches that flag — not in this release, and not
+      # in the current one, which was read to check whether the gap had closed.
+      #
+      # And a config file cannot be shipped here: as the `command` note above
+      # records, everything this component can pass the container is a `litellm`
+      # CLI argument, so there is nowhere to write a `config.yaml` for `--config`
+      # to name.
+      #
+      # What closes the gap is the other wire. With STORE_MODEL_IN_DB set,
+      # `ProxyConfig.save_config` writes `litellm_settings` to the `config` table
+      # in Postgres and `_update_config_from_db` merges it back at every start,
+      # so a one-time POST of `{"litellm_settings": {"cache": true}}` to
+      # /config/update, authenticated with the master key, is durable and
+      # applies to every replica. `cache_params` is left empty on purpose: an
+      # empty block is what sends LiteLLM to the environment, and the
+      # environment is where this wire has already put the URL.
+      redisUrl:
+        schema:
+          type: STRING
+          format: CONNECTION_STRING
+          semanticType: REDIS
+        isRequired: true
+        suppliedBy: CONNECTION
+        ui: null
+        target:
+          envVarKey: REDIS_URL
+        description: >-
+          Redis connection URL backing the shared response cache, cross-replica
+          rate-limit counters and router state. Wired from the cache node in
+          this blueprint; enable caching once from the Admin UI or
+          /config/update and the setting persists in the database.
+    outputs: {}
