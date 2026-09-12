@@ -99,7 +99,7 @@ export function buildContext(
 
   const nodes: NodeBinding[] = Object.entries(components).map(([name, raw]) => {
     const node = record(raw);
-    const reference = typeof node['component'] === 'string' ? node['component'] : '';
+    const reference = typeof node['componentRef'] === 'string' ? node['componentRef'] : '';
 
     if (/^\.{1,2}\//.test(reference)) {
       const componentPath = path.resolve(item.root, reference);
@@ -153,14 +153,16 @@ export function checkIdentity(context: SemanticContext): Diagnostic[] {
 
   // The rule takes two operands. A COMPONENT item holding no blueprint has no
   // second one — not a different one — so it goes silent rather than failing.
-  const listingVersion = metadataOf(documents.listing)['version'];
-  const blueprintVersion = metadataOf(documents.blueprint)['version'];
-  if (documents.listing?.value && documents.blueprint?.value && listingVersion !== blueprintVersion) {
+  // The field is `revision` and the code is still ERR_VERSION_MISMATCH: ADR 0007
+  // §3 renamed the field and left the diagnostic, which the spec's §7 table keeps.
+  const listingRevision = metadataOf(documents.listing)['revision'];
+  const blueprintRevision = metadataOf(documents.blueprint)['revision'];
+  if (documents.listing?.value && documents.blueprint?.value && listingRevision !== blueprintRevision) {
     found.push(
       diag(
         'ERR_VERSION_MISMATCH',
-        `${documents.blueprint.label} /metadata/version`,
-        `blueprint version ${JSON.stringify(blueprintVersion)} disagrees with listing version ${JSON.stringify(listingVersion)}`,
+        `${documents.blueprint.label} /metadata/revision`,
+        `blueprint revision ${JSON.stringify(blueprintRevision)} disagrees with listing revision ${JSON.stringify(listingRevision)}`,
       ),
     );
   }
@@ -179,7 +181,7 @@ export function checkComponentReferences(context: SemanticContext): Diagnostic[]
   const referenced = new Set<string>();
 
   for (const binding of context.nodes) {
-    const where = `${documents.blueprint.label} /spec/components/${binding.name}/component`;
+    const where = `${documents.blueprint.label} /spec/components/${binding.name}/componentRef`;
 
     if (binding.form === 'published') continue; // capability — not decidable offline
     if (binding.form === 'unrecognised') {
@@ -510,7 +512,85 @@ const outputsOf = (component: Record<string, unknown> | null): Record<string, un
 const suppliedBy = (input: Record<string, unknown>): string =>
   typeof input['suppliedBy'] === 'string' ? input['suppliedBy'] : 'USER';
 
-const isRequired = (input: Record<string, unknown>): boolean => input['isRequired'] !== false;
+const isRequired = (input: Record<string, unknown>): boolean => input['required'] !== false;
+
+const isExternal = (component: Record<string, unknown> | null): boolean =>
+  isRecord(record(record(component ?? {})['spec'])['external']);
+
+/* ---------------------------------------------------------- output inputs */
+
+/**
+ * Component spec §6.2 — COMP-OUT-002 and COMP-OUT-003.
+ *
+ * An `INPUT` output republishes one of its own component's inputs. The name has
+ * to resolve, and the input must not be `CONNECTION`-supplied: that one resolves
+ * only after an edge is bound, and an output reading it would make blueprint
+ * §4.2's legal cycles unresolvable rather than merely cyclic.
+ */
+export function checkOutputInputReferences(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const inputs = inputsOf(doc.value);
+
+    for (const [outputName, rawOutput] of Object.entries(outputsOf(doc.value))) {
+      const output = record(rawOutput);
+      if (output['valueFrom'] !== 'INPUT') continue;
+
+      const named = output['input'];
+      const where = `${rel(componentPath)} /spec/contract/outputs/${outputName}/input`;
+      const input = typeof named === 'string' ? inputs[named] : undefined;
+
+      if (!isRecord(input)) {
+        found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', where, `${JSON.stringify(named)} names no input this component declares`));
+      } else if (suppliedBy(input) === 'CONNECTION') {
+        found.push(
+          diag(
+            'ERR_INPUT_NOT_REFERENCEABLE',
+            where,
+            `input ${JSON.stringify(named)} is CONNECTION-supplied, so it resolves only after an edge is bound`,
+          ),
+        );
+      }
+    }
+  }
+
+  return found;
+}
+
+/* ------------------------------------------------------------ node compute */
+
+/**
+ * Blueprint spec §4.3 — BP-NODE-002. `size` is null if and only if the node's
+ * component is external. Silent where the component cannot be read offline,
+ * because whether it is external is exactly what an unread component hides.
+ */
+export function checkNodeCompute(context: SemanticContext): Diagnostic[] {
+  const blueprint = context.documents.blueprint;
+  if (!blueprint?.value) return [];
+
+  const found: Diagnostic[] = [];
+  for (const binding of context.nodes) {
+    if (binding.unreadable) continue;
+
+    const runsNothing = binding.node['size'] === null;
+    const external = isExternal(binding.component);
+    if (runsNothing === external) continue;
+
+    found.push(
+      diag(
+        'ERR_CONFLICTING_NODE_COMPUTE',
+        `${blueprint.label} /spec/components/${binding.name}/size`,
+        external
+          ? `the component ${JSON.stringify(binding.reference)} is external and runs nothing, so the node names no Compute Profile — write size: null`
+          : `the component ${JSON.stringify(binding.reference)} runs a workload, so size: null leaves it nowhere to run`,
+      ),
+    );
+  }
+
+  return found;
+}
 
 /** Blueprint spec §4.2. */
 export function checkConnections(context: SemanticContext): Diagnostic[] {
@@ -534,6 +614,19 @@ export function checkConnections(context: SemanticContext): Diagnostic[] {
       const consumerInput = consumerInputs[inputKey];
       if (!consumer.unreadable && !isRecord(consumerInput)) {
         found.push(diag('ERR_UNKNOWN_INPUT', where, `${JSON.stringify(inputKey)} names no input of the component ${JSON.stringify(consumer.name)} deploys`));
+      }
+
+      // BP-CONN-001. A wire and the install form would otherwise both claim one
+      // value with nothing saying which arrives — and component §6.2's INPUT
+      // output is sound only because a USER input cannot arrive over an edge.
+      if (isRecord(consumerInput) && suppliedBy(consumerInput) !== 'CONNECTION') {
+        found.push(
+          diag(
+            'ERR_INPUT_NOT_CONNECTABLE',
+            where,
+            `input ${JSON.stringify(inputKey)} is supplied by ${suppliedBy(consumerInput)}, and a connection may fill only a CONNECTION input`,
+          ),
+        );
       }
 
       const fromRole = connection['fromRole'];
@@ -571,17 +664,19 @@ export function checkConnections(context: SemanticContext): Diagnostic[] {
         );
       }
 
-      // A consumer declaring null accepts any producer. A consumer declaring a
-      // tag requires the same tag — including rejecting a producer declaring null,
-      // because an unconstrained producer does not satisfy a constrained consumer.
-      const consumerTag = consumerSchema['semanticType'] ?? null;
-      const producerTag = producerSchema['semanticType'] ?? null;
+      // A consumer declaring none accepts any producer. A consumer declaring an
+      // identifier requires the same one — including rejecting a producer that
+      // declares none, because an unconstrained producer does not satisfy a
+      // constrained consumer. An equality of two strings, so it stays offline:
+      // whether the identifier is registered is `capability`.
+      const consumerTag = consumerSchema['resourceType'] ?? null;
+      const producerTag = producerSchema['resourceType'] ?? null;
       if (consumerTag !== null && producerTag !== consumerTag) {
         found.push(
           diag(
-            'ERR_INCOMPATIBLE_SEMANTIC_TYPE',
+            'ERR_INCOMPATIBLE_RESOURCE_TYPE',
             `${where}/fromOutput`,
-            `input requires semanticType ${JSON.stringify(consumerTag)} but the output declares ${JSON.stringify(producerTag)}`,
+            `input requires resourceType ${JSON.stringify(consumerTag)} but the output declares ${JSON.stringify(producerTag)}`,
           ),
         );
       }
@@ -645,7 +740,7 @@ function checkDerivedParameters(context: SemanticContext): Diagnostic[] {
       }
 
       // An identical redeclaration is absorbed in silence — two components that
-      // agree on what adminPassword is are not in conflict. `ui` and `isRequired`
+      // agree on what adminPassword is are not in conflict. `ui` and `required`
       // are not compared: they describe how a value is asked for, not what it is.
       if (!deepEqual(first.schema, schema)) {
         found.push(
@@ -703,6 +798,7 @@ function checkAuthoredParameters(context: SemanticContext, parameters: Record<st
     }
 
     const parameterType = record(parameter['schema'])['type'];
+    const parameterTag = record(parameter['schema'])['resourceType'] ?? null;
     for (const { node, input } of covered) {
       const inputType = record(input['schema'])['type'];
       if (parameterType !== inputType) {
@@ -714,11 +810,25 @@ function checkAuthoredParameters(context: SemanticContext, parameters: Record<st
           ),
         );
       }
+
+      // The opposite asymmetry to a wire's. A parameter naming no identifier
+      // covers an input that names one — an install form is not where a value
+      // acquires a tag. Naming a *different* one is a form collecting the wrong value.
+      const inputTag = record(input['schema'])['resourceType'] ?? null;
+      if (parameterTag !== null && parameterTag !== inputTag) {
+        found.push(
+          diag(
+            'ERR_INCOMPATIBLE_PARAMETER_RESOURCE_TYPE',
+            `${blueprint.label} /spec/parameters/${key}/schema/resourceType`,
+            `parameter resourceType ${JSON.stringify(parameterTag)} disagrees with input resourceType ${JSON.stringify(inputTag)} on node ${JSON.stringify(node)}`,
+          ),
+        );
+      }
     }
   }
 
   // An input the deploying user must supply must be covered, and covered by a
-  // parameter that will actually ask for it. `isRequired` reads in opposite
+  // parameter that will actually ask for it. `required` reads in opposite
   // directions on the two documents, so this tests what a parameter guarantees
   // rather than only which keys it names.
   for (const [key, declarations] of userInputs) {
@@ -750,11 +860,16 @@ function mustBeCovered(input: Record<string, unknown>): boolean {
   );
 }
 
-/** A parameter covers such an input only if it guarantees a value. */
+/**
+ * A parameter covers such an input only if it guarantees a value. A platform
+ * default guarantees one for the reason a generator does: the value arrives
+ * without the deploying user supplying it.
+ */
 function guaranteesValue(parameter: Record<string, unknown>): boolean {
   return (
-    parameter['isRequired'] === true ||
+    parameter['required'] === true ||
     (parameter['generator'] ?? null) !== null ||
+    (parameter['platformDefault'] ?? null) !== null ||
     (record(parameter['schema'])['default'] ?? null) !== null
   );
 }

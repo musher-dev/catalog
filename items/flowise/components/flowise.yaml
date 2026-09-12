@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  revision: 1
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       ref: flowiseai/flowise:3.1.3
@@ -40,15 +40,15 @@ spec:
           value: /root/.flowise/logs
     volumes:
       data:
-        sizeGib: 5
+        sizeGiB: 5
         mountPath: /root/.flowise
   contract:
     inputs:
       flowiseSecretKey:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: Secret key

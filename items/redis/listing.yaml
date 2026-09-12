@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: redis
-  version: 1
+  revision: 1
 spec:
   listingKind: COMPONENT
   displayName: Redis

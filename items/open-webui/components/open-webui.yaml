@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 3
+  revision: 3
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       ref: ghcr.io/open-webui/open-webui:v0.10.2
@@ -33,7 +33,7 @@ spec:
         failureThreshold: 10
     volumes:
       data:
-        sizeGib: 8
+        sizeGiB: 8
         mountPath: /app/backend/data
   contract:
     inputs:
@@ -41,7 +41,7 @@ spec:
         schema:
           type: BOOLEAN
           default: 'false'
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Enable Ollama API
@@ -63,7 +63,7 @@ spec:
           type: STRING
           format: ENDPOINT_URL
           default: http://ollama:11434
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Ollama base URL
@@ -80,8 +80,8 @@ spec:
       webuiSecretKey:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: WebUI secret key

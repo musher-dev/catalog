@@ -2,11 +2,11 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: meilisearch
-  version: 1
+  revision: 1
 spec:
   components:
     web:
-      component: ./components/meilisearch.yaml
+      componentRef: ./components/meilisearch.yaml
       size: general.standard.nano
       connections: {}
   parameters: {}

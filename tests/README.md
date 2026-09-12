@@ -48,7 +48,7 @@ phases pass.
 | `spec.test.ts` | — | The bundles resolve, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
 | `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (component §7.1): one document per file, string keys, no anchors, aliases, merge keys or explicit tags, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
-| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, reference resolution, path containment, media, the description Markdown profile, image pinning, endpoint resolution, connection compatibility, and parameter coverage. |
+| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, reference resolution, path containment, media, the description Markdown profile, image pinning, endpoint resolution, `INPUT` output references (COMP-OUT-002/003), node compute against external components (BP-NODE-002), connection compatibility including which inputs a wire may fill (BP-CONN-001), and parameter coverage and agreement. |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
 | `rules.test.ts` | — | The rules themselves, against deliberately broken synthetic items. |
 

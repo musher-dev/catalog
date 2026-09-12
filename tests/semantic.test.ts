@@ -27,6 +27,8 @@ import {
   checkIdentity,
   checkImagePinning,
   checkMedia,
+  checkNodeCompute,
+  checkOutputInputReferences,
   checkParameters,
   checkPlatformDefaults,
   valueSchemaDefaultsFrom,
@@ -99,7 +101,17 @@ for (const item of items) {
       assert.deepEqual(report(checkPlatformDefaults(context)), []);
     });
 
-    it('every connection resolves at both ends and the two fit — §4.2', async () => {
+    it('every INPUT output names a non-CONNECTION input of its own component — COMP-OUT-002/003', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkOutputInputReferences(context)), []);
+    });
+
+    it('a node names no compute exactly when its component runs nothing — BP-NODE-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkNodeCompute(context)), []);
+    });
+
+    it('every connection resolves at both ends, fills a CONNECTION input, and the two fit — §4.2, BP-CONN-001', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkConnections(context)), []);
     });

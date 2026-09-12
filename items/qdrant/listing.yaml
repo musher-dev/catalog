@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: qdrant
-  version: 2
+  revision: 2
 spec:
   listingKind: BLUEPRINT
   displayName: Qdrant

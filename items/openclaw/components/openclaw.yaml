@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 2
+  revision: 2
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       # PINNED, and the pin is load-bearing rather than merely current: 2026.7.1
@@ -129,13 +129,13 @@ spec:
       # the agent workspace (default /home/node/.openclaw/workspace lives inside
       # this directory, so a single claim covers config + workspace).
       config:
-        sizeGib: 10
+        sizeGiB: 10
         mountPath: /home/node/.openclaw
       # Master encryption key for OAuth-backed auth profiles. Kept as its own claim
       # because OpenClaw intentionally places this key outside the config directory,
       # so connected-channel tokens survive restarts and stay decryptable.
       auth-secrets:
-        sizeGib: 1
+        sizeGiB: 1
         mountPath: /home/node/.config/openclaw
   contract:
     inputs:
@@ -145,8 +145,8 @@ spec:
       gatewayToken:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: Gateway token
@@ -162,7 +162,7 @@ spec:
         schema:
           type: STRING
           format: ENDPOINT_URL
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Public origin
@@ -185,7 +185,7 @@ spec:
           type: STRING
           format: TIMEZONE
           default: UTC
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Timezone

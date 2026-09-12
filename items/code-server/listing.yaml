@@ -2,7 +2,7 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: code-server
-  version: 1
+  revision: 1
 spec:
   listingKind: BLUEPRINT
   displayName: code-server
