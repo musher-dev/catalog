@@ -21,7 +21,7 @@ normatively in [`musher-dev/spec`](https://github.com/musher-dev/spec).
 items/
 └── <slug>/                     # ONE self-contained item per directory
     ├── listing.yaml            # storefront wrapper
-    ├── blueprint.yaml          # composition graph
+    ├── blueprint.yaml          # composition graph (see COMPONENT items below)
     ├── components/
     │   └── <name>.yaml         # ≥1; every file referenced by blueprint.yaml
     └── media/                  # optional assets
@@ -37,15 +37,17 @@ These are hard requirements. A violation is rejected when the platform syncs
 this repo:
 
 - the directory name equals both `listing.yaml`'s and `blueprint.yaml`'s
-  `metadata.slug`, and their `metadata.version` values match;
-- every blueprint node's `component` resolves to a `components/<name>.yaml`
+  `metadata.slug`, and their `metadata.revision` values match;
+- every blueprint node's `componentRef` resolves to a `components/<name>.yaml`
   file **in the same item directory**, and every such file is referenced — no
   unreferenced components;
 - media paths are item-relative, live under `media/`, contain no `..`, use a
   supported extension, and exist on disk;
-- every node's `size` names a Compute Profile the platform offers;
+- every node's `size` names a Compute Profile the platform offers — or is
+  `null` exactly when the node deploys an external component
+  (`spec.external`), which runs nothing;
 - image refs are **pinned** — `:latest`, `:main` and `:edge` are rejected;
-- component shape follows the workload kind: `SERVICE` requires endpoints plus
+- component shape follows the workload type: `SERVICE` requires endpoints plus
   a readiness probe for a public endpoint; `WORKER`, `JOB` and `CRON` forbid
   endpoints.
 
@@ -62,10 +64,10 @@ Create `items/<slug>/` with a component file per building block.
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1                    # the version blueprint nodes pin
+  revision: 1                   # the revision this document is released at
 spec:
   workload:
-    kind: SERVICE               # SERVICE | WORKER | JOB | CRON
+    type: SERVICE               # SERVICE | WORKER | JOB | CRON
     source:
       type: IMAGE
       ref: ghcr.io/example/my-app:1.2.3   # pinned — no :latest
@@ -81,8 +83,8 @@ spec:
   contract:                     # typed inputs — the install form
     inputs:
       adminPassword:
-        schema: { type: STRING, isSensitive: true }
-        isRequired: true
+        schema: { type: STRING, sensitive: true }
+        required: true
         suppliedBy: USER
         ui: { label: Admin password }
         target: { envVarKey: ADMIN_PASSWORD }
@@ -95,11 +97,11 @@ binds compute per node:
 ```yaml
 specVersion: v1
 kind: BLUEPRINT
-metadata: { slug: my-app, version: 1 }
+metadata: { slug: my-app, revision: 1 }
 spec:
   components:
     web:                        # graph-local node name (map order = graph order)
-      component: ./components/my-app.yaml   # must begin ./ and end .yaml
+      componentRef: ./components/my-app.yaml   # must begin ./ and end .yaml
       size: general.standard.small          # binding Compute Profile
       connections: {}           # inbound wires, keyed by consumer input
   parameters: {}                # empty ⇒ derived from merged USER inputs
@@ -114,7 +116,7 @@ validator could tell which resolver the reference wanted.
 ```yaml
 specVersion: v1
 kind: LISTING
-metadata: { slug: my-app, version: 1 }
+metadata: { slug: my-app, revision: 1 }
 spec:
   listingKind: BLUEPRINT        # BLUEPRINT | COMPONENT
   displayName: My App
@@ -135,10 +137,24 @@ spec:
 
 A multi-service item adds more entries under `spec.components` — unique node
 names, one `components/<name>.yaml` per reference — and wires `connections`
-between declared component outputs and inputs. A wire's two ends must agree on
-`schema.type`, and on `schema.semanticType` wherever the consuming input names
-one. A `COMPONENT`-kind listing still
-authors a trivial single-node `blueprint.yaml` wrapping its one component.
+between declared component outputs and inputs. A wire may fill only an input
+declared `suppliedBy: CONNECTION`, and its two ends must agree on `schema.type`,
+and on `schema.resourceType` wherever the consuming input names one. Input,
+output and connection names are `lowerCamelCase` — the environment-variable key
+is what `target.envVarKey` carries, not the input's name.
+
+A node the platform does not run — a service addressed elsewhere, such as a
+language-model endpoint — is a component declaring `spec.external` in place of
+`spec.workload`. Its blueprint node writes `size: null`, and the values it holds
+reach the install form through its `USER` inputs like any other node's.
+
+A `COMPONENT`-kind listing that wraps a workload still authors a trivial
+single-node `blueprint.yaml` around its one component, so it can be deployed on
+its own (`postgres`, `redis`). One that publishes an external building block —
+`llm-endpoint` — holds **no** `blueprint.yaml`, as listing spec §3.1 permits: a
+one-node blueprint around a node that runs nothing would deploy nothing. A
+blueprint that needs such a node carries its own copy under `components/`,
+because a repo-local reference cannot leave its item directory.
 
 ## Validation
 

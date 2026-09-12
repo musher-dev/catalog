@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 1
+  revision: 1
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       ref: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3
@@ -28,8 +28,8 @@ spec:
       masterKey:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: Master key

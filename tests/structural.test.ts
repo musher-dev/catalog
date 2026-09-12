@@ -39,8 +39,14 @@ for (const item of items) {
       await assertValidates('listing', listing);
     });
 
-    it('blueprint.yaml validates against the blueprint schema', async () => {
-      const { blueprint } = await loadItemDocuments(item);
+    it('blueprint.yaml validates against the blueprint schema', async (t) => {
+      const { blueprint, listing } = await loadItemDocuments(item);
+      if (!blueprint && (listing?.value?.['spec'] as Record<string, unknown> | undefined)?.['listingKind'] === 'COMPONENT') {
+        // Listing spec §3.1: a COMPONENT item may hold no blueprint. Whether
+        // this one may is layout.test.ts's question, not this phase's.
+        t.skip('a COMPONENT item holding no blueprint');
+        return;
+      }
       assert.ok(blueprint, `items/${item.slug} holds no blueprint.yaml`);
       await assertValidates('blueprint', blueprint);
     });

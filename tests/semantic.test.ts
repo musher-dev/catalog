@@ -27,6 +27,8 @@ import {
   checkIdentity,
   checkImagePinning,
   checkMedia,
+  checkNodeCompute,
+  checkOutputInputReferences,
   checkParameters,
   checkPlatformDefaults,
   valueSchemaDefaultsFrom,
@@ -99,7 +101,17 @@ for (const item of items) {
       assert.deepEqual(report(checkPlatformDefaults(context)), []);
     });
 
-    it('every connection resolves at both ends and the two fit — §4.2', async () => {
+    it('every INPUT output names a non-CONNECTION input of its own component — COMP-OUT-002/003', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkOutputInputReferences(context)), []);
+    });
+
+    it('a node names no compute exactly when its component runs nothing — BP-NODE-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkNodeCompute(context)), []);
+    });
+
+    it('every connection resolves at both ends, fills a CONNECTION input, and the two fit — §4.2, BP-CONN-001', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkConnections(context)), []);
     });
@@ -112,6 +124,32 @@ for (const item of items) {
 }
 
 describe('the corpus as a whole', () => {
+  it('holds one contract per external resourceType', async () => {
+    // Not a spec rule — a catalog one. Blueprint §4.1 keeps a repo-local
+    // reference inside its item, so every item wiring an external node carries
+    // its own copy of it (open-webui's models.yaml beside llm-endpoint's
+    // endpoint.yaml). Copies drift silently, and two nodes claiming one
+    // resourceType while asking for different values would put two different
+    // install forms behind one identifier.
+    const byType = new Map<string, { label: string; contract: string }[]>();
+    for (const item of items) {
+      const { documents } = await contextFor(item);
+      for (const doc of documents.components.values()) {
+        const spec = doc.value?.['spec'] as Record<string, unknown> | undefined;
+        const resourceType = (spec?.['external'] as Record<string, unknown> | undefined)?.['resourceType'];
+        if (typeof resourceType !== 'string') continue;
+        const list = byType.get(resourceType) ?? [];
+        list.push({ label: doc.label, contract: JSON.stringify(spec?.['contract']) });
+        byType.set(resourceType, list);
+      }
+    }
+
+    const drifted = [...byType].flatMap(([resourceType, copies]) =>
+      copies.filter((copy) => copy.contract !== copies[0]!.contract).map((copy) => `${copy.label} disagrees with ${copies[0]!.label} on ${resourceType}`),
+    );
+    assert.deepEqual(drifted, []);
+  });
+
   it('declares every media file it ships', async () => {
     // Not a spec rule — nothing rejects an item for shipping an asset it never
     // declares. It is a catalog rule: an undeclared file is bytes the storefront

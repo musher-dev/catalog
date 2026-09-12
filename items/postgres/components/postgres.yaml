@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 2
+  revision: 2
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       ref: postgres:17.10-alpine
@@ -20,15 +20,15 @@ spec:
           value: /var/lib/postgresql/data/pgdata
     volumes:
       data:
-        sizeGib: 10
+        sizeGiB: 10
         mountPath: /var/lib/postgresql/data
   contract:
     inputs:
       postgresPassword:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: Database password
@@ -49,7 +49,7 @@ spec:
         schema:
           type: STRING
           default: postgres
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Database user
@@ -60,7 +60,7 @@ spec:
         schema:
           type: STRING
           default: app
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Database name
@@ -71,11 +71,10 @@ spec:
       address:
         schema:
           type: STRING
-          semanticType: POSTGRES
+          resourceType: dev.musher.postgresql.address
         description: >-
           Mesh-internal `host:port` of the database endpoint (for example
           `db-myapp.internal:5432`), resolvable only by workloads in the same
           deployment. Wire it into a consuming component's CONNECTION input to
           point that workload at this database.
         valueFrom: DERIVED
-        value: null

@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 2
+  revision: 2
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       ref: n8nio/n8n:2.31.6
@@ -46,7 +46,7 @@ spec:
           value: '1'
     volumes:
       data:
-        sizeGib: 4
+        sizeGiB: 4
         mountPath: /home/node/.n8n
   contract:
     inputs:
@@ -54,7 +54,7 @@ spec:
         schema:
           type: STRING
           format: HOSTNAME
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Public hostname
@@ -74,7 +74,7 @@ spec:
         schema:
           type: STRING
           format: ENDPOINT_URL
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Webhook base URL
@@ -96,7 +96,7 @@ spec:
         schema:
           type: STRING
           format: ENDPOINT_URL
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Editor base URL
@@ -118,7 +118,7 @@ spec:
           type: STRING
           format: TIMEZONE
           default: UTC
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Timezone

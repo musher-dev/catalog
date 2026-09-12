@@ -2,11 +2,11 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  version: 1
+  revision: 1
 spec:
   components:
     web:
-      component: ./components/openclaw.yaml
+      componentRef: ./components/openclaw.yaml
       size: general.standard.small
       connections: {}
   parameters: {}

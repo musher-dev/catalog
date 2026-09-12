@@ -1,10 +1,10 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  version: 3
+  revision: 3
 spec:
   workload:
-    kind: SERVICE
+    type: SERVICE
     source:
       type: IMAGE
       ref: heartexlabs/label-studio:1.23.0
@@ -33,7 +33,7 @@ spec:
           value: 'true'
     volumes:
       data:
-        sizeGib: 10
+        sizeGiB: 10
         mountPath: /label-studio/data
   contract:
     inputs:
@@ -41,7 +41,7 @@ spec:
         schema:
           type: STRING
           format: EMAIL
-        isRequired: true
+        required: true
         suppliedBy: USER
         ui:
           label: Admin email
@@ -52,8 +52,8 @@ spec:
       adminPassword:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: Admin password
@@ -88,7 +88,7 @@ spec:
         schema:
           type: STRING
           format: ENDPOINT_URL
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Public URL
@@ -132,7 +132,7 @@ spec:
       csrfTrustedOrigins:
         schema:
           type: STRING
-        isRequired: false
+        required: false
         suppliedBy: USER
         ui:
           label: Trusted origins
@@ -164,8 +164,8 @@ spec:
       secretKey:
         schema:
           type: STRING
-          isSensitive: true
-        isRequired: true
+          sensitive: true
+        required: true
         suppliedBy: USER
         ui:
           label: Secret key

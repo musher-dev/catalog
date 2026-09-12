@@ -20,6 +20,7 @@ import {
   MEDIA_DIR,
   SLUG_PATTERN,
   discoverItems,
+  loadItemDocuments,
 } from './lib/catalog.ts';
 import { ITEMS_DIR, rel } from './lib/paths.ts';
 
@@ -64,12 +65,21 @@ for (const item of items) {
       assert.ok(item.listingPath, `${rel(item.root)} holds no ${LISTING_FILE}`);
     });
 
-    it(`holds ${BLUEPRINT_FILE}`, () => {
-      // A catalog rule rather than a spec one: the spec lets a COMPONENT-kind
-      // listing ship without a blueprint, and the platform deploys exactly one
-      // blueprint per listing — so this corpus authors a trivial single-node
-      // blueprint even there, per the repository README.
-      assert.ok(item.blueprintPath, `${rel(item.root)} holds no ${BLUEPRINT_FILE}`);
+    it(`holds ${BLUEPRINT_FILE}, unless it is a COMPONENT item`, async () => {
+      // Listing spec §3.1 lets a COMPONENT-kind item ship with no blueprint, and
+      // this corpus narrows that to a catalog rule: a BLUEPRINT item must hold
+      // one. A COMPONENT item wrapping a workload still authors a trivial
+      // single-node blueprint so it is deployable on its own (postgres, redis).
+      // An external building block does not, because a one-node blueprint around
+      // a node that runs nothing would deploy nothing.
+      if (item.blueprintPath) return;
+      const { listing } = await loadItemDocuments(item);
+      const listingKind = (listing?.value?.['spec'] as Record<string, unknown> | undefined)?.['listingKind'];
+      assert.equal(
+        listingKind,
+        'COMPONENT',
+        `${rel(item.root)} holds no ${BLUEPRINT_FILE}, and only a listingKind: COMPONENT item may omit one`,
+      );
     });
 
     it('holds at least one component document', () => {

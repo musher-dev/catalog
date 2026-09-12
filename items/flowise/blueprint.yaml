@@ -2,11 +2,11 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  version: 1
+  revision: 1
 spec:
   components:
     web:
-      component: ./components/flowise.yaml
+      componentRef: ./components/flowise.yaml
       size: general.standard.small
       connections: {}
   parameters: {}
