@@ -21,7 +21,7 @@ normatively in [`musher-dev/spec`](https://github.com/musher-dev/spec).
 items/
 └── <slug>/                     # ONE self-contained item per directory
     ├── listing.yaml            # storefront wrapper
-    ├── blueprint.yaml          # composition graph
+    ├── blueprint.yaml          # composition graph (see COMPONENT items below)
     ├── components/
     │   └── <name>.yaml         # ≥1; every file referenced by blueprint.yaml
     └── media/                  # optional assets
@@ -149,7 +149,12 @@ language-model endpoint — is a component declaring `spec.external` in place of
 reach the install form through its `USER` inputs like any other node's.
 
 A `COMPONENT`-kind listing that wraps a workload still authors a trivial
-single-node `blueprint.yaml` around its one component.
+single-node `blueprint.yaml` around its one component, so it can be deployed on
+its own (`postgres`, `redis`). One that publishes an external building block —
+`llm-endpoint` — holds **no** `blueprint.yaml`, as listing spec §3.1 permits: a
+one-node blueprint around a node that runs nothing would deploy nothing. A
+blueprint that needs such a node carries its own copy under `components/`,
+because a repo-local reference cannot leave its item directory.
 
 ## Validation
 

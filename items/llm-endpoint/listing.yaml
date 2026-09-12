@@ -1,0 +1,47 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: llm-endpoint
+  revision: 1
+spec:
+  listingKind: COMPONENT
+  displayName: LLM Endpoint
+  summary: >-
+    A language-model API you already have, as a building block other items can
+    wire into — an address, a key and a model name, asked for once, together.
+  description: |
+    **LLM Endpoint** stands for a language-model service that runs somewhere
+    other than your deployment. It holds the three values an application needs
+    to reach one — an API base URL, an API key, and optionally a model name —
+    and hands them to whatever it is wired into as one set.
+
+    It runs nothing. There is no container, no compute and no charge for the
+    node itself: it is a declaration of where your model lives.
+
+    ## When to use it
+
+    - You already pay for a hosted model API and want a chat UI or agent
+      builder to use it without pasting the same key into each one.
+    - You run your own inference server and want it to stand in for a hosted
+      one with nothing else in the composition changing.
+    - You want the address and the credential to arrive **together**, so an
+      application can never end up holding a key from one provider and an
+      address from another.
+
+    ## What it does not do
+
+    **Nothing checks the address.** The platform never connects to it, probes
+    it, or confirms that anything answers there — not at install time and not
+    afterwards. If the URL or key is wrong, the application consuming them is
+    the first thing to find out. That is deliberate: a platform that fetched an
+    address a user typed would be one that could be pointed at anything.
+
+    Any service speaking the chat-completions wire protocol works, including an
+    inference engine you host yourself.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - inference
+    - endpoint
