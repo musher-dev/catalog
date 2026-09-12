@@ -1,0 +1,79 @@
+# A node this platform does not run (component spec §5.6). There is no image,
+# no compute and no address of its own: `spec.external.resourceType` says what
+# kind of service the node addresses, and nothing more.
+#
+# The values an application needs to reach that service arrive as USER inputs
+# and leave as INPUT outputs. Publishing them from one node is the point: an
+# address from one provider beside a credential from another reaches nothing,
+# and a consumer wiring two of them from this node's `fromRole` is taking them
+# from one source by construction.
+#
+# Deliberately vendor-neutral. The address may be a Musher inference endpoint, a
+# third-party service, or an engine the customer runs themselves; this document
+# cannot tell the difference and must not pretend to. Nothing resolves the
+# address, connects to it, or checks that anything answers there (component
+# spec §11) — a reachability check against a user-supplied address would be a
+# server-side request forgery primitive.
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+spec:
+  external:
+    resourceType: dev.musher.llm.chat-completions
+  contract:
+    inputs:
+      baseUrl:
+        schema:
+          type: STRING
+          format: ENDPOINT_URL
+          resourceType: dev.musher.llm.base-url
+        ui:
+          label: API base URL
+          order: 1
+          examples:
+            - https://api.example.com/v1
+        description: >-
+          Base URL of the chat-completions API this node addresses. Anything
+          speaking the same wire will do; nothing here resolves it or connects
+          to it.
+      apiKey:
+        schema:
+          type: STRING
+          sensitive: true
+          resourceType: dev.musher.llm.api-key
+        ui:
+          label: API key
+          order: 2
+        description: Bearer credential presented to the service above.
+      model:
+        schema:
+          type: STRING
+          resourceType: dev.musher.llm.model-name
+        required: false
+        ui:
+          label: Model name
+          order: 3
+          prominence: SECONDARY
+        description: Name the service uses to select which model answers.
+    outputs:
+      baseUrl:
+        schema:
+          type: STRING
+          format: ENDPOINT_URL
+          resourceType: dev.musher.llm.base-url
+        valueFrom: INPUT
+        input: baseUrl
+      apiKey:
+        schema:
+          type: STRING
+          sensitive: true
+          resourceType: dev.musher.llm.api-key
+        valueFrom: INPUT
+        input: apiKey
+      model:
+        schema:
+          type: STRING
+          resourceType: dev.musher.llm.model-name
+        valueFrom: INPUT
+        input: model

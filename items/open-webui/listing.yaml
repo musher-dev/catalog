@@ -2,15 +2,16 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: open-webui
-  revision: 1
+  revision: 2
 spec:
   listingKind: BLUEPRINT
   displayName: Open WebUI
-  summary: Self-hosted, multi-user chat interface for Ollama and OpenAI-compatible LLMs
+  summary: Self-hosted, multi-user chat interface for any OpenAI-compatible language-model API
   description: |
     ## What it is
-    Open WebUI is a self-hosted web interface for chatting with LLMs —
-    local models served by Ollama or any OpenAI-compatible API. It adds
+    Open WebUI is a self-hosted web interface for chatting with LLMs through
+    any OpenAI-compatible API — a hosted provider, an inference endpoint, or
+    an engine you run yourself (Ollama included, via its `/v1` API). It adds
     multi-user accounts with role-based access, RAG over uploaded
     documents, and a library of reusable prompts and model presets.
 
@@ -22,23 +23,34 @@ spec:
     - You're standardizing one chat UI for a team across several model
       providers.
 
+    ## What you'll be asked for
+    The deployment has two parts: Open WebUI itself, and a **model endpoint**
+    node standing for the API it talks to. That node runs nothing — you
+    supply its API base URL, API key and, optionally, a default model name,
+    once, and Open WebUI is wired to them. Nothing checks the endpoint at
+    install time: the platform never connects to the address you give, so a
+    wrong URL or key shows up as a connection error inside Open WebUI.
+
+    Open WebUI uses the endpoint you supply here until an admin saves its
+    connection settings under **Admin Settings → Connections**. From then on
+    its own stored settings take precedence, so a redeploy with a new
+    endpoint does not override them — change providers from that page.
+
     ## Defaults
     Single-container deployment of `ghcr.io/open-webui/open-webui:v0.10.2`
     with the web UI on port 8080 behind the platform's HTTPS edge. The
-    first account you register becomes the admin. The Ollama integration
-    is off by default because no Ollama ships with this deployment — turn
-    it on and set the base URL once you have an endpoint to point at (or
-    configure an OpenAI-compatible API from the connection settings). A
-    session-token signing key is auto-generated, and an 8 GiB persistent
-    volume mounted at `/app/backend/data` keeps accounts, chats, and
-    uploaded documents across restarts.
+    first account you register becomes the admin. The native Ollama
+    integration is off; point the model endpoint at an Ollama server's `/v1`
+    URL instead. A session-token signing key is auto-generated, and an 8 GiB
+    persistent volume mounted at `/app/backend/data` keeps accounts, chats,
+    and uploaded documents across restarts.
   category: AI_ML
   lifecycleStage: BETA
   tags:
     - ai
     - llm
     - chat
-    - ollama
+    - openai-compatible
     - rag
   homepageUrl: https://openwebui.com
   sourceRepoUrl: https://github.com/open-webui/open-webui

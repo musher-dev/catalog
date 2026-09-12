@@ -2,11 +2,32 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 1
+  revision: 2
+# Two participants: `models` is the language-model API the deploying user
+# already has — a node this platform does not run, so it names no compute — and
+# `web` is Open WebUI. The address and the key both come from `models`, so the
+# UI can never hold a key from one provider beside an address from another.
+#
+# `parameters: {}`, so blueprint §5.1 derives the install form from the graph's
+# USER inputs: the endpoint's URL, key and model name, asked for once, together,
+# followed by Open WebUI's own generated signing key.
 spec:
   components:
+    models:
+      componentRef: ./components/models.yaml
+      size: null
+      connections: {}
     web:
       componentRef: ./components/open-webui.yaml
       size: general.standard.small
-      connections: {}
+      connections:
+        openaiApiBaseUrl:
+          fromRole: models
+          fromOutput: baseUrl
+        openaiApiKey:
+          fromRole: models
+          fromOutput: apiKey
+        defaultModels:
+          fromRole: models
+          fromOutput: model
   parameters: {}

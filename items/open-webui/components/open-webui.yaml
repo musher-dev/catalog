@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
 spec:
   workload:
     type: SERVICE
@@ -31,52 +31,70 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
+    envVars:
+      # The language model arrives over the blueprint's `models` node as an
+      # OpenAI-compatible base URL and key (the inputs below). ENABLE_OPENAI_API
+      # already defaults to True in v0.10.2 (config.py); it is pinned so the item
+      # does not depend on an upstream default it cannot see change.
+      - key: ENABLE_OPENAI_API
+        value:
+          type: LITERAL
+          value: 'true'
+      # The native Ollama integration is off, and no longer a user choice. It
+      # used to be an input whose default named a sibling `ollama` service this
+      # deployment never contained. An Ollama server is reachable through the
+      # `models` node like any other engine, via its OpenAI-compatible /v1.
+      - key: ENABLE_OLLAMA_API
+        value:
+          type: LITERAL
+          value: 'false'
     volumes:
       data:
         sizeGiB: 8
         mountPath: /app/backend/data
   contract:
     inputs:
-      enableOllamaApi:
-        schema:
-          type: BOOLEAN
-          default: 'false'
-        required: false
-        suppliedBy: USER
-        ui:
-          label: Enable Ollama API
-          order: 1
-        target:
-          envVarKey: ENABLE_OLLAMA_API
-        description: >-
-          Enable the Ollama backend integration. Off by default because no Ollama
-          ships with this deployment; turn on only when an Ollama endpoint is
-          reachable (and set the base URL), otherwise the UI logs pointless
-          connection errors (docs.openwebui.com env-configuration).
-      # PRIMARY, not SECONDARY, and it belongs directly under the switch above.
-      # The six platform-default inputs elsewhere in the corpus are advanced
-      # because the platform has already computed the right value; this one's
-      # default is knowingly wrong for this deployment, and a field whose default
-      # cannot work must not sit behind a disclosure.
-      ollamaBaseUrl:
+      # The three inputs below are wired from the blueprint's `models` node and
+      # never reach the install form: the deploying user types the endpoint once,
+      # on that node. Each carries the node's resourceType, so blueprint §4.2
+      # rejects a wire from anything that is not an LLM endpoint.
+      openaiApiBaseUrl:
         schema:
           type: STRING
           format: ENDPOINT_URL
-          default: http://ollama:11434
-        required: false
-        suppliedBy: USER
-        ui:
-          label: Ollama base URL
-          order: 2
-          examples:
-            - https://ollama.example.com
+          resourceType: dev.musher.llm.base-url
+        suppliedBy: CONNECTION
         target:
-          envVarKey: OLLAMA_BASE_URL
+          envVarKey: OPENAI_API_BASE_URL
+        # v0.10.2 reads this into DEFAULT_CONFIG['openai.api_base_urls'], and
+        # Config.get (models/config.py) prefers a stored row over that default.
+        # A row exists only once an admin saves Connections in the UI, so this
+        # value holds until then and is ignored after — including on redeploy.
+        # ENABLE_PERSISTENT_CONFIG=false would make it authoritative, at the
+        # cost of every admin setting reverting on restart; not worth it here.
         description: >-
-          Base URL of the Ollama API the WebUI talks to when the Ollama
-          integration is enabled. The default points at a sibling `ollama`
-          service that is NOT part of this deployment; replace it with your own
-          endpoint when enabling.
+          Base URL of the OpenAI-compatible API Open WebUI sends chat requests
+          to, until an admin saves connection settings in the UI.
+      openaiApiKey:
+        schema:
+          type: STRING
+          sensitive: true
+          resourceType: dev.musher.llm.api-key
+        suppliedBy: CONNECTION
+        target:
+          envVarKey: OPENAI_API_KEY
+        description: Bearer credential for the API above.
+      # Optional on both ends: the endpoint's model name is optional, and with
+      # none Open WebUI simply lets each user pick from the models the API lists.
+      defaultModels:
+        schema:
+          type: STRING
+          resourceType: dev.musher.llm.model-name
+        required: false
+        suppliedBy: CONNECTION
+        target:
+          envVarKey: DEFAULT_MODELS
+        description: Model preselected for new chats.
       webuiSecretKey:
         schema:
           type: STRING
@@ -85,7 +103,9 @@ spec:
         suppliedBy: USER
         ui:
           label: WebUI secret key
-          order: 3
+          # After the endpoint's URL, key and model name (1-3 on the models
+          # node), since the derived form is one form across both nodes.
+          order: 4
         target:
           envVarKey: WEBUI_SECRET_KEY
         generator:
