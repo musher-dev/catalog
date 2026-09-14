@@ -1,8 +1,8 @@
 // musher-dev/catalog dev container.
 //
 // Trimmed from the same musher-dev/development-container template
-// musher-dev/spec uses, and trimmed further. This repository holds YAML and
-// validates it against the published spec: it builds no images, runs no
+// musher-dev/specifications uses, and trimmed further. This repository holds
+// YAML and validates it against the published spec: it builds no images, runs no
 // services, needs no database, and has no compose stack. Docker-in-Docker,
 // Python, Go, Java, Deno, uv, Bun and the postgres client are all deliberately
 // absent.
@@ -117,13 +117,13 @@
         },
 
         // Authoring aid: red-squiggle an item in the editor against the same
-        // schemas `npm test` validates it with — the tip of the public
-        // musher-dev/spec repository. One source here and in the test suite, or
+        // schemas `npm test` validates it with — the v1 alias published by
+        // musher-dev/specifications. One source here and in the test suite, or
         // the editor and the build disagree about what an item has to satisfy.
         "yaml.schemas": {
-          "https://raw.githubusercontent.com/musher-dev/spec/main/specifications/listing/v1/schemas/dist/listing.schema.json": "items/*/listing.yaml",
-          "https://raw.githubusercontent.com/musher-dev/spec/main/specifications/blueprint/v1/schemas/dist/blueprint.schema.json": "items/*/blueprint.yaml",
-          "https://raw.githubusercontent.com/musher-dev/spec/main/specifications/component/v1/schemas/dist/component.schema.json": "items/*/components/*.yaml"
+          "https://specifications.musher.dev/listing/v1/listing.schema.json": "items/*/listing.yaml",
+          "https://specifications.musher.dev/blueprint/v1/blueprint.schema.json": "items/*/blueprint.yaml",
+          "https://specifications.musher.dev/component/v1/component.schema.json": "items/*/components/*.yaml"
         },
 
         // The corpus is authored YAML, not generated. Keep the formatter off it

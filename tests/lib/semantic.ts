@@ -1,7 +1,7 @@
 /**
  * The `semantic` validation phase — the rules JSON Schema cannot express.
  *
- * Component spec §7 splits validation into four phases and forbids reporting a
+ * Core spec §6 splits validation into four phases and forbids reporting a
  * later-phase diagnostic before the earlier ones pass. `parser` is
  * yaml-profile.ts and `structural` is the fetched bundle; this module is the
  * third: reference resolution, path containment, and uniqueness across
@@ -129,7 +129,7 @@ export function buildContext(
 
 /* ---------------------------------------------------------------- identity */
 
-/** BP-ID-001, BP-ID-002, LIST-ID-001, LIST-ID-002. */
+/** CORE-ITEM-001, CORE-ITEM-002. */
 export function checkIdentity(context: SemanticContext): Diagnostic[] {
   const { item, documents } = context;
   const found: Diagnostic[] = [];
@@ -154,7 +154,7 @@ export function checkIdentity(context: SemanticContext): Diagnostic[] {
   // The rule takes two operands. A COMPONENT item holding no blueprint has no
   // second one — not a different one — so it goes silent rather than failing.
   // The field is `revision` and the code is still ERR_VERSION_MISMATCH: ADR 0007
-  // §3 renamed the field and left the diagnostic, which the spec's §7 table keeps.
+  // §3 renamed the field and left the diagnostic, which core spec §7's table keeps.
   const listingRevision = metadataOf(documents.listing)['revision'];
   const blueprintRevision = metadataOf(documents.blueprint)['revision'];
   if (documents.listing?.value && documents.blueprint?.value && listingRevision !== blueprintRevision) {

@@ -1,31 +1,36 @@
 # Catalog validation
 
 These tests hold every item under `items/` to the contracts published in
-[`musher-dev/spec`](https://github.com/musher-dev/spec).
+[`musher-dev/specifications`](https://github.com/musher-dev/specifications).
 
-The schemas are **fetched at run time** from the tip of the public
-`musher-dev/spec` repository, never vendored. The catalog is not the authority on
-what a valid item looks like — the spec is — and a copy held here would be a
-second authority that drifts. A stale copy is worse than no copy at all, because
-it passes a corpus the live spec would reject, silently.
+The schemas are **fetched at run time** from that project's published origin,
+never vendored. The catalog is not the authority on what a valid item looks like
+— the spec is — and a copy held here would be a second authority that drifts. A
+stale copy is worse than no copy at all, because it passes a corpus the live spec
+would reject, silently.
 
 There is exactly one source, and it is constant:
 
 ```
-https://raw.githubusercontent.com/musher-dev/spec/main/specifications/<family>/v1/schemas/dist/<family>.schema.json
+https://specifications.musher.dev/<family>/v1/<family>.schema.json
 ```
 
-`musher-dev/spec` is **public**, so this is fetched with **no credential**.
-Nothing in the suite reads a token and none should be configured: a token
-attached to a public read is a secret handed to a host that never asked for one,
-and it makes the suite pass on a machine that has it and fail on one that does
-not.
+That is the **major-version alias**: it serves the newest v1 release of a family,
+or a build of the specification repository's `main` before the family's first
+release. Either way it is the contract as currently published, which is what this
+corpus is held to — an item here has to satisfy what an implementor downloading
+v1 today would get.
 
-**Nothing about the source is configurable** — not the ref, not a mirror, not a
-local checkout. Each of those would be a second answer to "what is the contract",
-which is the thing this suite exists to not have. `main` is the tip of the
-contract, and the tip is what this corpus is held to. If the fetch fails the
-suite fails, loudly, naming the URL: a run that quietly validated against
+The origin is **public** and serves open CORS, so this is fetched with **no
+credential**. Nothing in the suite reads a token and none should be configured: a
+token attached to a public read is a secret handed to a host that never asked for
+one, and it makes the suite pass on a machine that has it and fail on one that
+does not.
+
+**Nothing about the source is configurable** — not the version, not a mirror, not
+a local checkout. Each of those would be a second answer to "what is the
+contract", which is the thing this suite exists to not have. If the fetch fails
+the suite fails, loudly, naming the URL: a run that quietly validated against
 something else would be reporting on a contract nobody published.
 
 ```sh
@@ -39,14 +44,14 @@ runner. There is no build step and no test framework to install.
 
 ## What runs
 
-The files map to the four validation phases component spec §7 defines, which are
+The files map to the four validation phases core spec §6 defines, which are
 applied in order — a later-phase diagnostic is never reported before the earlier
 phases pass.
 
 | File | Phase | What it checks |
 |---|---|---|
 | `spec.test.ts` | — | The bundles resolve, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
-| `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (component §7.1): one document per file, string keys, no anchors, aliases, merge keys or explicit tags, and the size, depth and scalar bounds. |
+| `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (core §6.1): one document per file, string keys, no anchors, aliases, merge keys or explicit tags, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
 | `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, reference resolution, path containment, media, the description Markdown profile, image pinning, endpoint resolution, `INPUT` output references (COMP-OUT-002/003), node compute against external components (BP-NODE-002), connection compatibility including which inputs a wire may fill (BP-CONN-001), and parameter coverage and agreement. |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
@@ -64,9 +69,10 @@ as readily when a rule is silently unreachable. Each case there breaks one thing
 in a synthetic item and asserts the normative diagnostic fires, so the checks
 guarding `items/` are themselves guarded.
 
-They are not conformance fixtures. `musher-dev/spec` publishes those under
-`conformance/`, and its corpus is the authority on what an implementation must
-report; these cases pin the subset this repository enforces.
+They are not conformance fixtures. `musher-dev/specifications` publishes those
+under `specifications/<family>/v1/conformance/`, alongside a shared core corpus
+at `specifications/core/v1/conformance/`, and those are the authority on what an
+implementation must report; these cases pin the subset this repository enforces.
 
 ## Where the rules come from
 
@@ -76,7 +82,7 @@ fetched bundles at run time rather than copied, so the two places the semantic
 phase needs them cannot drift.
 
 What is written down here is what JSON Schema cannot express, and each rule
-carries the clause it implements: `BP-ID-001`, `LIST-MEDIA-003`, `COMP-SRC-001`
+carries the clause it implements: `CORE-ITEM-001`, `LIST-MEDIA-003`, `COMP-SRC-001`
 and the rest. A rule whose spelling has to live in this repository — the
 floating-tag blocklist, for instance, which is `semantic` precisely so it can
 grow in a minor release — says so at the definition.
@@ -93,8 +99,8 @@ that changes how a schema is fetched rather than *which* schema is fetched.
 ## Adding a rule
 
 Put it in the phase it belongs to. If JSON Schema can express it, it belongs in
-`musher-dev/spec` and not here — opening a PR there is the fix, and this suite
-picks it up on the next run with no change. If it needs a second document or the
-filesystem, it is `semantic`: add it to `tests/lib/semantic.ts` with its
-diagnostic code, wire it into `semantic.test.ts`, and add a case to
+`musher-dev/specifications` and not here — opening a PR there is the fix, and
+this suite picks it up on the next run with no change. If it needs a second
+document or the filesystem, it is `semantic`: add it to `tests/lib/semantic.ts`
+with its diagnostic code, wire it into `semantic.test.ts`, and add a case to
 `rules.test.ts` proving it fires.

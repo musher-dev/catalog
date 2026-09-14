@@ -1,9 +1,9 @@
 /**
  * The `structural` phase — each document against its family's JSON Schema.
  *
- * The bundles are fetched from musher-dev/spec at run time rather than vendored,
- * so what the corpus is judged against is the contract as it currently stands,
- * not a copy of it that has quietly fallen behind.
+ * The bundles are fetched from musher-dev/specifications at run time rather than
+ * vendored, so what the corpus is judged against is the contract as it currently
+ * stands, not a copy of it that has quietly fallen behind.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';

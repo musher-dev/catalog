@@ -6,9 +6,9 @@
  * thing in a synthetic item and asserts the normative diagnostic fires, so the
  * checks that guard `items/` are themselves guarded.
  *
- * These are not conformance fixtures. `musher-dev/spec` publishes those, and its
- * corpus is the authority on what an implementation must report; these cases pin
- * the subset this repository enforces.
+ * These are not conformance fixtures. `musher-dev/specifications` publishes
+ * those, and its corpora are the authority on what an implementation must
+ * report; these cases pin the subset this repository enforces.
  */
 import fs from 'node:fs';
 import os from 'node:os';

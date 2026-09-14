@@ -1,9 +1,9 @@
 /**
- * The `parser` phase — the Musher YAML profile, component spec §7.1.
+ * The `parser` phase — the Musher YAML profile, core spec §6.1.
  *
  * Musher documents are written in a restricted profile of YAML 1.2.2. Every
  * document in the corpus is held to it before any schema is consulted, because
- * component spec §7 forbids reporting a later-phase diagnostic before the
+ * core spec §6 forbids reporting a later-phase diagnostic before the
  * earlier phases pass.
  */
 import assert from 'node:assert/strict';
@@ -46,16 +46,16 @@ for (const item of items) {
 describe('the YAML profile itself', () => {
   // The profile is what every document above is judged by, so it is worth
   // showing that it rejects what the spec says it rejects. Each case is a rule
-  // from component spec §7.1 with its normative diagnostic code.
+  // from core spec §6.1 with its normative diagnostic code.
   const cases: { rule: string; code: string; source: string }[] = [
-    { rule: 'COMP-YAML-004', code: 'ERR_MULTIPLE_DOCUMENTS', source: 'a: 1\n---\nb: 2\n' },
-    { rule: 'COMP-YAML-005', code: 'ERR_NON_STRING_KEY', source: '1: one\n' },
-    { rule: 'COMP-YAML-006', code: 'ERR_DUPLICATE_KEY', source: 'a: 1\na: 2\n' },
-    { rule: 'COMP-YAML-007 (anchor)', code: 'ERR_ANCHOR_OR_ALIAS', source: 'a: &anchor 1\n' },
-    { rule: 'COMP-YAML-007 (alias)', code: 'ERR_ANCHOR_OR_ALIAS', source: 'a: &anchor 1\nb: *anchor\n' },
-    { rule: 'COMP-YAML-008', code: 'ERR_MERGE_KEY', source: 'base: {a: 1}\nderived:\n  <<: {a: 1}\n' },
-    { rule: 'COMP-YAML-009 (core tag)', code: 'ERR_EXPLICIT_TAG', source: "a: !!str 5\n" },
-    { rule: 'COMP-YAML-009 (custom tag)', code: 'ERR_EXPLICIT_TAG', source: 'a: !secret hunter2\n' },
+    { rule: 'CORE-YAML-004', code: 'ERR_MULTIPLE_DOCUMENTS', source: 'a: 1\n---\nb: 2\n' },
+    { rule: 'CORE-YAML-005', code: 'ERR_NON_STRING_KEY', source: '1: one\n' },
+    { rule: 'CORE-YAML-006', code: 'ERR_DUPLICATE_KEY', source: 'a: 1\na: 2\n' },
+    { rule: 'CORE-YAML-007 (anchor)', code: 'ERR_ANCHOR_OR_ALIAS', source: 'a: &anchor 1\n' },
+    { rule: 'CORE-YAML-007 (alias)', code: 'ERR_ANCHOR_OR_ALIAS', source: 'a: &anchor 1\nb: *anchor\n' },
+    { rule: 'CORE-YAML-008', code: 'ERR_MERGE_KEY', source: 'base: {a: 1}\nderived:\n  <<: {a: 1}\n' },
+    { rule: 'CORE-YAML-009 (core tag)', code: 'ERR_EXPLICIT_TAG', source: "a: !!str 5\n" },
+    { rule: 'CORE-YAML-009 (custom tag)', code: 'ERR_EXPLICIT_TAG', source: 'a: !secret hunter2\n' },
   ];
 
   for (const { rule, code, source } of cases) {
@@ -68,14 +68,14 @@ describe('the YAML profile itself', () => {
     });
   }
 
-  it('COMP-YAML-011 → ERR_DEPTH_EXCEEDED', () => {
+  it('CORE-YAML-011 → ERR_DEPTH_EXCEEDED', () => {
     const depth = BOUNDS.nestingDepth + 1;
     const source = Array.from({ length: depth }, (_, level) => `${'  '.repeat(level)}a:`).join('\n') + ' 1\n';
     const { diagnostics } = parseText(source);
     assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'ERR_DEPTH_EXCEEDED'));
   });
 
-  it('COMP-YAML-012 → ERR_SCALAR_TOO_LONG', () => {
+  it('CORE-YAML-012 → ERR_SCALAR_TOO_LONG', () => {
     const { diagnostics } = parseText(`a: ${'x'.repeat(BOUNDS.scalarBytes + 1)}\n`);
     assert.ok(diagnostics.some((diagnostic) => diagnostic.code === 'ERR_SCALAR_TOO_LONG'));
   });
@@ -90,7 +90,7 @@ describe('the YAML profile itself', () => {
   });
 
   it('accepts document markers and a byte order mark', () => {
-    // COMP-YAML-002 and COMP-YAML-004: the markers may be present, and a BOM
+    // CORE-YAML-002 and CORE-YAML-004: the markers may be present, and a BOM
     // carries no meaning.
     const { value, diagnostics } = parseText('﻿---\na: 1\n...\n');
     assert.deepEqual(diagnostics, []);

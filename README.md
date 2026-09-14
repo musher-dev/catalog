@@ -7,7 +7,8 @@ Each item is a **self-contained directory** under `items/` holding the three
 authoring surfaces a catalog entry spans: its **components** (the building
 blocks), its **blueprint** (the composition graph), and its **listing** (the
 storefront wrapper). All three use the Musher spec-document envelope, defined
-normatively in [`musher-dev/spec`](https://github.com/musher-dev/spec).
+normatively in
+[`musher-dev/specifications`](https://github.com/musher-dev/specifications).
 
 > **Third-party marks.** The icons under `items/*/media/` are the official marks
 > of the upstream projects they identify. They remain the property of their
@@ -163,14 +164,15 @@ npm install
 npm test
 ```
 
-Every item is validated against the schemas at the tip of the public
-[`musher-dev/spec`](https://github.com/musher-dev/spec) repository, **fetched at
-run time rather than vendored** — so what the corpus is judged against is the
-contract as it currently stands, not a copy of it that has quietly fallen
-behind. The repository is public, so no credential is involved. The suite
-covers the three phases a client can decide offline: the YAML profile, the JSON
-Schema bundles, and the semantic rules that bind an item's documents to each
-other and to its directory. See [`tests/README.md`](tests/README.md).
+Every item is validated against the v1 schemas
+[`musher-dev/specifications`](https://github.com/musher-dev/specifications)
+publishes at `specifications.musher.dev`, **fetched at run time rather than
+vendored** — so what the corpus is judged against is the contract as it currently
+stands, not a copy of it that has quietly fallen behind. The origin is public, so
+no credential is involved. The suite covers the three phases a client can decide
+offline: the YAML profile, the JSON Schema bundles, and the semantic rules that
+bind an item's documents to each other and to its directory. See
+[`tests/README.md`](tests/README.md).
 
 The Musher platform remains the **sole authority**. These tests are the same
 contracts applied early, not a second one: they run the phases that need no
@@ -185,7 +187,8 @@ can raise is easy to attribute.
 
 This repository holds the **platform-curated** catalog — the items Musher
 maintains directly. It is public so the corpus is a browsable worked example
-for anyone authoring against [`musher-dev/spec`](https://github.com/musher-dev/spec).
+for anyone authoring against
+[`musher-dev/specifications`](https://github.com/musher-dev/specifications).
 
 Community-authored catalog items are **not** submitted here. They are created
 and managed directly on the Musher platform. Pull requests adding new

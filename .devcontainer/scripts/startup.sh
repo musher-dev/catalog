@@ -4,8 +4,8 @@
 # The template's version brings up a compose stack and waits for health checks.
 # This repository has no services to start — it holds YAML and validates it —
 # so all that remains is the MOTD. The file is kept rather than dropped so the
-# postStartCommand hook has somewhere to grow, and so the lifecycle matches
-# musher-dev/spec's.
+# postStartCommand hook has somewhere to grow, and so the lifecycle matches the
+# one in musher-dev/specifications.
 #
 # Usage: Called automatically by devcontainer.json postStartCommand.
 set -euo pipefail
