@@ -6,9 +6,9 @@
 #
 # Usage: source "path/to/motd.sh"; show_motd "/path/to/.devcontainer"
 #
-# Trimmed from musher-dev/spec's: the services block is gone with the compose
-# stack, and the runtime rows list what this container actually installs rather
-# than every runtime the template could have installed.
+# Trimmed from the one in musher-dev/specifications: the services block is gone
+# with the compose stack, and the runtime rows list what this container actually
+# installs rather than every runtime the template could have installed.
 
 if [[ -z "${_MOTD_SH_LOADED:-}" ]]; then
 readonly _MOTD_SH_LOADED=1
@@ -88,8 +88,8 @@ _motd_spec_source() {
   echo ""
   echo "  ${_BOLD}Validating against${_RESET}"
   echo "  ${_DIM}${sep}${_RESET}"
-  echo "  musher-dev/spec @ main"
-  echo "  ${_DIM}public repo, fetched at run time; no token, no cache, no fallback${_RESET}"
+  echo "  specifications.musher.dev/<family>/v1"
+  echo "  ${_DIM}public origin, fetched at run time; no token, no cache, no fallback${_RESET}"
 }
 
 _motd_quickref() {

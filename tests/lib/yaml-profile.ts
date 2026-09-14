@@ -1,5 +1,5 @@
 /**
- * The Musher YAML profile — component spec §7.1, the `parser` validation phase.
+ * The Musher YAML profile — core spec §6.1, the `parser` validation phase.
  *
  * Musher documents are written in a restricted profile of YAML 1.2.2, not in
  * unrestricted YAML. Every restriction withholds something YAML permits because
@@ -8,12 +8,12 @@
  *
  * This module is the profile, and it runs before any schema is consulted — a
  * later-phase diagnostic must never be reported before the earlier phases pass
- * (component spec §7).
+ * (core spec §6).
  */
 import { readFile } from 'node:fs/promises';
 import YAML, { Alias, Scalar, type Node, type Pair } from 'yaml';
 
-/** Codes are normative (component spec §8); the messages beside them are not. */
+/** Codes are normative (core spec §7); the messages beside them are not. */
 export type ParserDiagnostic = {
   code:
     | 'ERR_INVALID_YAML'
@@ -29,7 +29,7 @@ export type ParserDiagnostic = {
   message: string;
 };
 
-/** COMP-YAML-010 / 011 / 012. */
+/** CORE-YAML-010 / 011 / 012. */
 export const BOUNDS = {
   documentBytes: 1_048_576,
   nestingDepth: 64,
@@ -47,7 +47,7 @@ const diag = (code: ParserDiagnostic['code'], message: string): ParserDiagnostic
 export async function parseDocument(absolutePath: string): Promise<ParsedDocument> {
   const bytes = await readFile(absolutePath);
 
-  // COMP-YAML-010. Measured before parsing — a limit a parser can apply only
+  // CORE-YAML-010. Measured before parsing — a limit a parser can apply only
   // after building the tree is not a limit on the work it does.
   if (bytes.byteLength > BOUNDS.documentBytes) {
     return {
@@ -58,7 +58,7 @@ export async function parseDocument(absolutePath: string): Promise<ParsedDocumen
     };
   }
 
-  // COMP-YAML-001: UTF-8, rejecting malformed sequences. COMP-YAML-002: a BOM is
+  // CORE-YAML-001: UTF-8, rejecting malformed sequences. CORE-YAML-002: a BOM is
   // permitted and carries no meaning.
   let text: string;
   try {
@@ -84,7 +84,7 @@ export function parseText(text: string): ParsedDocument {
     prettyErrors: false,
   });
 
-  // COMP-YAML-004. Picking the first of several silently discards a thing the
+  // CORE-YAML-004. Picking the first of several silently discards a thing the
   // author wrote; an empty stream is not a document at all.
   if (documents.length === 0) {
     return { value: undefined, diagnostics: [diag('ERR_INVALID_YAML', 'the file holds no YAML document')] };
@@ -96,7 +96,7 @@ export function parseText(text: string): ParsedDocument {
   const document = documents[0]!;
 
   for (const error of document.errors) {
-    // COMP-YAML-006 is called out separately from malformed YAML because the two
+    // CORE-YAML-006 is called out separately from malformed YAML because the two
     // say different things to an author.
     if (error.code === 'DUPLICATE_KEY') diagnostics.push(diag('ERR_DUPLICATE_KEY', error.message));
     else diagnostics.push(diag('ERR_INVALID_YAML', error.message));
@@ -104,7 +104,7 @@ export function parseText(text: string): ParsedDocument {
 
   YAML.visit(document, {
     Node(_key, node: Node) {
-      // COMP-YAML-007. An anchor with no alias is inert and is rejected anyway:
+      // CORE-YAML-007. An anchor with no alias is inert and is rejected anyway:
       // finding out at authoring time beats finding out when the alias is added.
       if (node instanceof Alias) {
         diagnostics.push(diag('ERR_ANCHOR_OR_ALIAS', `alias *${node.source}`));
@@ -112,13 +112,13 @@ export function parseText(text: string): ParsedDocument {
         diagnostics.push(diag('ERR_ANCHOR_OR_ALIAS', `anchor &${node.anchor}`));
       }
 
-      // COMP-YAML-009. An explicit tag overrides scalar resolution, which is
+      // CORE-YAML-009. An explicit tag overrides scalar resolution, which is
       // exactly what the profile fixes — `!!str 5` and `5` differ only in a tag.
       if ('tag' in node && typeof node.tag === 'string') {
         diagnostics.push(diag('ERR_EXPLICIT_TAG', `explicit tag ${node.tag}`));
       }
 
-      // COMP-YAML-012.
+      // CORE-YAML-012.
       if (node instanceof Scalar && typeof node.value === 'string') {
         const size = Buffer.byteLength(node.value, 'utf8');
         if (size > BOUNDS.scalarBytes) {
@@ -130,7 +130,7 @@ export function parseText(text: string): ParsedDocument {
     Pair(_key, pair: Pair) {
       const key = pair.key;
       if (key instanceof Scalar) {
-        // COMP-YAML-005. Mapping keys are property names in every schema this
+        // CORE-YAML-005. Mapping keys are property names in every schema this
         // repository publishes, and `1:` resolving to the integer one on one
         // parser and the string "1" on another is the duplicate-key problem
         // wearing a different hat.
@@ -153,7 +153,7 @@ export function parseText(text: string): ParsedDocument {
     return { value: undefined, diagnostics };
   }
 
-  // COMP-YAML-011.
+  // CORE-YAML-011.
   const depth = measureDepth(value);
   if (depth > BOUNDS.nestingDepth) {
     diagnostics.push(diag('ERR_DEPTH_EXCEEDED', `nested ${depth} levels, exceeding the ${BOUNDS.nestingDepth}-level bound`));

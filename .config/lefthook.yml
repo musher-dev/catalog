@@ -8,9 +8,9 @@ min_version: 2.1.10
 
 # The split between the two hooks is about the network.
 #
-# `npm test` fetches the spec bundles from musher-dev/spec on every run — that
-# is the point of it — so it cannot be a pre-commit job: a commit on a train
-# would fail for a reason that has nothing to do with the commit. Pre-commit
+# `npm test` fetches the spec bundles from specifications.musher.dev on every
+# run — that is the point of it — so it cannot be a pre-commit job: a commit on a
+# train would fail for a reason that has nothing to do with the commit. Pre-commit
 # holds the checks that are local and fast; pre-push holds the one that is
 # neither.
 pre-commit:

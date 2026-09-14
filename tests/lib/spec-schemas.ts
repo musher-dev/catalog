@@ -1,6 +1,6 @@
 /**
- * Fetches the normative JSON Schema bundles from the public `musher-dev/spec`
- * repository at run time.
+ * Fetches the normative JSON Schema bundles from the published
+ * `musher-dev/specifications` origin at run time.
  *
  * The catalog is not the authority on what a valid item looks like; the spec is.
  * A vendored or disk-cached copy of its schemas is a second authority that
@@ -11,16 +11,20 @@
  *
  * There is exactly one source, and it is constant:
  *
- *   https://raw.githubusercontent.com/musher-dev/spec/main/
- *     specifications/<family>/v1/schemas/dist/<family>.schema.json
+ *   https://specifications.musher.dev/<family>/v1/<family>.schema.json
  *
- * `main` is the tip of the contract, and the tip is what this corpus is held to.
- * `musher-dev/spec` is public, so this is fetched with no credential — nothing
- * here reads a token, and none should be configured.
+ * That is the major-version alias: it serves the newest v1 release of a family,
+ * or a build of the specification repository's `main` before the family's first
+ * release. Either way it is the contract as currently published, which is what
+ * this corpus is held to — an item here has to satisfy what an implementor
+ * downloading v1 today would get.
  *
- * Nothing about the source is configurable. A knob for the ref, a mirror, or a
- * local checkout would each be a second answer to "what is the contract", which
- * is the thing this module exists to have only one of.
+ * The origin is public and serves open CORS, so this is fetched with no
+ * credential — nothing here reads a token, and none should be configured.
+ *
+ * Nothing about the source is configurable. A knob for the version, a mirror, or
+ * a local checkout would each be a second answer to "what is the contract",
+ * which is the thing this module exists to have only one of.
  */
 import { createHash } from 'node:crypto';
 import ajvModule, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
@@ -44,14 +48,13 @@ const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
 
 /** The one place a schema comes from. */
 const schemaUrl = (family: Family): string =>
-  'https://raw.githubusercontent.com/musher-dev/spec/main' +
-  `/specifications/${family}/v1/schemas/dist/${family}.schema.json`;
+  `https://specifications.musher.dev/${family}/v1/${family}.schema.json`;
 
 async function read(url: string): Promise<string> {
-  // No credential is sent, and no code path here reads one. `musher-dev/spec` is
-  // public; a token attached to a public read is a secret handed to a host that
-  // never asked for one, and it would make the suite pass on a machine that has
-  // it and fail on one that does not.
+  // No credential is sent, and no code path here reads one. The specifications
+  // origin is public; a token attached to a public read is a secret handed to a
+  // host that never asked for one, and it would make the suite pass on a machine
+  // that has it and fail on one that does not.
   const response = await fetch(url, {
     signal: AbortSignal.timeout(TIMEOUT_MS),
     headers: { accept: 'application/schema+json, application/json' },
@@ -131,9 +134,9 @@ async function resolveSchema(family: Family): Promise<FetchedSchema> {
   } catch (error) {
     throw new Error(
       `Could not fetch the ${family} schema from ${url}: ${(error as Error).message}\n` +
-        'These tests validate against musher-dev/spec, so they need network access to ' +
-        'raw.githubusercontent.com. There is no fallback source and no cache: a second ' +
-        'answer to "what is the contract" is the thing this suite exists to not have.',
+        'These tests validate against musher-dev/specifications, so they need network ' +
+        'access to specifications.musher.dev. There is no fallback source and no cache: a ' +
+        'second answer to "what is the contract" is the thing this suite exists to not have.',
     );
   }
 
@@ -154,7 +157,7 @@ async function resolveSchema(family: Family): Promise<FetchedSchema> {
 }
 
 /**
- * `validateFormats: false` is not a convenience. Component spec §7.2 makes the
+ * `validateFormats: false` is not a convenience. Core spec §6.2 makes the
  * JSON Schema `format` keyword an annotation that asserts nothing, and forbids a
  * validator from rejecting a document because a value fails one.
  */

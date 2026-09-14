@@ -5,9 +5,9 @@
 # This file stays at the repo root because Task only discovers `Taskfile.*`
 # there: `--taskfile` would work but would break bare `task <name>`.
 #
-# musher-dev/spec splits its tasks across taskfiles/. This repository has one
-# build surface — validate the corpus — so splitting would cost a reader two
-# files to answer one question. Split it when there is a second surface.
+# musher-dev/specifications splits its tasks across taskfiles/. This repository
+# has one build surface — validate the corpus — so splitting would cost a reader
+# two files to answer one question. Split it when there is a second surface.
 #
 # The tasks wrap npm scripts rather than replacing them. `npm test` stays the
 # thing CI runs and the thing that works in a bare checkout with no Task
@@ -50,7 +50,7 @@ tasks:
   # ===========================================================================
 
   test:
-    desc: Validate the catalog corpus against musher-dev/spec
+    desc: Validate the catalog corpus against musher-dev/specifications
     aliases: [check:catalog]
     cmds:
       - npm test

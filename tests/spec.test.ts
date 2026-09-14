@@ -10,7 +10,7 @@ import { describe, it } from 'node:test';
 
 import { FAMILIES, KIND_OF, externalRefs, loadSchema } from './lib/spec-schemas.ts';
 
-describe('musher-dev/spec', () => {
+describe('musher-dev/specifications', () => {
   it('resolves all three bundles from the public repository at run time', async () => {
     const bundles = await Promise.all(FAMILIES.map(loadSchema));
     for (const bundle of bundles) {
@@ -40,7 +40,7 @@ describe('musher-dev/spec', () => {
       });
 
       it('closes the document envelope', async () => {
-        // COMP-ENV-005: unknown properties are rejected at every level, so a
+        // CORE-ENV-005: unknown properties are rejected at every level, so a
         // misspelled field is an error rather than a silently ignored one.
         const { schema } = await loadSchema(family);
         assert.equal(schema['additionalProperties'], false);

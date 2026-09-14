@@ -66,7 +66,7 @@ const report = (diagnostics: Diagnostic[]): string[] =>
 
 for (const item of items) {
   describe(`items/${item.slug}`, () => {
-    it('slug and version agree across the item — BP-ID-001/002, LIST-ID-001/002', async () => {
+    it('slug and version agree across the item — CORE-ITEM-001/002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkIdentity(context)), []);
     });
