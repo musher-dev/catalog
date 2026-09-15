@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: langflow
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: Langflow
   summary: Visual canvas for prototyping LLM agents and RAG pipelines, exportable as APIs
   description: |
@@ -43,8 +42,8 @@ spec:
     - rag
     - low-code
     - visual-builder
-  homepageUrl: https://www.langflow.org
-  sourceRepoUrl: https://github.com/langflow-ai/langflow
-  supportUrl: https://docs.langflow.org
+  homepageURL: https://www.langflow.org
+  sourceRepoURL: https://github.com/langflow-ai/langflow
+  supportURL: https://docs.langflow.org
   license: MIT
   icon: media/icon.png

@@ -22,7 +22,7 @@ normatively in
 items/
 └── <slug>/                     # ONE self-contained item per directory
     ├── listing.yaml            # storefront wrapper
-    ├── blueprint.yaml          # composition graph (see COMPONENT items below)
+    ├── blueprint.yaml          # composition graph; absent for a COMPONENT item
     ├── components/
     │   └── <name>.yaml         # ≥1; every file referenced by blueprint.yaml
     └── media/                  # optional assets
@@ -38,7 +38,9 @@ These are hard requirements. A violation is rejected when the platform syncs
 this repo:
 
 - the directory name equals both `listing.yaml`'s and `blueprint.yaml`'s
-  `metadata.slug`, and their `metadata.revision` values match;
+  `metadata.slug`;
+- the listing's `spec.itemType` is `BLUEPRINT` exactly when the item holds a
+  `blueprint.yaml`, and `COMPONENT` otherwise;
 - every blueprint node's `componentRef` resolves to a `components/<name>.yaml`
   file **in the same item directory**, and every such file is referenced — no
   unreferenced components;
@@ -52,8 +54,9 @@ this repo:
   a readiness probe for a public endpoint; `WORKER`, `JOB` and `CRON` forbid
   endpoints.
 
-Per the spec, a listing deploys exactly one blueprint, and compute is a
-per-node concern on the blueprint node rather than on the component.
+Per the spec, a `BLUEPRINT` item deploys exactly one blueprint, and compute is a
+per-node concern on the blueprint node rather than on the component. The
+blueprint's `metadata.revision` is the item's revision; a listing carries none.
 
 ## Adding an item
 
@@ -98,7 +101,7 @@ binds compute per node:
 ```yaml
 specVersion: v1
 kind: BLUEPRINT
-metadata: { slug: my-app, revision: 1 }
+metadata: { slug: my-app, revision: 1 }   # the item's revision
 spec:
   components:
     web:                        # graph-local node name (map order = graph order)
@@ -117,9 +120,9 @@ validator could tell which resolver the reference wanted.
 ```yaml
 specVersion: v1
 kind: LISTING
-metadata: { slug: my-app, revision: 1 }
+metadata: { slug: my-app }     # slug only — a listing carries no revision
 spec:
-  listingKind: BLUEPRINT        # BLUEPRINT | COMPONENT
+  itemType: BLUEPRINT           # BLUEPRINT iff the item holds blueprint.yaml
   displayName: My App
   summary: One-line storefront tagline (≤ 280 chars)
   description: |
@@ -127,9 +130,9 @@ spec:
   category: DEVELOPER_TOOLS
   lifecycleStage: STABLE        # STABLE | BETA | EXPERIMENTAL | SUNSET
   tags: [example]
-  homepageUrl: https://example.com
-  sourceRepoUrl: https://github.com/example/my-app
-  license: MIT
+  homepageURL: https://example.com
+  sourceRepoURL: https://github.com/example/my-app
+  license: MIT                  # SPDX expression; LicenseRef-… when SPDX has none
   icon: media/icon.png          # optional; see ICONS.md
   screenshots:                  # optional; {file, caption?} in display order
     - file: media/screenshots/01-home.png
@@ -149,13 +152,14 @@ language-model endpoint — is a component declaring `spec.external` in place of
 `spec.workload`. Its blueprint node writes `size: null`, and the values it holds
 reach the install form through its `USER` inputs like any other node's.
 
-A `COMPONENT`-kind listing that wraps a workload still authors a trivial
-single-node `blueprint.yaml` around its one component, so it can be deployed on
-its own (`postgres`, `redis`). One that publishes an external building block —
-`llm-endpoint` — holds **no** `blueprint.yaml`, as listing spec §3.1 permits: a
-one-node blueprint around a node that runs nothing would deploy nothing. A
-blueprint that needs such a node carries its own copy under `components/`,
-because a repo-local reference cannot leave its item directory.
+An item holding **no** `blueprint.yaml` is an `itemType: COMPONENT` item: a
+single building block rather than a composition — `postgres` and `redis`, which
+wrap a workload, and `llm-endpoint`, which runs nothing. Listing spec §3 binds
+the two together, so a `COMPONENT` item cannot carry a blueprint and a
+`BLUEPRINT` item cannot omit one. Such an item has no item revision; its
+component documents carry their own. A blueprint that needs one of these
+building blocks carries its own copy under `components/`, because a repo-local
+reference cannot leave its item directory.
 
 ## Validation
 

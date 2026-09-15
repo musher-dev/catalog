@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: redis
-  revision: 1
 spec:
-  listingKind: COMPONENT
+  itemType: COMPONENT
   displayName: Redis
   summary: In-memory data store for caching, queues, sessions, and pub/sub
   description: |
@@ -35,7 +34,7 @@ spec:
     - key-value
     - redis
     - message-broker
-  homepageUrl: https://redis.io
-  sourceRepoUrl: https://github.com/redis/redis
-  license: RSALv2 / SSPLv1 / AGPL-3.0
+  homepageURL: https://redis.io
+  sourceRepoURL: https://github.com/redis/redis
+  license: LicenseRef-RSALv2 OR SSPL-1.0 OR AGPL-3.0-only
   icon: media/icon.png

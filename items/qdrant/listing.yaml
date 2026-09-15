@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: qdrant
-  revision: 2
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: Qdrant
   summary: Rust vector database for similarity search and RAG retrieval on CPU hardware
   description: |
@@ -46,8 +45,8 @@ spec:
     - similarity-search
     - rag
     - ai
-  homepageUrl: https://qdrant.tech
-  sourceRepoUrl: https://github.com/qdrant/qdrant
-  supportUrl: https://qdrant.tech/documentation
+  homepageURL: https://qdrant.tech
+  sourceRepoURL: https://github.com/qdrant/qdrant
+  supportURL: https://qdrant.tech/documentation
   license: Apache-2.0
   icon: media/icon.png

@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: n8n
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: n8n
   summary: Fair-code workflow automation with 400+ integrations and a built-in code node
   description: |
@@ -39,8 +38,8 @@ spec:
     - workflow
     - integration
     - low-code
-  homepageUrl: https://n8n.io
-  sourceRepoUrl: https://github.com/n8n-io/n8n
-  supportUrl: https://docs.n8n.io
-  license: Sustainable Use License
+  homepageURL: https://n8n.io
+  sourceRepoURL: https://github.com/n8n-io/n8n
+  supportURL: https://docs.n8n.io
+  license: SUL-1.0
   icon: media/icon.png

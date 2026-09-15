@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: openclaw
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: OpenClaw
   summary: Self-hosted AI agent gateway with a browser Control UI, bring-your-own model keys
   description: |
@@ -63,8 +62,8 @@ spec:
     - assistant
     - gateway
     - automation
-  homepageUrl: https://openclaw.ai
-  sourceRepoUrl: https://github.com/openclaw/openclaw
-  supportUrl: https://docs.openclaw.ai
+  homepageURL: https://openclaw.ai
+  sourceRepoURL: https://github.com/openclaw/openclaw
+  supportURL: https://docs.openclaw.ai
   license: MIT
   icon: media/icon.png

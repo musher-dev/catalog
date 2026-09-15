@@ -28,6 +28,7 @@ import {
   checkHealthProbes,
   checkIdentity,
   checkImagePinning,
+  checkItemType,
   checkMedia,
   checkNodeCompute,
   checkOutputInputReferences,
@@ -48,9 +49,9 @@ type Doc = Record<string, unknown>;
 const listing = (over: Doc = {}): Doc => ({
   specVersion: 'v1',
   kind: 'LISTING',
-  metadata: { slug: 'acme-wiki', revision: 1 },
+  metadata: { slug: 'acme-wiki' },
   spec: {
-    listingKind: 'BLUEPRINT',
+    itemType: 'BLUEPRINT',
     displayName: 'Acme Wiki',
     summary: 'A wiki',
     description: 'Long-form copy.',
@@ -155,6 +156,7 @@ async function diagnose(root: string): Promise<Diagnostic[]> {
 
   return [
     ...checkIdentity(context),
+    ...checkItemType(context),
     ...checkComponentReferences(context),
     ...checkMedia(context),
     ...checkDescription(context),
@@ -224,9 +226,27 @@ describe('identity — blueprint §3, listing §3', () => {
   it('ERR_SLUG_MISMATCH when metadata.slug disagrees with the directory name', async () => {
     await assertReports({ blueprint: blueprint({ metadata: { slug: 'other', revision: 1 } }) }, 'ERR_SLUG_MISMATCH');
   });
+});
 
-  it('ERR_VERSION_MISMATCH when the two halves of the item disagree', async () => {
-    await assertReports({ blueprint: blueprint({ metadata: { slug: 'acme-wiki', revision: 2 } }) }, 'ERR_VERSION_MISMATCH');
+describe('item type — listing §3, LIST-ITEM-001', () => {
+  const componentItem = { blueprint: null, listing: listing({ spec: { itemType: 'COMPONENT' } }) };
+
+  it('ERR_ITEM_TYPE_MISMATCH when a BLUEPRINT listing sits in an item holding no blueprint', async () => {
+    // spec listing conformance semantic/015: a composition nobody can install.
+    await assertReports({ blueprint: null }, 'ERR_ITEM_TYPE_MISMATCH');
+  });
+
+  it('ERR_ITEM_TYPE_MISMATCH when a COMPONENT listing sits beside a blueprint', async () => {
+    // spec listing conformance semantic/016.
+    await assertReports({ listing: listing({ spec: { itemType: 'COMPONENT' } }) }, 'ERR_ITEM_TYPE_MISMATCH');
+  });
+
+  it('accepts a COMPONENT item holding no blueprint', async () => {
+    await assertClean(componentItem);
+  });
+
+  it('the accepted COMPONENT item is a real item', async () => {
+    await assertStructurallyValid(build(componentItem));
   });
 });
 

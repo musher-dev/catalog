@@ -26,6 +26,7 @@ import {
   checkHealthProbes,
   checkIdentity,
   checkImagePinning,
+  checkItemType,
   checkMedia,
   checkNodeCompute,
   checkOutputInputReferences,
@@ -66,9 +67,14 @@ const report = (diagnostics: Diagnostic[]): string[] =>
 
 for (const item of items) {
   describe(`items/${item.slug}`, () => {
-    it('slug and version agree across the item — CORE-ITEM-001/002', async () => {
+    it('slug agrees with the item directory — CORE-ITEM-001', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkIdentity(context)), []);
+    });
+
+    it('itemType agrees with what the item root holds — LIST-ITEM-001', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkItemType(context)), []);
     });
 
     it('every component reference resolves to a document inside the item root — §4.1, BP-ID-003', async () => {

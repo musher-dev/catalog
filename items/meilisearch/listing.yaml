@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: meilisearch
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: Meilisearch
   summary: Millisecond full-text search engine with typo tolerance, facets, and filters
   description: |
@@ -37,8 +36,8 @@ spec:
     - full-text
     - indexing
     - typo-tolerance
-  homepageUrl: https://www.meilisearch.com
-  sourceRepoUrl: https://github.com/meilisearch/meilisearch
-  supportUrl: https://www.meilisearch.com/docs
+  homepageURL: https://www.meilisearch.com
+  sourceRepoURL: https://github.com/meilisearch/meilisearch
+  supportURL: https://www.meilisearch.com/docs
   license: MIT
   icon: media/icon.png

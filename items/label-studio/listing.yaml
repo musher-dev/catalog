@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: label-studio
-  revision: 2
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: Label Studio
   summary: Open-source data labeling for text, image, audio, video, and time-series datasets
   description: |
@@ -44,8 +43,8 @@ spec:
     - annotation
     - training-data
     - ml
-  homepageUrl: https://labelstud.io
-  sourceRepoUrl: https://github.com/HumanSignal/label-studio
-  supportUrl: https://labelstud.io/guide
+  homepageURL: https://labelstud.io
+  sourceRepoURL: https://github.com/HumanSignal/label-studio
+  supportURL: https://labelstud.io/guide
   license: Apache-2.0
   icon: media/icon.png

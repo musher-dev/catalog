@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: mlflow
-  revision: 2
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: MLflow
   summary: Experiment tracking and model registry for ML teams — runs, metrics, artifacts
   description: |
@@ -39,8 +38,8 @@ spec:
     - mlops
     - experiment-tracking
     - model-registry
-  homepageUrl: https://mlflow.org
-  sourceRepoUrl: https://github.com/mlflow/mlflow
-  supportUrl: https://mlflow.org/docs
+  homepageURL: https://mlflow.org
+  sourceRepoURL: https://github.com/mlflow/mlflow
+  supportURL: https://mlflow.org/docs
   license: Apache-2.0
   icon: media/icon.png

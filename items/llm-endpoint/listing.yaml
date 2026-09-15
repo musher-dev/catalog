@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: llm-endpoint
-  revision: 1
 spec:
-  listingKind: COMPONENT
+  itemType: COMPONENT
   displayName: LLM Endpoint
   summary: >-
     A language-model API you already have, as a building block other items can

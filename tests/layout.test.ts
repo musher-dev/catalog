@@ -7,6 +7,9 @@
  * `blueprint.yaml`, `listing.yaml`, and `media/` — so this file tests those and
  * the catalog's own additions on top of them, which the repository README states
  * as hard requirements for a platform sync.
+ *
+ * Which items hold a blueprint is not tested here. LIST-ITEM-001 binds it to
+ * the listing's `itemType` in both directions, so the semantic phase decides it.
  */
 import fs from 'node:fs';
 import path from 'node:path';
@@ -20,7 +23,6 @@ import {
   MEDIA_DIR,
   SLUG_PATTERN,
   discoverItems,
-  loadItemDocuments,
 } from './lib/catalog.ts';
 import { ITEMS_DIR, rel } from './lib/paths.ts';
 
@@ -63,23 +65,6 @@ for (const item of items) {
       // The storefront wrapper is what makes a directory a catalog item, and it
       // is the item root for an item holding no blueprint.
       assert.ok(item.listingPath, `${rel(item.root)} holds no ${LISTING_FILE}`);
-    });
-
-    it(`holds ${BLUEPRINT_FILE}, unless it is a COMPONENT item`, async () => {
-      // Listing spec §3.1 lets a COMPONENT-kind item ship with no blueprint, and
-      // this corpus narrows that to a catalog rule: a BLUEPRINT item must hold
-      // one. A COMPONENT item wrapping a workload still authors a trivial
-      // single-node blueprint so it is deployable on its own (postgres, redis).
-      // An external building block does not, because a one-node blueprint around
-      // a node that runs nothing would deploy nothing.
-      if (item.blueprintPath) return;
-      const { listing } = await loadItemDocuments(item);
-      const listingKind = (listing?.value?.['spec'] as Record<string, unknown> | undefined)?.['listingKind'];
-      assert.equal(
-        listingKind,
-        'COMPONENT',
-        `${rel(item.root)} holds no ${BLUEPRINT_FILE}, and only a listingKind: COMPONENT item may omit one`,
-      );
     });
 
     it('holds at least one component document', () => {

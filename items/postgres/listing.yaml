@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: postgres
-  revision: 2
 spec:
-  listingKind: COMPONENT
+  itemType: COMPONENT
   displayName: PostgreSQL
   summary: The open-source relational database — SQL, ACID transactions, and JSONB in one engine
   description: |
@@ -37,7 +36,7 @@ spec:
     - sql
     - postgres
     - relational
-  homepageUrl: https://www.postgresql.org
-  sourceRepoUrl: https://github.com/postgres/postgres
+  homepageURL: https://www.postgresql.org
+  sourceRepoURL: https://github.com/postgres/postgres
   license: PostgreSQL
   icon: media/icon.png
