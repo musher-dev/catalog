@@ -129,7 +129,7 @@ export function buildContext(
 
 /* ---------------------------------------------------------------- identity */
 
-/** CORE-ITEM-001, CORE-ITEM-002. */
+/** CORE-ITEM-001. */
 export function checkIdentity(context: SemanticContext): Diagnostic[] {
   const { item, documents } = context;
   const found: Diagnostic[] = [];
@@ -151,23 +151,36 @@ export function checkIdentity(context: SemanticContext): Diagnostic[] {
     }
   }
 
-  // The rule takes two operands. A COMPONENT item holding no blueprint has no
-  // second one — not a different one — so it goes silent rather than failing.
-  // The field is `revision` and the code is still ERR_VERSION_MISMATCH: ADR 0007
-  // §3 renamed the field and left the diagnostic, which core spec §7's table keeps.
-  const listingRevision = metadataOf(documents.listing)['revision'];
-  const blueprintRevision = metadataOf(documents.blueprint)['revision'];
-  if (documents.listing?.value && documents.blueprint?.value && listingRevision !== blueprintRevision) {
-    found.push(
-      diag(
-        'ERR_VERSION_MISMATCH',
-        `${documents.blueprint.label} /metadata/revision`,
-        `blueprint revision ${JSON.stringify(blueprintRevision)} disagrees with listing revision ${JSON.stringify(listingRevision)}`,
-      ),
-    );
-  }
-
   return found;
+}
+
+/**
+ * LIST-ITEM-001 — listing spec §3. `spec.itemType` is `BLUEPRINT` if and only if
+ * the item root holds `blueprint.yaml`.
+ *
+ * It reads the directory rather than the document, which is what makes it
+ * `semantic`. Holding the file is what counts, not whether it parses: a broken
+ * blueprint is still a blueprint, and the parser phase reports it.
+ */
+export function checkItemType(context: SemanticContext): Diagnostic[] {
+  const listing = context.documents.listing;
+  if (!listing?.value) return [];
+
+  const declared = specOf(listing)['itemType'];
+  if (typeof declared !== 'string') return [];
+
+  const holdsBlueprint = context.item.blueprintPath !== null;
+  if (declared === (holdsBlueprint ? 'BLUEPRINT' : 'COMPONENT')) return [];
+
+  return [
+    diag(
+      'ERR_ITEM_TYPE_MISMATCH',
+      `${listing.label} /spec/itemType`,
+      holdsBlueprint
+        ? `itemType is ${declared}, but the item root holds a blueprint.yaml`
+        : `itemType is ${declared}, but the item root holds no blueprint.yaml`,
+    ),
+  ];
 }
 
 /* -------------------------------------------------------------- references */

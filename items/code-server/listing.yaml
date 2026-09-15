@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: code-server
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: code-server
   summary: VS Code in the browser, running on infrastructure you control
   description: |
@@ -36,8 +35,8 @@ spec:
     - vscode
     - editor
     - remote-development
-  homepageUrl: https://coder.com
-  sourceRepoUrl: https://github.com/coder/code-server
-  supportUrl: https://coder.com/docs/code-server
+  homepageURL: https://coder.com
+  sourceRepoURL: https://github.com/coder/code-server
+  supportURL: https://coder.com/docs/code-server
   license: MIT
   icon: media/icon.png

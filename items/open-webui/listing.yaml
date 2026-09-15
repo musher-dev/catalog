@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: open-webui
-  revision: 2
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: Open WebUI
   summary: Self-hosted, multi-user chat interface for any OpenAI-compatible language-model API
   description: |
@@ -52,8 +51,8 @@ spec:
     - chat
     - openai-compatible
     - rag
-  homepageUrl: https://openwebui.com
-  sourceRepoUrl: https://github.com/open-webui/open-webui
-  supportUrl: https://docs.openwebui.com
-  license: Open WebUI License (BSD-3-Clause with branding clause)
+  homepageURL: https://openwebui.com
+  sourceRepoURL: https://github.com/open-webui/open-webui
+  supportURL: https://docs.openwebui.com
+  license: LicenseRef-Open-WebUI
   icon: media/icon.png

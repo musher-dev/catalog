@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: litellm
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: LiteLLM
   summary: OpenAI-compatible proxy that fronts 100+ LLM providers with keys, budgets, and logging
   description: |
@@ -41,8 +40,8 @@ spec:
     - proxy
     - gateway
     - openai-compatible
-  homepageUrl: https://www.litellm.ai
-  sourceRepoUrl: https://github.com/BerriAI/litellm
-  supportUrl: https://docs.litellm.ai
+  homepageURL: https://www.litellm.ai
+  sourceRepoURL: https://github.com/BerriAI/litellm
+  supportURL: https://docs.litellm.ai
   license: MIT
   icon: media/icon.png

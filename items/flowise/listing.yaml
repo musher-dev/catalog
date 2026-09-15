@@ -2,9 +2,8 @@ specVersion: v1
 kind: LISTING
 metadata:
   slug: flowise
-  revision: 1
 spec:
-  listingKind: BLUEPRINT
+  itemType: BLUEPRINT
   displayName: Flowise
   summary: Drag-and-drop builder that turns LLM chains and agents into APIs and chat widgets
   description: |
@@ -42,8 +41,8 @@ spec:
     - rag
     - low-code
     - visual-builder
-  homepageUrl: https://flowiseai.com
-  sourceRepoUrl: https://github.com/FlowiseAI/Flowise
-  supportUrl: https://docs.flowiseai.com
+  homepageURL: https://flowiseai.com
+  sourceRepoURL: https://github.com/FlowiseAI/Flowise
+  supportURL: https://docs.flowiseai.com
   license: Apache-2.0
   icon: media/icon.png
