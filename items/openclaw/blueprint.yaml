@@ -2,11 +2,33 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 1
+  revision: 2
 spec:
   components:
     web:
       componentRef: ./components/openclaw.yaml
       size: general.standard.small
       connections: {}
-  parameters: {}
+  parameters:
+    # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
+    # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
+    # matching the project's `openssl rand -hex 32` guidance.
+    gatewayToken:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Gateway token
+        order: 1
+    timezone:
+      ui:
+        label: Timezone
+        order: 2
+    publicOrigin:
+      default: "${{ self.publicUrl }}"
+      ui:
+        label: Public origin
+        order: 3
+        prominence: SECONDARY
+        examples:
+          - https://openclaw.example.com

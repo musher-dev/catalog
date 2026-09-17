@@ -2,11 +2,17 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: meilisearch
-  revision: 1
+  revision: 2
 spec:
   components:
     web:
       componentRef: ./components/meilisearch.yaml
       size: general.standard.nano
       connections: {}
-  parameters: {}
+  parameters:
+    masterKey:
+      generator:
+        byteLength: 32
+        encoding: ALPHANUMERIC
+      ui:
+        label: Master key

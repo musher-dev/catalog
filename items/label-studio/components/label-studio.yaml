@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
 spec:
   workload:
     type: SERVICE
@@ -42,10 +42,6 @@ spec:
           type: STRING
           format: EMAIL
         required: true
-        suppliedBy: USER
-        ui:
-          label: Admin email
-          order: 1
         target:
           envVarKey: LABEL_STUDIO_USERNAME
         description: Email address for the bootstrap admin account
@@ -54,16 +50,10 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Admin password
-          order: 2
         target:
           envVarKey: LABEL_STUDIO_PASSWORD
-        generator:
-          byteLength: 24
-          encoding: ALPHANUMERIC
-        description: Auto-generated admin password; rotate from the Configuration tab
+        description: Password for the bootstrap admin account; rotate from the
+          Configuration tab
       # The two inputs below both bind this deployment's own public URL, into
       # two settings Label Studio reads independently — base.py makes one
       # get_env call for HOST and a separate one for CSRF_TRUSTED_ORIGINS. Only
@@ -89,63 +79,23 @@ spec:
           type: STRING
           format: ENDPOINT_URL
         required: false
-        suppliedBy: USER
-        ui:
-          label: Public URL
-          order: 4
-          prominence: SECONDARY
-          examples:
-            - https://label-studio.example.com
         target:
           envVarKey: LABEL_STUDIO_HOST
-        platformDefault:
-          type: SELF_ADDRESS
-          source: PUBLIC_URL
         description: >-
-          Public base URL Label Studio builds absolute links from. Leave blank
-          to use this deployment's own https URL; override only for a custom
-          domain.
-      # PUBLIC_URL has to bind WITHOUT a trailing slash for this one to work.
-      # Django keeps the non-wildcard entries in a set and tests the browser's
-      # Origin header for exact membership (allowed_origins_exact, matched in
-      # CsrfViewMiddleware._origin_verified); an Origin header never carries a
-      # trailing slash, so "https://host/" matches nothing and fails exactly as
-      # an unset list does. LABEL_STUDIO_HOST above is immune — base.py strips
-      # its own trailing slash before use — which is why the same source is
-      # merely tidy there and load-bearing here.
-      #
-      # PUBLIC_HOSTNAME is not the alternative: it binds the bare host with no
-      # scheme, and the membership test above compares whole origins, so a bare
-      # host matches nothing either. Django says as much directly — since 4.0 a
-      # scheme-less entry is a check error (4_0.E001).
-      #
-      # Not a wildcard, deliberately. "https://*.musher.io" would satisfy
-      # Django — only entries containing '*' reach the subdomain-matching path
-      # — and would make every other tenant's deployment on the shared edge a
-      # trusted CSRF origin for this one.
+          Public base URL Label Studio builds absolute links from. Override only
+          for a custom domain.
       # No `format` here, deliberately: the value is a comma-separated list, and
       # every member of the format vocabulary names a convention the whole
-      # scalar follows. A two-origin list is not a URL, and component 6.4 binds
+      # scalar follows. A two-origin list is not a URL, and blueprint 5.3 binds
       # a client's rendering -- one told this was a single URL could normalise
-      # or trim it and corrupt the list. The shape lives in ui.examples instead,
-      # where the no-trailing-slash rule above becomes machine-readable.
+      # or trim it and corrupt the list. The shape lives in the covering
+      # parameter's ui.examples instead, beside the default that supplies it.
       csrfTrustedOrigins:
         schema:
           type: STRING
         required: false
-        suppliedBy: USER
-        ui:
-          label: Trusted origins
-          order: 5
-          prominence: SECONDARY
-          examples:
-            - https://label-studio.example.com
-            - https://label-studio.example.com,https://alt.example.com
         target:
           envVarKey: LABEL_STUDIO_CSRF_TRUSTED_ORIGINS
-        platformDefault:
-          type: SELF_ADDRESS
-          source: PUBLIC_URL
         description: >-
           Comma-separated origins Django accepts form POSTs from. Must match the
           browser's Origin header exactly — scheme included, no trailing slash.
@@ -166,16 +116,9 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Secret key
-          order: 3
         target:
           envVarKey: SECRET_KEY
-        generator:
-          byteLength: 32
-          encoding: ALPHANUMERIC
         description: >-
-          Django secret key signing sessions and CSRF tokens. Auto-generated;
-          pinning it keeps sessions valid across replicas and re-creates.
+          Django secret key signing sessions and CSRF tokens. Pinning it keeps
+          sessions valid across replicas and re-creates.
     outputs: {}

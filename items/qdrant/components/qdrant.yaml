@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
 spec:
   workload:
     type: SERVICE
@@ -32,14 +32,8 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: API key
         target:
           envVarKey: QDRANT__SERVICE__API_KEY
-        generator:
-          byteLength: 32
-          encoding: ALPHANUMERIC
-        description: Auto-generated bearer token required by clients to authenticate
-          against the Qdrant HTTP API
+        description: Bearer token required by clients to authenticate against the
+          Qdrant HTTP API
     outputs: {}

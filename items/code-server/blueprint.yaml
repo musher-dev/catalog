@@ -2,11 +2,17 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: code-server
-  revision: 1
+  revision: 2
 spec:
   components:
     web:
       componentRef: ./components/code-server.yaml
       size: general.standard.small
       connections: {}
-  parameters: {}
+  parameters:
+    password:
+      generator:
+        byteLength: 32
+        encoding: ALPHANUMERIC
+      ui:
+        label: Access password

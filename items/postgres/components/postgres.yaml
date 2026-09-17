@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
 spec:
   workload:
     type: SERVICE
@@ -29,44 +29,27 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Database password
-          order: 1
         target:
           envVarKey: POSTGRES_PASSWORD
-        # ALPHANUMERIC rather than HEX so the value survives being pasted into a
-        # postgresql:// URL without percent-encoding. 32 bytes matches the other
-        # machine credentials in the corpus; the 24-byte tier is for passwords a
-        # person reads and types.
-        generator:
-          byteLength: 32
-          encoding: ALPHANUMERIC
         description: >-
-          Auto-generated password for the database superuser; copy it from the
-          deployment's Configuration tab.
+          Password for the database superuser; copy it from the deployment's
+          Configuration tab.
       postgresUser:
         schema:
           type: STRING
           default: postgres
         required: false
-        suppliedBy: USER
-        ui:
-          label: Database user
-          order: 2
         target:
           envVarKey: POSTGRES_USER
+        description: Role the database is initialised with and clients connect as.
       postgresDb:
         schema:
           type: STRING
           default: app
         required: false
-        suppliedBy: USER
-        ui:
-          label: Database name
-          order: 3
         target:
           envVarKey: POSTGRES_DB
+        description: Database created on first boot for the application to use.
     outputs:
       address:
         schema:
@@ -75,6 +58,6 @@ spec:
         description: >-
           Mesh-internal `host:port` of the database endpoint (for example
           `db-myapp.internal:5432`), resolvable only by workloads in the same
-          deployment. Wire it into a consuming component's CONNECTION input to
-          point that workload at this database.
+          deployment. Wire it into a consuming component's input to point that
+          workload at this database.
         valueFrom: DERIVED

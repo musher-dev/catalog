@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
 spec:
   workload:
     type: SERVICE
@@ -139,23 +139,13 @@ spec:
         mountPath: /home/node/.config/openclaw
   contract:
     inputs:
-      # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
-      # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
-      # matching the project's `openssl rand -hex 32` guidance.
       gatewayToken:
         schema:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Gateway token
-          order: 1
         target:
           envVarKey: OPENCLAW_GATEWAY_TOKEN
-        generator:
-          byteLength: 32
-          encoding: HEX
         description: >-
           Master token authenticating the Control UI, WebSocket streams, and HTTP API.
       publicOrigin:
@@ -163,33 +153,18 @@ spec:
           type: STRING
           format: ENDPOINT_URL
         required: false
-        suppliedBy: USER
-        ui:
-          label: Public origin
-          order: 3
-          prominence: SECONDARY
-          examples:
-            - https://openclaw.example.com
         target:
           envVarKey: OPENCLAW_PUBLIC_ORIGIN
-        platformDefault:
-          type: SELF_ADDRESS
-          source: PUBLIC_URL
         description: >-
           Public https origin of this deployment's Control UI, written into
           gateway.controlUi.allowedOrigins at first boot so browser sessions from
-          the public hostname are accepted. Leave blank to use this deployment's
-          own generated URL; override only for a custom domain.
+          the public hostname are accepted. Override only for a custom domain.
       timezone:
         schema:
           type: STRING
           format: TIMEZONE
           default: UTC
         required: false
-        suppliedBy: USER
-        ui:
-          label: Timezone
-          order: 2
         # The container consumes the standard TZ variable (upstream compose maps
         # its host-side OPENCLAW_TZ input onto TZ; OPENCLAW_TZ itself is not read
         # by the gateway runtime).

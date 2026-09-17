@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
 spec:
   workload:
     type: SERVICE
@@ -41,13 +41,7 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Master key
         target:
           envVarKey: MEILI_MASTER_KEY
-        generator:
-          byteLength: 32
-          encoding: ALPHANUMERIC
-        description: Auto-generated bearer token for admin and indexing API access
+        description: Bearer token for admin and indexing API access
     outputs: {}

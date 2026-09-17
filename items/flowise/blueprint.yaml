@@ -2,11 +2,17 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  revision: 1
+  revision: 2
 spec:
   components:
     web:
       componentRef: ./components/flowise.yaml
       size: general.standard.small
       connections: {}
-  parameters: {}
+  parameters:
+    flowiseSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Secret key
