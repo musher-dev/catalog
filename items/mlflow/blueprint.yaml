@@ -2,11 +2,25 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 2
+  revision: 3
 spec:
   components:
     web:
       componentRef: ./components/mlflow.yaml
       size: general.standard.small
       connections: {}
-  parameters: {}
+  parameters:
+    backendStoreUri:
+      ui:
+        label: Backend store URI
+        order: 1
+        examples:
+          - sqlite:////mlflow/mlflow.db
+          - postgresql://mlflow:password@postgres.internal:5432/mlflow
+    artifactsDestination:
+      ui:
+        label: Artifact storage destination
+        order: 2
+        examples:
+          - s3://my-bucket/mlflow
+          - gs://my-bucket/mlflow

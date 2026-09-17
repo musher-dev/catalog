@@ -31,7 +31,6 @@ import {
   checkNodeCompute,
   checkOutputInputReferences,
   checkParameters,
-  checkPlatformDefaults,
   valueSchemaDefaultsFrom,
   type Diagnostic,
   type SemanticContext,
@@ -102,12 +101,7 @@ for (const item of items) {
       assert.deepEqual(report(checkHealthProbes(context)), []);
     });
 
-    it('every platform default resolves to a public endpoint of the right address form — §6.1', async () => {
-      const { context } = await contextFor(item);
-      assert.deepEqual(report(checkPlatformDefaults(context)), []);
-    });
-
-    it('every INPUT output names a non-CONNECTION input of its own component — COMP-OUT-002/003', async () => {
+    it('every INPUT output names an input of its own component — COMP-OUT-002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkOutputInputReferences(context)), []);
     });
@@ -117,12 +111,12 @@ for (const item of items) {
       assert.deepEqual(report(checkNodeCompute(context)), []);
     });
 
-    it('every connection resolves at both ends, fills a CONNECTION input, and the two fit — §4.2, BP-CONN-001', async () => {
+    it('every connection resolves at both ends, fills no republished input, and the two fit — §4.2, BP-CONN-002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkConnections(context)), []);
     });
 
-    it('the install form covers what a deploying user must supply — §5.2, §5.3', async () => {
+    it('the install form covers every input nothing else supplies — BP-PARAM-001..008, BP-UI-003', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkParameters(context)), []);
     });

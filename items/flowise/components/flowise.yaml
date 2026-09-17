@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
 spec:
   workload:
     type: SERVICE
@@ -49,14 +49,8 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Secret key
         target:
           envVarKey: FLOWISE_SECRETKEY_OVERWRITE
-        generator:
-          byteLength: 32
-          encoding: HEX
-        description: Auto-generated key used to encrypt credentials stored in flows;
-          keeps them decryptable across restarts
+        description: Key used to encrypt credentials stored in flows; keeps them
+          decryptable across restarts
     outputs: {}

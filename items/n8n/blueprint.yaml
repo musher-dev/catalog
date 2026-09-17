@@ -2,11 +2,39 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: n8n
-  revision: 1
+  revision: 2
 spec:
   components:
     web:
       componentRef: ./components/n8n.yaml
       size: general.economy.nano
       connections: {}
-  parameters: {}
+  parameters:
+    timezone:
+      ui:
+        label: Timezone
+        order: 1
+    n8nHost:
+      default: "${{ self.publicHostname }}"
+      ui:
+        label: Public hostname
+        order: 2
+        prominence: SECONDARY
+        examples:
+          - n8n.example.com
+    webhookUrl:
+      default: "${{ self.publicUrl }}"
+      ui:
+        label: Webhook base URL
+        order: 3
+        prominence: SECONDARY
+        examples:
+          - https://n8n.example.com
+    editorBaseUrl:
+      default: "${{ self.publicUrl }}"
+      ui:
+        label: Editor base URL
+        order: 4
+        prominence: SECONDARY
+        examples:
+          - https://n8n.example.com

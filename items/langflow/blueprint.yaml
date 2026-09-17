@@ -2,11 +2,26 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: langflow
-  revision: 1
+  revision: 2
 spec:
   components:
     web:
       componentRef: ./components/langflow.yaml
       size: general.standard.small
       connections: {}
-  parameters: {}
+  parameters:
+    superuser:
+      ui:
+        label: Admin username
+    superuserPassword:
+      generator:
+        byteLength: 24
+        encoding: ALPHANUMERIC
+      ui:
+        label: Admin password
+    secretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Secret key

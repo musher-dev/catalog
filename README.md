@@ -84,19 +84,18 @@ spec:
       readiness:
         path: /healthz
         initialDelaySeconds: 30
-  contract:                     # typed inputs — the install form
+  contract:                     # what the component needs, never where it comes from
     inputs:
       adminPassword:
+        description: Password for the bootstrap admin account.   # REQUIRED
         schema: { type: STRING, sensitive: true }
         required: true
-        suppliedBy: USER
-        ui: { label: Admin password }
         target: { envVarKey: ADMIN_PASSWORD }
     outputs: {}
 ```
 
-**`blueprint.yaml`** — references the component file by repo-local path and
-binds compute per node:
+**`blueprint.yaml`** — references the component file by repo-local path, binds
+compute per node, and authors the install form:
 
 ```yaml
 specVersion: v1
@@ -108,8 +107,20 @@ spec:
       componentRef: ./components/my-app.yaml   # must begin ./ and end .yaml
       size: general.standard.small          # binding Compute Profile
       connections: {}           # inbound wires, keyed by consumer input
-  parameters: {}                # empty ⇒ derived from merged USER inputs
+  parameters:                   # the install form, always authored
+    adminPassword:              # key = the input it covers
+      generator: { byteLength: 32, encoding: ALPHANUMERIC }   # or `default`, or neither
+      ui: { label: Admin password }
 ```
+
+A parameter covers every input of its key on every node no connection fills it
+on, and carries `ui` plus at most one of `generator` and `default`. It states no
+`schema`, no `required` and no `description`: the input it covers declares all
+three, and the form field reads them from there. A `default` may name what no
+author can write down — `default: "https://${{ self.publicHostname }}/oauth/cb"`
+reads the address the platform assigns this node. An absent or empty
+`parameters` is a form with no fields, which is right only when every required
+input is wired or already has a `schema.default`.
 
 The `./` prefix is load-bearing, not decorative: a bare name is not
 distinguishable from the UUID a published reference uses, so without it no
@@ -141,16 +152,20 @@ spec:
 
 A multi-service item adds more entries under `spec.components` — unique node
 names, one `components/<name>.yaml` per reference — and wires `connections`
-between declared component outputs and inputs. A wire may fill only an input
-declared `suppliedBy: CONNECTION`, and its two ends must agree on `schema.type`,
-and on `schema.resourceType` wherever the consuming input names one. Input,
-output and connection names are `lowerCamelCase` — the environment-variable key
-is what `target.envVarKey` carries, not the input's name.
+between declared component outputs and inputs. Any input may be wired — the one
+exception is an input the same component republishes through a `valueFrom: INPUT`
+output — and a wire's two ends must agree on `schema.type`, and on
+`schema.resourceType` wherever the consuming input names one. A wired input is
+never covered by a parameter, so a wire and a form field never claim one value.
+Input, output and connection names are `lowerCamelCase` — the
+environment-variable key is what `target.envVarKey` carries, not the input's
+name.
 
 A node the platform does not run — a service addressed elsewhere, such as a
 language-model endpoint — is a component declaring `spec.external` in place of
 `spec.workload`. Its blueprint node writes `size: null`, and the values it holds
-reach the install form through its `USER` inputs like any other node's.
+reach the install form through parameters covering its inputs, like any other
+node's.
 
 An item holding **no** `blueprint.yaml` is an `itemType: COMPONENT` item: a
 single building block rather than a composition — `postgres` and `redis`, which

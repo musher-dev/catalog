@@ -2,15 +2,17 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 2
+  revision: 3
 # Two participants: `models` is the language-model API the deploying user
 # already has — a node this platform does not run, so it names no compute — and
 # `web` is Open WebUI. The address and the key both come from `models`, so the
 # UI can never hold a key from one provider beside an address from another.
 #
-# `parameters: {}`, so blueprint §5.1 derives the install form from the graph's
-# USER inputs: the endpoint's URL, key and model name, asked for once, together,
-# followed by Open WebUI's own generated signing key.
+# The install form is authored below, once for the whole composition: the
+# endpoint's URL, key and model name, asked for on the `models` node, followed
+# by Open WebUI's own generated signing key. `web`'s three LLM inputs are wired
+# rather than asked for, so blueprint §5.1 takes them out of every parameter's
+# coverage.
 spec:
   components:
     models:
@@ -22,12 +24,38 @@ spec:
       size: general.standard.small
       connections:
         openaiApiBaseUrl:
-          fromRole: models
+          fromNode: models
           fromOutput: baseUrl
         openaiApiKey:
-          fromRole: models
+          fromNode: models
           fromOutput: apiKey
         defaultModels:
-          fromRole: models
+          fromNode: models
           fromOutput: model
-  parameters: {}
+  parameters:
+    # The endpoint's three values are asked for on the `models` node, which is
+    # the only node declaring inputs of these keys.
+    baseUrl:
+      ui:
+        label: API base URL
+        order: 1
+        examples:
+          - https://api.example.com/v1
+    apiKey:
+      ui:
+        label: API key
+        order: 2
+    model:
+      ui:
+        label: Model name
+        order: 3
+        prominence: SECONDARY
+    # After the endpoint's URL, key and model name, since this is one form
+    # across both nodes.
+    webuiSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: WebUI secret key
+        order: 4

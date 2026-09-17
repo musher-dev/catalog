@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
 spec:
   workload:
     type: SERVICE
@@ -28,6 +28,6 @@ spec:
         description: >-
           Mesh-internal `host:port` of the cache endpoint (for example
           `cache-myapp.internal:6379`), resolvable only by workloads in the same
-          deployment. Wire it into a consuming component's CONNECTION input to
-          point that workload at this cache.
+          deployment. Wire it into a consuming component's input to point that
+          workload at this cache.
         valueFrom: DERIVED

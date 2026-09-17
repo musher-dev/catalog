@@ -2,11 +2,11 @@
 # no compute and no address of its own: `spec.external.resourceType` says what
 # kind of service the node addresses, and nothing more.
 #
-# The values an application needs to reach that service arrive as USER inputs
-# and leave as INPUT outputs. Publishing them from one node is the point: an
-# address from one provider beside a credential from another reaches nothing,
-# and a consumer wiring two of them from this node's `fromRole` is taking them
-# from one source by construction.
+# The values an application needs to reach that service arrive as inputs the
+# blueprint supplies, and leave as INPUT outputs. Publishing them from one node
+# is the point: an address from one provider beside a credential from another
+# reaches nothing, and a consumer wiring two of them from this node's `fromNode`
+# is taking them from one source by construction.
 #
 # Deliberately vendor-neutral. The address may be a Musher inference endpoint, a
 # third-party service, or an engine the customer runs themselves; this document
@@ -17,7 +17,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
 spec:
   external:
     resourceType: dev.musher.llm.chat-completions
@@ -28,11 +28,6 @@ spec:
           type: STRING
           format: ENDPOINT_URL
           resourceType: dev.musher.llm.base-url
-        ui:
-          label: API base URL
-          order: 1
-          examples:
-            - https://api.example.com/v1
         description: >-
           Base URL of the chat-completions API this node addresses. Anything
           speaking the same wire will do; nothing here resolves it or connects
@@ -42,19 +37,12 @@ spec:
           type: STRING
           sensitive: true
           resourceType: dev.musher.llm.api-key
-        ui:
-          label: API key
-          order: 2
         description: Bearer credential presented to the service above.
       model:
         schema:
           type: STRING
           resourceType: dev.musher.llm.model-name
         required: false
-        ui:
-          label: Model name
-          order: 3
-          prominence: SECONDARY
         description: Name the service uses to select which model answers.
     outputs:
       baseUrl:
@@ -62,6 +50,10 @@ spec:
           type: STRING
           format: ENDPOINT_URL
           resourceType: dev.musher.llm.base-url
+        description: >-
+          Base URL a consuming workload sends chat-completion requests to. It is
+          the value this node was given, republished so a sibling can be pointed
+          at the same service.
         valueFrom: INPUT
         input: baseUrl
       apiKey:
@@ -69,11 +61,17 @@ spec:
           type: STRING
           sensitive: true
           resourceType: dev.musher.llm.api-key
+        description: >-
+          Bearer credential a consuming workload presents to the service above,
+          republished from this node's own input.
         valueFrom: INPUT
         input: apiKey
       model:
         schema:
           type: STRING
           resourceType: dev.musher.llm.model-name
+        description: >-
+          Model name a consuming workload selects by default, republished from
+          this node's own input.
         valueFrom: INPUT
         input: model

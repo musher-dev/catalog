@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
 spec:
   workload:
     type: SERVICE
@@ -53,9 +53,6 @@ spec:
           type: STRING
           default: admin
         required: true
-        suppliedBy: USER
-        ui:
-          label: Admin username
         target:
           envVarKey: LANGFLOW_SUPERUSER
         description: Initial admin username for the Langflow UI
@@ -64,28 +61,16 @@ spec:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Admin password
         target:
           envVarKey: LANGFLOW_SUPERUSER_PASSWORD
-        generator:
-          byteLength: 24
-          encoding: ALPHANUMERIC
-        description: Auto-generated admin password; rotate from the Configuration tab
+        description: Password for the initial admin account; rotate from the
+          Configuration tab
       secretKey:
         schema:
           type: STRING
           sensitive: true
         required: true
-        suppliedBy: USER
-        ui:
-          label: Secret key
         target:
           envVarKey: LANGFLOW_SECRET_KEY
-        generator:
-          byteLength: 32
-          encoding: HEX
-        description: Auto-generated key used to encrypt API keys and secrets stored
-          in flows
+        description: Key used to encrypt API keys and secrets stored in flows
     outputs: {}

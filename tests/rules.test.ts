@@ -33,7 +33,6 @@ import {
   checkNodeCompute,
   checkOutputInputReferences,
   checkParameters,
-  checkPlatformDefaults,
   tagOf,
   valueSchemaDefaultsFrom,
   type Diagnostic,
@@ -100,12 +99,12 @@ const externalModels = (outputs?: Doc): Doc => ({
     external: { resourceType: 'dev.musher.llm.chat-completions' },
     contract: {
       inputs: {
-        baseUrl: { schema: { type: 'STRING', format: 'ENDPOINT_URL', resourceType: 'dev.musher.llm.base-url' }, ui: { label: 'API base URL', order: 1 } },
-        apiKey: { schema: { type: 'STRING', sensitive: true, resourceType: 'dev.musher.llm.api-key' }, ui: { label: 'API key', order: 2 } },
+        baseUrl: { description: 'Base URL of the API this node addresses.', schema: { type: 'STRING', format: 'ENDPOINT_URL', resourceType: 'dev.musher.llm.base-url' } },
+        apiKey: { description: 'Bearer credential presented to the service above.', schema: { type: 'STRING', sensitive: true, resourceType: 'dev.musher.llm.api-key' } },
       },
       outputs: outputs ?? {
-        baseUrl: { schema: { type: 'STRING', format: 'ENDPOINT_URL', resourceType: 'dev.musher.llm.base-url' }, valueFrom: 'INPUT', input: 'baseUrl' },
-        apiKey: { schema: { type: 'STRING', sensitive: true, resourceType: 'dev.musher.llm.api-key' }, valueFrom: 'INPUT', input: 'apiKey' },
+        baseUrl: { description: 'The base URL, republished.', schema: { type: 'STRING', format: 'ENDPOINT_URL', resourceType: 'dev.musher.llm.base-url' }, valueFrom: 'INPUT', input: 'baseUrl' },
+        apiKey: { description: 'The credential, republished.', schema: { type: 'STRING', sensitive: true, resourceType: 'dev.musher.llm.api-key' }, valueFrom: 'INPUT', input: 'apiKey' },
       },
     },
   },
@@ -162,7 +161,6 @@ async function diagnose(root: string): Promise<Diagnostic[]> {
     ...checkDescription(context),
     ...checkImagePinning(context),
     ...checkHealthProbes(context),
-    ...checkPlatformDefaults(context),
     ...checkOutputInputReferences(context),
     ...checkNodeCompute(context),
     ...checkConnections(context),
@@ -370,7 +368,7 @@ describe('image pinning — COMP-SRC-001', () => {
   });
 });
 
-describe('endpoint resolution — component §5.2, §5.4, §6.1', () => {
+describe('endpoint resolution — component §5.2, §5.4; blueprint §5.2', () => {
   const workloadWith = (endpoints: Doc, health: Doc = {}, contract?: Doc): Doc =>
     component({
       spec: {
@@ -440,38 +438,44 @@ describe('endpoint resolution — component §5.2, §5.4, §6.1', () => {
     });
   });
 
-  it('ERR_ENDPOINT_NOT_PUBLIC when a platform default reads a private endpoint', async () => {
+  const covering = (name: string, reference: string): Doc =>
+    blueprint({
+      spec: {
+        components: { web: { componentRef: './components/web.yaml', size: 'general.standard.small', connections: {} } },
+        parameters: { [name]: { default: reference, ui: { label: 'Address' } } },
+      },
+    });
+
+  const needing = (name: string, endpoints: Doc, health: Doc = {}): Doc =>
+    workloadWith(endpoints, health, {
+      inputs: { [name]: { description: 'An address this deployment answers on.', schema: { type: 'STRING' }, required: false } },
+      outputs: {},
+    });
+
+  it('ERR_ENDPOINT_NOT_PUBLIC when a self reference reads a private endpoint', async () => {
+    // Every path derives an externally reachable address, and a PRIVATE endpoint
+    // has none to give.
     await assertReports(
       {
-        components: {
-          'components/web.yaml': workloadWith(
-            { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PRIVATE' } },
-            {},
-            {
-              inputs: { host: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'Host' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_HOSTNAME' } } },
-              outputs: {},
-            },
-          ),
-        },
+        blueprint: covering('host', '${{ self.publicHostname }}'),
+        components: { 'components/web.yaml': needing('host', { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PRIVATE' } }) },
       },
       'ERR_ENDPOINT_NOT_PUBLIC',
     );
   });
 
-  it('ERR_ENDPOINT_NOT_L4 when PUBLIC_ADDRESS reads an HTTP endpoint', async () => {
-    // Such an endpoint is published through the shared ingress, so what the
-    // derivation would yield is the ingress address — true, and not the thing
-    // an author asking for an edge address is asking for.
+  it('ERR_ENDPOINT_NOT_L4 when self.publicAddress reads an HTTP endpoint', async () => {
+    // Such an endpoint is published through the shared ingress, so what the path
+    // would yield is the ingress address — true, and not the thing an author
+    // asking for an edge address is asking for.
     await assertReports(
       {
+        blueprint: covering('addr', '${{ self.publicAddress }}'),
         components: {
-          'components/web.yaml': workloadWith(
-            { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' }, },
+          'components/web.yaml': needing(
+            'addr',
+            { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' } },
             { readiness: { path: '/healthz' } },
-            {
-              inputs: { addr: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'Address' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_ADDRESS' } } },
-              outputs: {},
-            },
           ),
         },
       },
@@ -479,22 +483,45 @@ describe('endpoint resolution — component §5.2, §5.4, §6.1', () => {
     );
   });
 
-  it('ERR_ENDPOINT_NOT_HTTP when PUBLIC_URL reads a TCP endpoint', async () => {
+  it('ERR_ENDPOINT_NOT_HTTP when self.publicUrl reads a TCP endpoint', async () => {
     await assertReports(
       {
-        components: {
-          'components/web.yaml': workloadWith(
-            { broker: { containerPort: 1883, protocol: 'TCP', visibility: 'PUBLIC' } },
-            {},
-            {
-              inputs: { url: { schema: { type: 'STRING' }, suppliedBy: 'USER', ui: { label: 'URL' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_URL' } } },
-              outputs: {},
-            },
-          ),
-        },
+        blueprint: covering('url', '${{ self.publicUrl }}'),
+        components: { 'components/web.yaml': needing('url', { broker: { containerPort: 1883, protocol: 'TCP', visibility: 'PUBLIC' } }) },
       },
       'ERR_ENDPOINT_NOT_HTTP',
     );
+  });
+
+  it('ERR_UNKNOWN_ENDPOINT when a third segment names no endpoint of the node', async () => {
+    await assertReports(
+      {
+        blueprint: covering('url', '${{ self.publicUrl.console }}'),
+        components: {
+          'components/web.yaml': needing(
+            'url',
+            { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' } },
+            { readiness: { path: '/healthz' } },
+          ),
+        },
+      },
+      'ERR_UNKNOWN_ENDPOINT',
+    );
+  });
+
+  it('accepts a reference composed into a longer literal', async () => {
+    // The whole requirement is the composition — an OAuth callback is not
+    // expressible by a bare address.
+    await assertClean({
+      blueprint: covering('url', 'https://${{ self.publicHostname }}/oauth/cb'),
+      components: {
+        'components/web.yaml': needing(
+          'url',
+          { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' } },
+          { readiness: { path: '/healthz' } },
+        ),
+      },
+    });
   });
 });
 
@@ -510,14 +537,14 @@ describe('connections — blueprint §4.2', () => {
       },
       contract: {
         inputs: {},
-        outputs: { connectionString: { schema: { type: 'STRING', resourceType: POSTGRES }, valueFrom: 'DERIVED' } },
+        outputs: { connectionString: { description: 'Mesh-internal DSN of the database.', schema: { type: 'STRING', resourceType: POSTGRES }, valueFrom: 'DERIVED' } },
       },
     },
   });
 
   // The input is named `databaseUrl`, not `DATABASE_URL`: the environment-variable
   // key is what `target` carries, and the input grammar rejects the other spelling.
-  const webConsuming = (inputSchema: Doc, input: Doc = { suppliedBy: 'CONNECTION' }): Doc =>
+  const webConsuming = (inputSchema: Doc, input: Doc = {}): Doc =>
     component({
       spec: {
         workload: {
@@ -527,7 +554,7 @@ describe('connections — blueprint §4.2', () => {
           health: { readiness: { path: '/healthz' } },
         },
         contract: {
-          inputs: { databaseUrl: { schema: inputSchema, ...input, target: { envVarKey: 'DATABASE_URL' } } },
+          inputs: { databaseUrl: { description: 'DSN the app connects with.', schema: inputSchema, ...input, target: { envVarKey: 'DATABASE_URL' } } },
           outputs: {},
         },
       },
@@ -545,7 +572,7 @@ describe('connections — blueprint §4.2', () => {
     });
 
   const files = (inputSchema: Doc) => ({ 'components/db.yaml': db, 'components/web.yaml': webConsuming(inputSchema) });
-  const wired = { databaseUrl: { fromRole: 'db', fromOutput: 'connectionString' } };
+  const wired = { databaseUrl: { fromNode: 'db', fromOutput: 'connectionString' } };
 
   it('accepts a wire whose two ends fit', async () => {
     await assertClean({ blueprint: twoNode(wired), components: files({ type: 'STRING', resourceType: POSTGRES }) });
@@ -555,16 +582,16 @@ describe('connections — blueprint §4.2', () => {
     await assertStructurallyValid(build({ blueprint: twoNode(wired), components: files({ type: 'STRING', resourceType: POSTGRES }) }));
   });
 
-  it('ERR_UNKNOWN_ROLE when fromRole names no node', async () => {
+  it('ERR_UNKNOWN_NODE when fromNode names no node', async () => {
     await assertReports(
-      { blueprint: twoNode({ databaseUrl: { fromRole: 'cache', fromOutput: 'connectionString' } }), components: files({ type: 'STRING', resourceType: POSTGRES }) },
-      'ERR_UNKNOWN_ROLE',
+      { blueprint: twoNode({ databaseUrl: { fromNode: 'cache', fromOutput: 'connectionString' } }), components: files({ type: 'STRING', resourceType: POSTGRES }) },
+      'ERR_UNKNOWN_NODE',
     );
   });
 
   it('ERR_UNKNOWN_OUTPUT when fromOutput names no output of the producer', async () => {
     await assertReports(
-      { blueprint: twoNode({ databaseUrl: { fromRole: 'db', fromOutput: 'dsn' } }), components: files({ type: 'STRING', resourceType: POSTGRES }) },
+      { blueprint: twoNode({ databaseUrl: { fromNode: 'db', fromOutput: 'dsn' } }), components: files({ type: 'STRING', resourceType: POSTGRES }) },
       'ERR_UNKNOWN_OUTPUT',
     );
   });
@@ -573,42 +600,48 @@ describe('connections — blueprint §4.2', () => {
     // A wire whose two ends are each checked and whose consumer end is not is a
     // wire that can be misspelled at one end only.
     await assertReports(
-      { blueprint: twoNode({ databseUrl: { fromRole: 'db', fromOutput: 'connectionString' } }), components: files({ type: 'STRING', resourceType: POSTGRES }) },
+      { blueprint: twoNode({ databseUrl: { fromNode: 'db', fromOutput: 'connectionString' } }), components: files({ type: 'STRING', resourceType: POSTGRES }) },
       'ERR_UNKNOWN_INPUT',
     );
   });
 
-  it('ERR_INPUT_NOT_CONNECTABLE when a wire fills a USER input — BP-CONN-001', async () => {
-    // A wire and the install form would both claim the value, with nothing
-    // saying which arrives.
-    await assertReports(
-      {
-        blueprint: twoNode(wired),
-        components: {
-          'components/db.yaml': db,
-          'components/web.yaml': webConsuming({ type: 'STRING', resourceType: POSTGRES }, { suppliedBy: 'USER', ui: { label: 'Database URL' } }),
+  it('ERR_INPUT_NOT_CONNECTABLE when a wire fills an input the component republishes — BP-CONN-002', async () => {
+    // An INPUT output reading a wired input would depend on an inbound edge, and
+    // §4.2's legal cycles would stop being resolvable.
+    const relay = component({
+      spec: {
+        workload: {
+          type: 'SERVICE',
+          source: { type: 'IMAGE', ref: 'ghcr.io/acme/web:1.2.3' },
+          endpoints: { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' } },
+          health: { readiness: { path: '/healthz' } },
+        },
+        contract: {
+          inputs: { databaseUrl: { description: 'DSN the app connects with.', schema: { type: 'STRING', resourceType: POSTGRES } } },
+          outputs: { databaseUrl: { description: 'The DSN, republished.', schema: { type: 'STRING', resourceType: POSTGRES }, valueFrom: 'INPUT', input: 'databaseUrl' } },
         },
       },
+    });
+    await assertReports(
+      { blueprint: twoNode(wired), components: { 'components/db.yaml': db, 'components/web.yaml': relay } },
       'ERR_INPUT_NOT_CONNECTABLE',
     );
   });
 
-  it('ERR_INPUT_NOT_CONNECTABLE when the input says nothing about who supplies it', async () => {
-    // suppliedBy defaults to USER, so silence is bound by the rule too.
-    await assertReports(
-      {
-        blueprint: twoNode(wired),
-        components: {
-          'components/db.yaml': db,
-          'components/web.yaml': webConsuming({ type: 'STRING', resourceType: POSTGRES }, { ui: { label: 'Database URL' } }),
-        },
-      },
-      'ERR_INPUT_NOT_CONNECTABLE',
-    );
+  it('ERR_UNSATISFIED_REQUIRED_INPUT when a required input is neither wired nor covered', async () => {
+    await assertReports({ blueprint: twoNode({}), components: files({ type: 'STRING', resourceType: POSTGRES }) }, 'ERR_UNSATISFIED_REQUIRED_INPUT');
   });
 
-  it('ERR_UNWIRED_REQUIRED_INPUT when a required CONNECTION input has no wire', async () => {
-    await assertReports({ blueprint: twoNode({}), components: files({ type: 'STRING', resourceType: POSTGRES }) }, 'ERR_UNWIRED_REQUIRED_INPUT');
+  it('accepts a wire filling an input a parameter could equally have covered', async () => {
+    // BP-CONN-001 is withdrawn: any input may be wired, and §5.1 takes a wired
+    // one out of coverage so the two never both claim the value.
+    await assertClean({
+      blueprint: twoNode(wired),
+      components: {
+        'components/db.yaml': db,
+        'components/web.yaml': webConsuming({ type: 'STRING', resourceType: POSTGRES }, { required: true }),
+      },
+    });
   });
 
   it('ERR_INCOMPATIBLE_TYPE when the two ends declare different types', async () => {
@@ -664,8 +697,8 @@ describe('external components — component §5.6, §6.2; blueprint §4.3', () =
       },
       contract: {
         inputs: {
-          llmBaseUrl: { schema: { type: 'STRING', format: 'ENDPOINT_URL', resourceType: LLM_BASE_URL }, suppliedBy: 'CONNECTION', target: { envVarKey: 'OPENAI_API_BASE_URL' } },
-          llmApiKey: { schema: { type: 'STRING', sensitive: true, resourceType: LLM_API_KEY }, suppliedBy: 'CONNECTION', target: { envVarKey: 'OPENAI_API_KEY' } },
+          llmBaseUrl: { description: 'Base URL the app sends chat requests to.', schema: { type: 'STRING', format: 'ENDPOINT_URL', resourceType: LLM_BASE_URL }, target: { envVarKey: 'OPENAI_API_BASE_URL' } },
+          llmApiKey: { description: 'Bearer credential for the API above.', schema: { type: 'STRING', sensitive: true, resourceType: LLM_API_KEY }, target: { envVarKey: 'OPENAI_API_KEY' } },
         },
         outputs: {},
       },
@@ -681,12 +714,15 @@ describe('external components — component §5.6, §6.2; blueprint §4.3', () =
             componentRef: './components/web.yaml',
             size: sizes.web === undefined ? 'general.standard.small' : sizes.web,
             connections: {
-              llmBaseUrl: { fromRole: 'models', fromOutput: 'baseUrl' },
-              llmApiKey: { fromRole: 'models', fromOutput: 'apiKey' },
+              llmBaseUrl: { fromNode: 'models', fromOutput: 'baseUrl' },
+              llmApiKey: { fromNode: 'models', fromOutput: 'apiKey' },
             },
           },
         },
-        parameters: {},
+        parameters: {
+          baseUrl: { ui: { label: 'API base URL', order: 1 } },
+          apiKey: { ui: { label: 'API key', order: 2 } },
+        },
       },
     });
 
@@ -717,37 +753,30 @@ describe('external components — component §5.6, §6.2; blueprint §4.3', () =
     await assertReports({ blueprint: composition(), components: files(misspelled) }, 'ERR_UNKNOWN_INPUT_REFERENCE');
   });
 
-  it('ERR_INPUT_NOT_REFERENCEABLE when an INPUT output reads a CONNECTION input — COMP-OUT-003', async () => {
-    // A CONNECTION input resolves only after its edge is bound; an output reading
-    // one would make blueprint §4.2's legal cycles unresolvable.
-    const relay = component({
-      spec: {
-        workload: { type: 'SERVICE', source: { type: 'IMAGE', ref: 'ghcr.io/acme/web:1.2.3' }, endpoints: { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PRIVATE' } } },
-        contract: {
-          inputs: { databaseUrl: { schema: { type: 'STRING', sensitive: true }, suppliedBy: 'CONNECTION' } },
-          outputs: { databaseUrl: { schema: { type: 'STRING', sensitive: true }, valueFrom: 'INPUT', input: 'databaseUrl' } },
-        },
-      },
-    });
-    await assertReports({ components: { 'components/web.yaml': relay } }, 'ERR_INPUT_NOT_REFERENCEABLE');
-  });
-
-  it('accepts a workload republishing a USER input', async () => {
+  it('accepts a workload republishing one of its own inputs', async () => {
     // spec component conformance structural/067: INPUT is not external-only.
     const republish = component({
       spec: {
         contract: {
-          inputs: { adminEmail: { schema: { type: 'STRING', format: 'EMAIL' }, ui: { label: 'Admin email' } } },
-          outputs: { adminEmail: { schema: { type: 'STRING', format: 'EMAIL' }, valueFrom: 'INPUT', input: 'adminEmail' } },
+          inputs: { adminEmail: { description: 'Email of the bootstrap admin.', schema: { type: 'STRING', format: 'EMAIL' } } },
+          outputs: { adminEmail: { description: 'The admin email, republished.', schema: { type: 'STRING', format: 'EMAIL' }, valueFrom: 'INPUT', input: 'adminEmail' } },
         },
       },
     });
-    await assertClean({ components: { 'components/web.yaml': republish } });
+    await assertClean({
+      blueprint: blueprint({
+        spec: {
+          components: { web: { componentRef: './components/web.yaml', size: 'general.standard.small', connections: {} } },
+          parameters: { adminEmail: { ui: { label: 'Admin email' } } },
+        },
+      }),
+      components: { 'components/web.yaml': republish },
+    });
   });
 });
 
-describe('parameters — blueprint §5.2, §5.3', () => {
-  const withInput = (input: Doc): Doc =>
+describe('parameters — blueprint §5.1, §5.2, §5.3', () => {
+  const withInputs = (inputs: Doc): Doc =>
     component({
       spec: {
         workload: {
@@ -756,137 +785,252 @@ describe('parameters — blueprint §5.2, §5.3', () => {
           endpoints: { primary: { containerPort: 8080, protocol: 'HTTP', visibility: 'PUBLIC' } },
           health: { readiness: { path: '/healthz' } },
         },
-        contract: { inputs: { adminPassword: input }, outputs: {} },
+        contract: { inputs, outputs: {} },
       },
     });
 
-  const required: Doc = { schema: { type: 'STRING' }, required: true, suppliedBy: 'USER', ui: { label: 'Admin password' } };
+  const secret: Doc = { description: 'Password for the admin account.', schema: { type: 'STRING', sensitive: true }, required: true };
+  const withInput = (input: Doc): Doc => withInputs({ adminPassword: input });
 
   const withParameters = (parameters: Doc): Doc =>
     blueprint({ spec: { components: { web: { componentRef: './components/web.yaml', size: 'general.standard.small', connections: {} } }, parameters } });
 
-  it('ERR_UNBOUND_PARAMETER when a parameter key names no USER input', async () => {
+  const covering = withParameters({ adminPassword: { ui: { label: 'Admin password' } } });
+
+  it('accepts a form that covers the one input the graph needs', async () => {
+    await assertClean({ blueprint: covering, components: { 'components/web.yaml': withInput(secret) } });
+  });
+
+  it('the accepted form is a real item', async () => {
+    await assertStructurallyValid(build({ blueprint: covering, components: { 'components/web.yaml': withInput(secret) } }));
+  });
+
+  it('ERR_UNBOUND_PARAMETER when a parameter key names no input — BP-PARAM-001', async () => {
+    // Permitted, these accumulate: last release's `legacyMode` still on the form
+    // beside the parameters that do something, with nothing saying which is which.
     await assertReports(
       {
-        blueprint: withParameters({ legacyMode: { schema: { type: 'STRING' }, required: true } }),
-        components: { 'components/web.yaml': withInput(required) },
+        blueprint: withParameters({ adminPassword: { ui: { label: 'Admin password' } }, legacyMode: { ui: { label: 'Legacy mode' } } }),
+        components: { 'components/web.yaml': withInput(secret) },
       },
       'ERR_UNBOUND_PARAMETER',
     );
   });
 
-  it('ERR_UNCOVERED_REQUIRED_INPUT when an override forgets a required input', async () => {
+  it('ERR_UNSATISFIED_REQUIRED_INPUT when the form forgets a required input — BP-PARAM-003', async () => {
     await assertReports(
       {
-        blueprint: withParameters({ other: { schema: { type: 'STRING' }, required: true } }),
-        components: { 'components/web.yaml': withInput({ ...required, schema: { type: 'STRING' } }) },
+        blueprint: withParameters({}),
+        components: { 'components/web.yaml': withInput(secret) },
       },
-      'ERR_UNCOVERED_REQUIRED_INPUT',
+      'ERR_UNSATISFIED_REQUIRED_INPUT',
     );
   });
 
-  it('ERR_UNCOVERED_REQUIRED_INPUT when a parameter names the key but guarantees no value', async () => {
-    // `required` defaults to true on a component input and false on a blueprint
-    // parameter, so an override that copies the key and says nothing else has
-    // quietly made it optional.
-    await assertReports(
-      {
-        blueprint: withParameters({ adminPassword: { schema: { type: 'STRING' } } }),
-        components: { 'components/web.yaml': withInput(required) },
-      },
-      'ERR_UNCOVERED_REQUIRED_INPUT',
-    );
-  });
-
-  it('accepts a parameter whose platform default guarantees the value', async () => {
-    // §5.3: the value arrives without the deploying user supplying it, exactly
-    // as a generator's does.
+  it('accepts a required input whose schema already declares a default', async () => {
+    // It has a value already, and needs nothing supplied.
     await assertClean({
-      blueprint: withParameters({ adminPassword: { schema: { type: 'STRING' }, ui: { label: 'Public URL' }, platformDefault: { type: 'SELF_ADDRESS', source: 'PUBLIC_URL' } } }),
-      components: { 'components/web.yaml': withInput(required) },
+      blueprint: withParameters({}),
+      components: { 'components/web.yaml': withInput({ description: 'Role the database is created for.', schema: { type: 'STRING', default: 'postgres' }, required: true }) },
     });
   });
 
-  it('ERR_INCOMPATIBLE_PARAMETER_TYPE when a parameter and the input it covers disagree', async () => {
+  it('ERR_GENERATED_INPUT_NOT_SENSITIVE when a generated parameter covers a plain input — BP-PARAM-004', async () => {
+    // A generator mints a credential, and a value not marked sensitive is echoed
+    // back into logs and interfaces.
     await assertReports(
       {
-        blueprint: withParameters({ adminPassword: { schema: { type: 'NUMBER' }, required: true } }),
-        components: { 'components/web.yaml': withInput(required) },
+        blueprint: withParameters({ adminPassword: { generator: { byteLength: 32, encoding: 'HEX' }, ui: { label: 'Admin password' } } }),
+        components: { 'components/web.yaml': withInput({ description: 'Name of the admin account.', schema: { type: 'STRING' }, required: true }) },
       },
-      'ERR_INCOMPATIBLE_PARAMETER_TYPE',
+      'ERR_GENERATED_INPUT_NOT_SENSITIVE',
     );
   });
 
-  it('ERR_INCOMPATIBLE_PARAMETER_RESOURCE_TYPE when a parameter names a different resourceType', async () => {
+  it('accepts a generated parameter over an input marked sensitive', async () => {
+    await assertClean({
+      blueprint: withParameters({ adminPassword: { generator: { byteLength: 32, encoding: 'HEX' }, ui: { label: 'Admin password' } } }),
+      components: { 'components/web.yaml': withInput(secret) },
+    });
+  });
+
+  it('ERR_UNKNOWN_NODE when toNode names no node — BP-PARAM-006', async () => {
+    // The coverage failure below, caught one step earlier and at the field that
+    // caused it: a parameter whose toNode is a typo covers nothing.
     await assertReports(
       {
-        blueprint: withParameters({ adminPassword: { schema: { type: 'STRING', resourceType: 'dev.musher.llm.api-key' }, required: true, ui: { label: 'Admin password' } } }),
-        components: { 'components/web.yaml': withInput({ ...required, schema: { type: 'STRING', resourceType: 'dev.musher.postgresql.password' } }) },
+        blueprint: withParameters({ adminPassword: { toNode: 'wbe', ui: { label: 'Admin password' } } }),
+        components: { 'components/web.yaml': withInput(secret) },
       },
-      'ERR_INCOMPATIBLE_PARAMETER_RESOURCE_TYPE',
+      'ERR_UNKNOWN_NODE',
     );
   });
 
-  it('accepts a parameter naming no resourceType over an input that names one', async () => {
-    // spec blueprint conformance semantic/025: an install form is not where a
-    // value acquires a tag, so declining to name one is not naming a different one.
+  it('ERR_UNKNOWN_INPUT when toInput names no input — BP-PARAM-007', async () => {
+    await assertReports(
+      {
+        blueprint: withParameters({ adminPassword: { ui: { label: 'Admin password' } }, stripeKey: { toInput: 'apiKey', ui: { label: 'Stripe API key' } } }),
+        components: { 'components/web.yaml': withInput(secret) },
+      },
+      'ERR_UNKNOWN_INPUT',
+    );
+  });
+
+  it('accepts toInput asking for one input under a name of its own', async () => {
     await assertClean({
-      blueprint: withParameters({ adminPassword: { schema: { type: 'STRING' }, required: true, ui: { label: 'Admin password' } } }),
-      components: { 'components/web.yaml': withInput({ ...required, schema: { type: 'STRING', resourceType: 'dev.musher.postgresql.password' } }) },
+      blueprint: withParameters({ stripeKey: { toNode: 'web', toInput: 'adminPassword', ui: { label: 'Stripe API key' } } }),
+      components: { 'components/web.yaml': withInput(secret) },
     });
   });
 
-  it('accepts an override that guarantees the value', async () => {
+  it('ERR_UNKNOWN_ENUM_MEMBER when an enumLabels key names no member — BP-UI-003', async () => {
+    // A typo that changes nothing a validator would otherwise see, and it would
+    // stay invisible for the life of the document.
+    await assertReports(
+      {
+        blueprint: withParameters({ logLevel: { ui: { label: 'Log level', enumLabels: { debug: 'Debug', trance: 'Trace' } } } }),
+        components: {
+          'components/web.yaml': withInputs({
+            logLevel: { description: 'How much the workload logs.', schema: { type: 'STRING', enum: ['debug', 'info'], default: 'info' }, required: false },
+          }),
+        },
+      },
+      'ERR_UNKNOWN_ENUM_MEMBER',
+    );
+  });
+
+  it('ERR_MALFORMED_REFERENCE when an unescaped ${{ begins no reference — CORE-REF-001', async () => {
+    // Treating it as text carries the mistake through validation and into the
+    // deployed thing as the literal characters.
+    await assertReports(
+      {
+        blueprint: withParameters({ adminPassword: { default: 'https://${{ self.publicHostname /cb', ui: { label: 'Admin password' } } }),
+        components: { 'components/web.yaml': withInput(secret) },
+      },
+      'ERR_MALFORMED_REFERENCE',
+    );
+  });
+
+  it('ERR_UNKNOWN_REFERENCE_NAMESPACE when a reference names a namespace core reserves none of — CORE-REF-002', async () => {
+    await assertReports(
+      {
+        blueprint: withParameters({ adminPassword: { default: '${{ vault.adminPassword }}', ui: { label: 'Admin password' } } }),
+        components: { 'components/web.yaml': withInput(secret) },
+      },
+      'ERR_UNKNOWN_REFERENCE_NAMESPACE',
+    );
+  });
+
+  it('ERR_REFERENCE_NOT_IN_SCOPE when a reserved namespace is written where only self is admitted — BP-REF-001', async () => {
+    // A reserved namespace has no meaning in any document at this line, and
+    // reserving it is what keeps it from becoming a name an author can address.
+    await assertReports(
+      {
+        blueprint: withParameters({ adminPassword: { default: '${{ deployment.id }}', ui: { label: 'Admin password' } } }),
+        components: { 'components/web.yaml': withInput(secret) },
+      },
+      'ERR_REFERENCE_NOT_IN_SCOPE',
+    );
+  });
+
+  it('reads $${{ as a single escape rather than a reference', async () => {
+    // Four characters rendering a literal `${{`, not per-`$` doubling.
     await assertClean({
-      blueprint: withParameters({ adminPassword: { schema: { type: 'STRING', sensitive: true }, required: true, ui: { label: 'Admin password' } } }),
-      components: { 'components/web.yaml': withInput(required) },
+      blueprint: withParameters({ adminPassword: { default: 'literally $${{ self.publicUrl }}', ui: { label: 'Admin password' } } }),
+      components: { 'components/web.yaml': withInput(secret) },
     });
   });
 
-  it('ERR_CONFLICTING_INPUT_SCHEMA when two nodes declare one key differently', async () => {
+  describe('two nodes', () => {
     const api = component({
       spec: {
         workload: { type: 'WORKER', source: { type: 'IMAGE', ref: 'ghcr.io/acme/api:1.2.3' } },
-        contract: { inputs: { adminPassword: { schema: { type: 'NUMBER' }, suppliedBy: 'USER', ui: { label: 'Admin password' } } }, outputs: {} },
+        contract: { inputs: { adminPassword: { description: 'Password the worker authenticates with.', schema: { type: 'STRING', sensitive: true }, required: false } }, outputs: {} },
       },
     });
-    await assertReports(
-      {
-        blueprint: blueprint({
-          spec: {
-            components: {
-              api: { componentRef: './components/api.yaml', size: 'general.standard.small', connections: {} },
-              web: { componentRef: './components/web.yaml', size: 'general.standard.small', connections: {} },
-            },
-            parameters: {},
-          },
-        }),
-        components: { 'components/api.yaml': api, 'components/web.yaml': withInput(required) },
-      },
-      'ERR_CONFLICTING_INPUT_SCHEMA',
-    );
-  });
 
-  it('absorbs an identical redeclaration in silence', async () => {
-    // Two components that agree on what adminPassword is are not in conflict,
-    // and `ui` and `required` take no part in the comparison.
-    const api = component({
-      spec: {
-        workload: { type: 'WORKER', source: { type: 'IMAGE', ref: 'ghcr.io/acme/api:1.2.3' } },
-        contract: { inputs: { adminPassword: { schema: { type: 'STRING' }, required: false, suppliedBy: 'USER', ui: { label: 'Password (api)' } } }, outputs: {} },
-      },
-    });
-    await assertClean({
-      blueprint: blueprint({
+    const twoNode = (parameters: Doc): Doc =>
+      blueprint({
         spec: {
           components: {
             api: { componentRef: './components/api.yaml', size: 'general.standard.small', connections: {} },
             web: { componentRef: './components/web.yaml', size: 'general.standard.small', connections: {} },
           },
-          parameters: {},
+          parameters,
         },
-      }),
-      components: { 'components/api.yaml': api, 'components/web.yaml': withInput(required) },
+      });
+
+    const both = (apiDoc: Doc) => ({ 'components/api.yaml': apiDoc, 'components/web.yaml': withInput(secret) });
+
+    it('absorbs an identical redeclaration in silence', async () => {
+      // Two components that agree on what adminPassword is are not in conflict,
+      // and `description`, `required` and `target` take no part in the comparison.
+      await assertClean({ blueprint: twoNode({ adminPassword: { ui: { label: 'Admin password' } } }), components: both(api) });
+    });
+
+    it('ERR_CONFLICTING_INPUT_SCHEMA when one field joins two unequal declarations — BP-PARAM-002', async () => {
+      // The second component would receive a value validated against the first
+      // one's rules, and nothing fails until deploy time inside its workload.
+      const disagreeing = component({
+        spec: {
+          workload: { type: 'WORKER', source: { type: 'IMAGE', ref: 'ghcr.io/acme/api:1.2.3' } },
+          contract: { inputs: { adminPassword: { description: 'Attempts before lockout.', schema: { type: 'NUMBER' } } }, outputs: {} },
+        },
+      });
+      await assertReports(
+        { blueprint: twoNode({ adminPassword: { ui: { label: 'Admin password' } } }), components: both(disagreeing) },
+        'ERR_CONFLICTING_INPUT_SCHEMA',
+      );
+    });
+
+    it('ERR_AMBIGUOUS_SELF_REFERENCE when a self default covers two nodes — BP-PARAM-008', async () => {
+      // A parameter is one field showing one value, and two nodes have two
+      // addresses. `toNode` is how an author says which they meant.
+      await assertReports(
+        { blueprint: twoNode({ adminPassword: { default: '${{ self.publicUrl }}', ui: { label: 'Admin password' } } }), components: both(api) },
+        'ERR_AMBIGUOUS_SELF_REFERENCE',
+      );
+    });
+
+    it('accepts a self default once toNode makes it single-valued', async () => {
+      await assertClean({
+        blueprint: twoNode({
+          adminPassword: { toNode: 'web', default: '${{ self.publicUrl }}', ui: { label: 'Admin password' } },
+          apiPassword: { toNode: 'api', toInput: 'adminPassword', ui: { label: 'Worker password' } },
+        }),
+        components: both(api),
+      });
+    });
+
+    it('takes a wired input out of coverage — §5.1', async () => {
+      // A node whose adminPassword arrives over a wire and a second whose is
+      // typed into the form are both expressible, and the self reference stays
+      // single-valued because the wired node is no longer covered.
+      const producer = component({
+        spec: {
+          workload: { type: 'WORKER', source: { type: 'IMAGE', ref: 'ghcr.io/acme/api:1.2.3' } },
+          contract: {
+            inputs: { adminPassword: { description: 'Password the worker authenticates with.', schema: { type: 'STRING', sensitive: true }, required: true } },
+            outputs: { password: { description: 'The password this worker was given, for its peers.', schema: { type: 'STRING', sensitive: true }, valueFrom: 'DERIVED' } },
+          },
+        },
+      });
+      await assertClean({
+        blueprint: blueprint({
+          spec: {
+            components: {
+              api: { componentRef: './components/api.yaml', size: 'general.standard.small', connections: {} },
+              web: {
+                componentRef: './components/web.yaml',
+                size: 'general.standard.small',
+                connections: { adminPassword: { fromNode: 'api', fromOutput: 'password' } },
+              },
+            },
+            parameters: { adminPassword: { ui: { label: 'Worker password' } } },
+          },
+        }),
+        components: { 'components/api.yaml': producer, 'components/web.yaml': withInputs({ adminPassword: secret }) },
+      });
     });
   });
 });
