@@ -53,14 +53,25 @@ phases pass.
 | `spec.test.ts` | — | The bundles resolve, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
 | `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (core §6.1): one document per file, string keys, no anchors, aliases, merge keys or explicit tags, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
-| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution, path containment, media, the description Markdown profile, image pinning, endpoint resolution, `INPUT` output references (COMP-OUT-002), node compute against external components (BP-NODE-002), connection compatibility including the input a component republishes (BP-CONN-002), and the install form's coverage, agreement, value sources and references (BP-PARAM-001..008, BP-UI-003, CORE-REF-001..003). |
+| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution, path containment, media, the description Markdown profile, image pinning (COMP-SRC-003), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002, COMP-REF-001, COMP-EP-004), connection requirements (COMP-CONNECTION-001), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), binding resolution and type agreement (BP-PARAM-006/007/008), connection bindings (BP-CONNECTION-001), and the parameters — reachability, schema agreement, generated sensitivity, sources and enum labels (BP-PARAM-001..004, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
 | `rules.test.ts` | — | The rules themselves, against deliberately broken synthetic items. |
 
 `capability` is deliberately absent. Whether a Compute Profile is offered,
-whether a published component exists, and whether a version is monotonic are all
-decided against the platform catalog over the network, and an implementation
-MUST NOT report a rule it has not been given the means to check.
+whether a published component exists, whether a connection can be acquired, and
+whether a version is monotonic are all decided against the platform catalog over
+the network, and an implementation MUST NOT report a rule it has not been given
+the means to check.
+
+Two further groups are absent by decision rather than by phase, and both would
+need machinery this suite does not have. **Logical value validation** —
+`COMP-VAL-003` and `COMP-VAL-005`, and with them `ERR_INVALID_VALUE_SCHEMA`,
+`ERR_VALUE_CONSTRAINT` and `ERR_SECRET_LITERAL` — needs a validator for the
+bounded 2020-12 profile, which is a different project from reading documents.
+**The `resolution` phase** needs installation context: submitted values,
+organization variables, an acquired connection. Neither omission is a gap in
+what is here; each is a thing this repository has not been given the means to
+decide, and saying so is the same discipline `capability` gets.
 
 ### Why `rules.test.ts` exists
 
@@ -77,15 +88,23 @@ implementation must report; these cases pin the subset this repository enforces.
 ## Where the rules come from
 
 Nothing is restated from the spec where it can be read from it instead. The
-media-path grammar and the component value-schema defaults are pulled out of the
+media-path grammar and the component input defaults are pulled out of the
 fetched bundles at run time rather than copied, so the two places the semantic
 phase needs them cannot drift.
 
 What is written down here is what JSON Schema cannot express, and each rule
-carries the clause it implements: `CORE-ITEM-001`, `LIST-MEDIA-003`, `COMP-SRC-001`
+carries the clause it implements: `CORE-ITEM-001`, `LIST-MEDIA-003`, `COMP-SRC-003`
 and the rest. A rule whose spelling has to live in this repository — the
 floating-tag blocklist, for instance, which is `semantic` precisely so it can
 grow in a minor release — says so at the definition.
+
+The reverse also applies, and the v1 bundles took several rules back: that a
+binding names exactly one supplier, that `node` and `output` go together, that
+an output names exactly one origin, that a parameter carries at most one of
+`default`, `generator` and `from` and no `schema` at all, and that `workload` is
+required off `EXTERNAL` and forbidden on it are all structural now. None of them
+is restated here, because a second copy of a rule is a second thing to keep
+true.
 
 ## Configuration
 

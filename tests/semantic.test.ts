@@ -20,18 +20,22 @@ import { mediaPathPatternFrom } from './lib/media.ts';
 import { loadSchema } from './lib/spec-schemas.ts';
 import {
   buildContext,
+  checkBindings,
   checkComponentReferences,
-  checkConnections,
+  checkConnectionBindings,
+  checkConnectionRequirements,
   checkDescription,
+  checkExposure,
   checkHealthProbes,
   checkIdentity,
   checkImagePinning,
   checkItemType,
   checkMedia,
   checkNodeCompute,
-  checkOutputInputReferences,
+  checkOutputOrigins,
   checkParameters,
-  valueSchemaDefaultsFrom,
+  checkVolumeAllocations,
+  inputDefaultsFrom,
   type Diagnostic,
   type SemanticContext,
 } from './lib/semantic.ts';
@@ -39,9 +43,9 @@ import {
 const items = discoverItems();
 
 /**
- * The media-path grammar and the value-schema defaults are read back out of the
- * fetched bundles rather than restated here, so the two places this phase needs
- * them cannot drift from what the spec publishes.
+ * The media-path grammar and the component-input defaults are read back out of
+ * the fetched bundles rather than restated here, so the two places this phase
+ * needs them cannot drift from what the spec publishes.
  */
 async function contextFor(item: Item): Promise<{ context: SemanticContext; documents: ItemDocuments }> {
   const [listingBundle, componentBundle, documents] = await Promise.all([
@@ -55,7 +59,7 @@ async function contextFor(item: Item): Promise<{ context: SemanticContext; docum
     item,
     documents,
     (value) => mediaPathPattern.test(value),
-    valueSchemaDefaultsFrom(componentBundle.schema),
+    inputDefaultsFrom(componentBundle.schema),
   );
 
   return { context, documents };
@@ -91,32 +95,52 @@ for (const item of items) {
       assert.deepEqual(report(checkDescription(context)), []);
     });
 
-    it('every image reference is pinned — COMP-SRC-001', async () => {
+    it('every image reference is pinned — COMP-SRC-003', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkImagePinning(context)), []);
     });
 
-    it('every health probe resolves to an HTTP-family endpoint — §5.4', async () => {
+    it('every health probe names an endpoint that answers HTTP — §5.4, COMP-EP-002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkHealthProbes(context)), []);
     });
 
-    it('every INPUT output names an input of its own component — COMP-OUT-002', async () => {
+    it('every output origin names something its own component declares — COMP-OUT-002, COMP-REF-001, COMP-EP-004', async () => {
       const { context } = await contextFor(item);
-      assert.deepEqual(report(checkOutputInputReferences(context)), []);
+      assert.deepEqual(report(checkOutputOrigins(context)), []);
     });
 
-    it('a node names no compute exactly when its component runs nothing — BP-NODE-002', async () => {
+    it('every connection requirement names inputs that can carry one — COMP-CONNECTION-001', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkConnectionRequirements(context)), []);
+    });
+
+    it('a node names compute exactly when its component runs — BP-NODE-001, BP-NODE-002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkNodeCompute(context)), []);
     });
 
-    it('every connection resolves at both ends, fills no republished input, and the two fit — §4.2, BP-CONN-002', async () => {
+    it('every volume the component declares is allocated at or above its minimum — §4.3', async () => {
       const { context } = await contextFor(item);
-      assert.deepEqual(report(checkConnections(context)), []);
+      assert.deepEqual(report(checkVolumeAllocations(context)), []);
     });
 
-    it('the install form covers every input nothing else supplies — BP-PARAM-001..008, BP-UI-003', async () => {
+    it('every exposed endpoint exists, is exposable, and is gated — §4.3, COMP-EP-003', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkExposure(context)), []);
+    });
+
+    it('every binding resolves at both ends and the two types fit — §4.2, BP-PARAM-006/007/008', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkBindings(context)), []);
+    });
+
+    it('every connection requirement is bound to a connection parameter — BP-CONNECTION-001', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkConnectionBindings(context)), []);
+    });
+
+    it('every parameter is bound, agrees with what it supplies, and names a source in scope — BP-PARAM-001..004, BP-REF-001, BP-UI-003', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkParameters(context)), []);
     });
@@ -124,32 +148,6 @@ for (const item of items) {
 }
 
 describe('the corpus as a whole', () => {
-  it('holds one contract per external resourceType', async () => {
-    // Not a spec rule — a catalog one. Blueprint §4.1 keeps a repo-local
-    // reference inside its item, so every item wiring an external node carries
-    // its own copy of it (open-webui's models.yaml beside llm-endpoint's
-    // endpoint.yaml). Copies drift silently, and two nodes claiming one
-    // resourceType while asking for different values would put two different
-    // install forms behind one identifier.
-    const byType = new Map<string, { label: string; contract: string }[]>();
-    for (const item of items) {
-      const { documents } = await contextFor(item);
-      for (const doc of documents.components.values()) {
-        const spec = doc.value?.['spec'] as Record<string, unknown> | undefined;
-        const resourceType = (spec?.['external'] as Record<string, unknown> | undefined)?.['resourceType'];
-        if (typeof resourceType !== 'string') continue;
-        const list = byType.get(resourceType) ?? [];
-        list.push({ label: doc.label, contract: JSON.stringify(spec?.['contract']) });
-        byType.set(resourceType, list);
-      }
-    }
-
-    const drifted = [...byType].flatMap(([resourceType, copies]) =>
-      copies.filter((copy) => copy.contract !== copies[0]!.contract).map((copy) => `${copy.label} disagrees with ${copies[0]!.label} on ${resourceType}`),
-    );
-    assert.deepEqual(drifted, []);
-  });
-
   it('declares every media file it ships', async () => {
     // Not a spec rule — nothing rejects an item for shipping an asset it never
     // declares. It is a catalog rule: an undeclared file is bytes the storefront

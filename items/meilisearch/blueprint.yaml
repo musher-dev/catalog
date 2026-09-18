@@ -2,17 +2,26 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: meilisearch
-  revision: 2
+  revision: 3
+  description: Meilisearch with a generated master key and a publicly reachable search API.
 spec:
   components:
     web:
       componentRef: ./components/meilisearch.yaml
-      size: general.standard.nano
-      connections: {}
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 8
+      exposure:
+        primary: PUBLIC
+      bindings:
+        masterKey:
+          parameter: masterKey
   parameters:
     masterKey:
       generator:
         byteLength: 32
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: Master key

@@ -2,60 +2,45 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 3
-# Two participants: `models` is the language-model API the deploying user
-# already has — a node this platform does not run, so it names no compute — and
-# `web` is Open WebUI. The address and the key both come from `models`, so the
-# UI can never hold a key from one provider beside an address from another.
+  revision: 4
+  description: Open WebUI chat interface wired to the language model the installer selects, as one connection.
+# One participant. The language model is not a node: it is an atomic connection
+# — endpoint, credential and model acquired together — bound to the component's
+# `llm` requirement. That replaces the external `models` node this item used to
+# carry, which asked for a URL, a key and a model name as three independent
+# values and left it to the author to keep them consistent.
 #
-# The install form is authored below, once for the whole composition: the
-# endpoint's URL, key and model name, asked for on the `models` node, followed
-# by Open WebUI's own generated signing key. `web`'s three LLM inputs are wired
-# rather than asked for, so blueprint §5.1 takes them out of every parameter's
-# coverage.
+# The install form is two fields: the model the chat UI talks to, and Open
+# WebUI's own generated signing key.
 spec:
   components:
-    models:
-      componentRef: ./components/models.yaml
-      size: null
-      connections: {}
     web:
       componentRef: ./components/open-webui.yaml
-      size: general.standard.small
-      connections:
-        openaiApiBaseUrl:
-          fromNode: models
-          fromOutput: baseUrl
-        openaiApiKey:
-          fromNode: models
-          fromOutput: apiKey
-        defaultModels:
-          fromNode: models
-          fromOutput: model
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 8
+      exposure:
+        primary: PUBLIC
+      bindings:
+        webuiSecretKey:
+          parameter: webuiSecretKey
+      # A connection parameter is bound here and never through `bindings`; the
+      # three inputs the requirement owns take no binding of their own.
+      connectionBindings:
+        llm:
+          parameter: llm
   parameters:
-    # The endpoint's three values are asked for on the `models` node, which is
-    # the only node declaring inputs of these keys.
-    baseUrl:
+    llm:
+      from: "${{ connections.llm.default }}"
       ui:
-        label: API base URL
+        label: Language model
         order: 1
-        examples:
-          - https://api.example.com/v1
-    apiKey:
-      ui:
-        label: API key
-        order: 2
-    model:
-      ui:
-        label: Model name
-        order: 3
-        prominence: SECONDARY
-    # After the endpoint's URL, key and model name, since this is one form
-    # across both nodes.
     webuiSecretKey:
       generator:
         byteLength: 32
         encoding: HEX
       ui:
         label: WebUI secret key
-        order: 4
+        order: 2

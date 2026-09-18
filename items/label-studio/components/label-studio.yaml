@@ -1,22 +1,22 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
+  description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: heartexlabs/label-studio:1.23.0
+      image: heartexlabs/label-studio:1.23.0
     endpoints:
       primary:
-        containerPort: 8080
+        targetPort: 8080
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
-        path: /health
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /health
         # First boot runs the full Django migration chain against SQLite —
         # several minutes on a nano profile — so the gate opens late and the
         # budget must outlast it (observed ~3-4 min to first listen in live E2E).
@@ -27,28 +27,25 @@ spec:
         successThreshold: 1
         failureThreshold: 10
     envVars:
-      - key: LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK
-        value:
-          type: LITERAL
-          value: 'true'
+      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: 'true'
     volumes:
       data:
-        sizeGiB: 10
+        minSizeGiB: 10
         mountPath: /label-studio/data
   contract:
     inputs:
       adminEmail:
         schema:
-          type: STRING
-          format: EMAIL
+          type: string
+        presentationHint: EMAIL
         required: true
         target:
           envVarKey: LABEL_STUDIO_USERNAME
         description: Email address for the bootstrap admin account
       adminPassword:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: LABEL_STUDIO_PASSWORD
@@ -74,25 +71,24 @@ spec:
       # which is exactly user_login and user_signup (users/views.py). Every GET
       # succeeds and the readiness probe passes; only the login POST is
       # rejected. That is why the item deploys clean and is still unusable.
-      publicUrl:
+      publicURL:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
+          type: string
+        presentationHint: ENDPOINT_URL
         required: false
         target:
           envVarKey: LABEL_STUDIO_HOST
         description: >-
-          Public base URL Label Studio builds absolute links from. Override only
-          for a custom domain.
-      # No `format` here, deliberately: the value is a comma-separated list, and
-      # every member of the format vocabulary names a convention the whole
+          Public base URL Label Studio builds absolute links from.
+      # No `presentationHint` here, deliberately: the value is a comma-separated
+      # list, and every member of that vocabulary names a convention the whole
       # scalar follows. A two-origin list is not a URL, and blueprint 5.3 binds
-      # a client's rendering -- one told this was a single URL could normalise
-      # or trim it and corrupt the list. The shape lives in the covering
-      # parameter's ui.examples instead, beside the default that supplies it.
+      # a client's rendering — one told this was a single URL could normalise
+      # or trim it and corrupt the list. The shape lives in the binding's
+      # comment instead, beside the output that supplies it.
       csrfTrustedOrigins:
         schema:
-          type: STRING
+          type: string
         required: false
         target:
           envVarKey: LABEL_STUDIO_CSRF_TRUSTED_ORIGINS
@@ -113,12 +109,23 @@ spec:
       # of invalidating live sessions once.
       secretKey:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: SECRET_KEY
         description: >-
           Django secret key signing sessions and CSRF tokens. Pinning it keeps
           sessions valid across replicas and re-creates.
-    outputs: {}
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public base URL this deployment answers at, as the platform allocated
+          it. The blueprint binds it straight back into this node's own
+          LABEL_STUDIO_HOST and CSRF trusted-origin list.
+        from:
+          endpoint: primary
+          property: publicURL

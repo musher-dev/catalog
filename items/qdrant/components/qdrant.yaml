@@ -1,36 +1,36 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: Qdrant vector database serving its HTTP API from one storage volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: qdrant/qdrant:v1.18.3
+      image: qdrant/qdrant:v1.18.3
     endpoints:
       primary:
-        containerPort: 6333
+        targetPort: 6333
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
-        path: /healthz
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /healthz
         initialDelaySeconds: 30
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 3
     volumes:
       data:
-        sizeGiB: 8
+        minSizeGiB: 8
         mountPath: /qdrant/storage
   contract:
     inputs:
       apiKey:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: QDRANT__SERVICE__API_KEY

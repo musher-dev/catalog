@@ -1,12 +1,16 @@
-# A node this platform does not run (component spec §5.6). There is no image,
-# no compute and no address of its own: `spec.external.resourceType` says what
-# kind of service the node addresses, and nothing more.
+# A node this platform does not run (component spec §5.6): no image, no compute
+# and no address of its own. The values an application needs to reach the
+# service arrive as inputs the blueprint supplies, and leave as outputs
+# republishing those same inputs. Publishing them from one node is the point: an
+# address from one provider beside a credential from another reaches nothing.
 #
-# The values an application needs to reach that service arrive as inputs the
-# blueprint supplies, and leave as INPUT outputs. Publishing them from one node
-# is the point: an address from one provider beside a credential from another
-# reaches nothing, and a consumer wiring two of them from this node's `fromNode`
-# is taking them from one source by construction.
+# SUPERSEDED. ADR 0030 makes a model endpoint, its credential and its model one
+# atomic connection, acquired together and overridden whole — which is what this
+# component was approximating with three separate values and a convention. A
+# blueprint that needs a language model should declare a `connections` parameter
+# and bind it through `connectionBindings`, as `open-webui` now does. This item
+# is kept, and its listing marked SUNSET, for compositions that still reference
+# it; it is not the pattern to copy.
 #
 # Deliberately vendor-neutral. The address may be a Musher inference endpoint, a
 # third-party service, or an engine the customer runs themselves; this document
@@ -17,61 +21,55 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: A language-model API addressed outside this deployment, holding its base URL, credential and model name.
 spec:
-  external:
-    resourceType: dev.musher.llm.chat-completions
+  type: EXTERNAL
   contract:
     inputs:
-      baseUrl:
+      baseURL:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
-          resourceType: dev.musher.llm.base-url
+          type: string
+        presentationHint: ENDPOINT_URL
         description: >-
           Base URL of the chat-completions API this node addresses. Anything
           speaking the same wire will do; nothing here resolves it or connects
           to it.
       apiKey:
         schema:
-          type: STRING
-          sensitive: true
-          resourceType: dev.musher.llm.api-key
+          type: string
+        sensitive: true
         description: Bearer credential presented to the service above.
       model:
         schema:
-          type: STRING
-          resourceType: dev.musher.llm.model-name
+          type: string
         required: false
         description: Name the service uses to select which model answers.
     outputs:
-      baseUrl:
+      baseURL:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
-          resourceType: dev.musher.llm.base-url
+          type: string
+        presentationHint: ENDPOINT_URL
         description: >-
           Base URL a consuming workload sends chat-completion requests to. It is
           the value this node was given, republished so a sibling can be pointed
           at the same service.
-        valueFrom: INPUT
-        input: baseUrl
+        from:
+          input: baseURL
       apiKey:
         schema:
-          type: STRING
-          sensitive: true
-          resourceType: dev.musher.llm.api-key
+          type: string
+        sensitive: true
         description: >-
           Bearer credential a consuming workload presents to the service above,
           republished from this node's own input.
-        valueFrom: INPUT
-        input: apiKey
+        from:
+          input: apiKey
       model:
         schema:
-          type: STRING
-          resourceType: dev.musher.llm.model-name
+          type: string
         description: >-
           Model name a consuming workload selects by default, republished from
           this node's own input.
-        valueFrom: INPUT
-        input: model
+        from:
+          input: model

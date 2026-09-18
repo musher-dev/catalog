@@ -29,7 +29,7 @@ spec:
     deployment's Configuration tab and enter it on your first visit, then
     add your model-provider keys under Settings. The deployment's public
     origin is written into the gateway's browser-origin allowlist
-    automatically; override it only for a custom domain. Two persistent
+    automatically. Two persistent
     volumes (10 GiB
     at `/home/node/.openclaw`, 1 GiB at `/home/node/.config/openclaw`)
     keep configuration, session history, and the OAuth-token encryption

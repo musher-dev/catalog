@@ -23,24 +23,24 @@ spec:
       providers.
 
     ## What you'll be asked for
-    The deployment has two parts: Open WebUI itself, and a **model endpoint**
-    node standing for the API it talks to. That node runs nothing — you
-    supply its API base URL, API key and, optionally, a default model name,
-    once, and Open WebUI is wired to them. Nothing checks the endpoint at
-    install time: the platform never connects to the address you give, so a
-    wrong URL or key shows up as a connection error inside Open WebUI.
+    A **language model**, chosen once. The address, the credential and the
+    model name travel together as a single connection, so Open WebUI can never
+    end up holding a key from one provider beside an address from another, and
+    changing provider later replaces all three at once rather than one at a
+    time. Anything speaking the OpenAI chat-completions protocol will do,
+    including an engine you run yourself.
 
-    Open WebUI uses the endpoint you supply here until an admin saves its
-    connection settings under **Admin Settings → Connections**. From then on
-    its own stored settings take precedence, so a redeploy with a new
-    endpoint does not override them — change providers from that page.
+    Open WebUI uses that model until an admin saves its connection settings
+    under **Admin Settings → Connections**. From then on its own stored
+    settings take precedence, so a redeploy does not override them — change
+    providers from that page.
 
     ## Defaults
     Single-container deployment of `ghcr.io/open-webui/open-webui:v0.10.2`
     with the web UI on port 8080 behind the platform's HTTPS edge. The
     first account you register becomes the admin. The native Ollama
-    integration is off; point the model endpoint at an Ollama server's `/v1`
-    URL instead. A session-token signing key is auto-generated, and an 8 GiB
+    integration is off; point the connection at an Ollama server's `/v1` URL
+    instead. A session-token signing key is auto-generated, and an 8 GiB
     persistent volume mounted at `/app/backend/data` keeps accounts, chats,
     and uploaded documents across restarts.
   category: AI_ML

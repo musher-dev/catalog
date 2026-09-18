@@ -2,21 +2,37 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: langflow
-  revision: 2
+  revision: 3
+  description: Langflow with a generated admin password and flow-secret key, behind a public web UI.
 spec:
   components:
     web:
       componentRef: ./components/langflow.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 5
+      exposure:
+        primary: PUBLIC
+      bindings:
+        superuser:
+          parameter: superuser
+        superuserPassword:
+          parameter: superuserPassword
+        secretKey:
+          parameter: secretKey
   parameters:
+    # A bound parameter never falls back to its input's default (BP-PARAM-003),
+    # so the default the form offers is stated here as well as on the input.
     superuser:
+      default: admin
       ui:
         label: Admin username
     superuserPassword:
       generator:
         byteLength: 24
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: Admin password
     secretKey:

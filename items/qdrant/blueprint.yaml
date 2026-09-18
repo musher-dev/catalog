@@ -2,17 +2,26 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: qdrant
-  revision: 3
+  revision: 4
+  description: Qdrant vector database with an authenticated, publicly reachable HTTP API.
 spec:
   components:
     web:
       componentRef: ./components/qdrant.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 8
+      exposure:
+        primary: PUBLIC
+      bindings:
+        apiKey:
+          parameter: apiKey
   parameters:
     apiKey:
       generator:
         byteLength: 32
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: API key

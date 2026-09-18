@@ -2,13 +2,34 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 2
+  revision: 3
+  description: OpenClaw agent gateway behind a generated master token, with its own public origin in the Control UI allowlist.
 spec:
   components:
     web:
       componentRef: ./components/openclaw.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        config:
+          sizeGiB: 10
+        auth-secrets:
+          sizeGiB: 1
+      exposure:
+        primary: PUBLIC
+      bindings:
+        gatewayToken:
+          parameter: gatewayToken
+        timezone:
+          parameter: timezone
+        # This node's own allocated origin, from the output the component derives
+        # from its `primary` endpoint, written into
+        # gateway.controlUi.allowedOrigins by the boot command. A node reading
+        # its own endpoint output is a discovery dependency and not a value
+        # cycle (BP-CONN-002): the address is allocated before anything runs.
+        publicOrigin:
+          node: web
+          output: publicURL
   parameters:
     # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
     # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
@@ -21,14 +42,11 @@ spec:
         label: Gateway token
         order: 1
     timezone:
+      default: UTC
       ui:
         label: Timezone
         order: 2
-    publicOrigin:
-      default: "${{ self.publicUrl }}"
-      ui:
-        label: Public origin
-        order: 3
-        prominence: SECONDARY
         examples:
-          - https://openclaw.example.com
+          - UTC
+          - Europe/London
+          - America/New_York

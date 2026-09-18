@@ -29,8 +29,8 @@ spec:
     (the password is auto-generated; rotate it from the deployment's
     Configuration tab), and open self-signup is disabled — invite
     annotators by link. The public URL, and the origins the sign-in form
-    is accepted from, both default to this deployment's own https URL —
-    override them only when fronting Label Studio with a custom domain.
+    is accepted from, are both taken from this deployment's own https
+    address, so the sign-in form works without anything being typed in.
     The session signing key is auto-generated at deploy and pinned, so
     sign-ins survive a restart. First boot runs the full database
     migration chain, so expect a few minutes before the app reports

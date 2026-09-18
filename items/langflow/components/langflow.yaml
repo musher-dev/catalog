@@ -1,18 +1,17 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: Langflow visual flow builder for LLM applications, with its database on one volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: langflowai/langflow:1.11.0
+      image: langflowai/langflow:1.11.0
     endpoints:
       primary:
-        containerPort: 7860
+        targetPort: 7860
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
         # /health_check answers only once the app (incl. DB) is genuinely up;
@@ -20,46 +19,38 @@ spec:
         # declare readiness early. The platform probe is a one-shot startup
         # gate (not a continuous restart trigger), so the DB-coupled endpoint
         # is safe here (health_check_router.py).
-        path: /health_check
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /health_check
         initialDelaySeconds: 60
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 5
     envVars:
-      - key: LANGFLOW_AUTO_LOGIN
-        value:
-          type: LITERAL
-          value: 'false'
-      - key: LANGFLOW_CONFIG_DIR
-        value:
-          type: LITERAL
-          value: /app/langflow
-      - key: LANGFLOW_SAVE_DB_IN_CONFIG_DIR
-        # Without this the SQLite DB lands in the package install dir and is
-        # LOST on container recreation — the volume only persisted config
-        # files (docs.langflow.org/memory).
-        value:
-          type: LITERAL
-          value: 'true'
+      LANGFLOW_AUTO_LOGIN: 'false'
+      LANGFLOW_CONFIG_DIR: /app/langflow
+      # Without this the SQLite DB lands in the package install dir and is
+      # LOST on container recreation — the volume only persisted config
+      # files (docs.langflow.org/memory).
+      LANGFLOW_SAVE_DB_IN_CONFIG_DIR: 'true'
     volumes:
       data:
-        sizeGiB: 5
+        minSizeGiB: 5
         mountPath: /app/langflow
   contract:
     inputs:
       superuser:
         schema:
-          type: STRING
-          default: admin
+          type: string
+        default: admin
         required: true
         target:
           envVarKey: LANGFLOW_SUPERUSER
         description: Initial admin username for the Langflow UI
       superuserPassword:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: LANGFLOW_SUPERUSER_PASSWORD
@@ -67,8 +58,8 @@ spec:
           Configuration tab
       secretKey:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: LANGFLOW_SECRET_KEY

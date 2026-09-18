@@ -46,17 +46,22 @@ this repo:
   unreferenced components;
 - media paths are item-relative, live under `media/`, contain no `..`, use a
   supported extension, and exist on disk;
-- every node's `size` names a Compute Profile the platform offers — or is
-  `null` exactly when the node deploys an external component
-  (`spec.external`), which runs nothing;
+- every node whose component runs carries `compute.profile`, naming a Compute
+  Profile the platform offers — and a node deploying an `EXTERNAL` component,
+  which runs nothing, carries no `compute` at all;
+- every volume a component declares is allocated a `sizeGiB` on the node, at or
+  above the component's own `minSizeGiB`;
 - image refs are **pinned** — `:latest`, `:main` and `:edge` are rejected;
-- component shape follows the workload type: `SERVICE` requires endpoints plus
-  a readiness probe for a public endpoint; `WORKER`, `JOB` and `CRON` forbid
-  endpoints.
+- component shape follows `spec.type`: a `SERVICE` declares at least one
+  endpoint, a `WORKER` may declare private ones but is never exposed, and a
+  `JOB` declares none. A `PUBLIC` HTTP endpoint needs a readiness probe.
 
 Per the spec, a `BLUEPRINT` item deploys exactly one blueprint, and compute is a
 per-node concern on the blueprint node rather than on the component. The
 blueprint's `metadata.revision` is the item's revision; a listing carries none.
+Component and blueprint documents each carry a required `metadata.description`:
+plain text, at most 280 characters, describing the thing itself. The listing's
+`summary` remains the storefront copy.
 
 ## Adding an item
 
@@ -69,58 +74,102 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1                   # the revision this document is released at
+  description: What this component is, in a sentence.   # REQUIRED
 spec:
-  workload:
-    type: SERVICE               # SERVICE | WORKER | JOB | CRON
+  type: SERVICE                 # SERVICE | WORKER | JOB | EXTERNAL
+  workload:                     # required unless EXTERNAL; forbidden on it
     source:
-      type: IMAGE
-      ref: ghcr.io/example/my-app:1.2.3   # pinned — no :latest
+      image: ghcr.io/example/my-app:1.2.3   # pinned — no :latest
     endpoints:
       primary:
-        containerPort: 8080
+        targetPort: 8080        # the port the process listens on
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
-        path: /healthz
+        http: { endpoint: primary, path: /healthz }   # the endpoint is named
         initialDelaySeconds: 30
+    volumes:
+      data:
+        mountPath: /var/lib/my-app
+        minSizeGiB: 5           # the floor; the blueprint allocates the size
   contract:                     # what the component needs, never where it comes from
     inputs:
       adminPassword:
         description: Password for the bootstrap admin account.   # REQUIRED
-        schema: { type: STRING, sensitive: true }
+        schema: { type: string }        # lowercase JSON Schema types
+        sensitive: true                 # beside the schema, not inside it
         required: true
         target: { envVarKey: ADMIN_PASSWORD }
     outputs: {}
 ```
 
+The key that is present says where a value comes from. A workload `source` is
+`{image}` or `{git: …}`; an output's `from` is `{value}`, `{input}`,
+`{endpoint, property}` or `{template}`; a node binding is `{parameter}`,
+`{node, output}` or `{value}`. A `type` appears only where the variant is a
+*category* — `spec.type`, `schema.type` — and a field naming another key in the
+same document is a bare noun: `input`, `endpoint`, `parameter`, `node`,
+`output`. Only `componentRef`, which points at another document, takes a suffix.
+
 **`blueprint.yaml`** — references the component file by repo-local path, binds
-compute per node, and authors the install form:
+compute, storage and exposure per node, wires every input explicitly, and
+authors the install form:
 
 ```yaml
 specVersion: v1
 kind: BLUEPRINT
-metadata: { slug: my-app, revision: 1 }   # the item's revision
+metadata:
+  slug: my-app                  # equals the directory name
+  revision: 1                   # the item's revision
+  description: What this deployment is, in a sentence.   # REQUIRED
 spec:
   components:
-    web:                        # graph-local node name (map order = graph order)
+    web:                        # graph-local node name
       componentRef: ./components/my-app.yaml   # must begin ./ and end .yaml
-      size: general.standard.small          # binding Compute Profile
-      connections: {}           # inbound wires, keyed by consumer input
-  parameters:                   # the install form, always authored
-    adminPassword:              # key = the input it covers
-      generator: { byteLength: 32, encoding: ALPHANUMERIC }   # or `default`, or neither
+      compute:
+        profile: general.standard.small
+      volumes:
+        data: { sizeGiB: 5 }    # at or above the component's minSizeGiB
+      exposure:
+        primary: PUBLIC         # an endpoint left out is PRIVATE
+      bindings:                 # one entry per input this node takes a value for
+        adminPassword: { parameter: adminPassword }
+  parameters:                   # everything the installation takes from outside
+    adminPassword:
+      generator: { byteLength: 32, encoding: HEX }   # HEX | BASE64 | BASE64URL
       ui: { label: Admin password }
 ```
 
-A parameter covers every input of its key on every node no connection fills it
-on, and carries `ui` plus at most one of `generator` and `default`. It states no
-`schema`, no `required` and no `description`: the input it covers declares all
-three, and the form field reads them from there. A `default` may name what no
-author can write down — `default: "https://${{ self.publicHostname }}/oauth/cb"`
-reads the address the platform assigns this node. An absent or empty
-`parameters` is a form with no fields, which is right only when every required
-input is wired or already has a `schema.default`.
+**Nothing binds by name.** A parameter reaches an input because some node's
+`bindings` says so, which is what makes adding an unrelated node safe. A
+parameter carries `ui` plus at most one of `default`, `generator` and `from`,
+and states no `schema`, no `required` and no `description`: the input it is
+bound to declares all three, and the form field reads them from there. An
+absent or empty `parameters` is a form with no fields, which is right only when
+every required input is bound to something else or already carries a `default`.
+
+A parameter `default` is a literal — it interpolates nothing. A value from
+outside the documents arrives through `from`, which is exactly one whole
+reference in one of two namespaces: `${{ variables.cloud.region }}` names one
+organization variable, and `${{ connections.llm.default }}` names an atomic
+connection. A node's own allocated address is not a parameter source; the
+component publishes it as an output and the node binds it back:
+
+```yaml
+# components/my-app.yaml
+    outputs:
+      publicURL:
+        description: Public URL this deployment answers at.
+        schema: { type: string }
+        from: { endpoint: primary, property: publicURL }
+
+# blueprint.yaml
+      bindings:
+        siteURL: { node: web, output: publicURL }
+```
+
+A node reading its own endpoint output is a discovery dependency and not a value
+cycle: the address is allocated before anything runs.
 
 The `./` prefix is load-bearing, not decorative: a bare name is not
 distinguishable from the UUID a published reference uses, so without it no
@@ -151,21 +200,47 @@ spec:
 ```
 
 A multi-service item adds more entries under `spec.components` — unique node
-names, one `components/<name>.yaml` per reference — and wires `connections`
-between declared component outputs and inputs. Any input may be wired — the one
-exception is an input the same component republishes through a `valueFrom: INPUT`
-output — and a wire's two ends must agree on `schema.type`, and on
-`schema.resourceType` wherever the consuming input names one. A wired input is
-never covered by a parameter, so a wire and a form field never claim one value.
-Input, output and connection names are `lowerCamelCase` — the
-environment-variable key is what `target.envVarKey` carries, not the input's
+names, one `components/<name>.yaml` per reference — and binds a consumer's input
+to a producer's output with `{node, output}`. The two ends agree on
+`schema.type`, with one widening: an integer output satisfies a number input.
+Input, output, parameter and connection names are `lowerCamelCase`, and an
+acronym keeps its conventional case (`baseURL`, `publicURL`, `homepageURL`) —
+the environment-variable key is what `target.envVarKey` carries, not the input's
 name.
 
+A language model is **one connection**, never three values. The component groups
+the inputs that carry it under a connection requirement, and the blueprint
+declares a `connections` parameter and binds it through `connectionBindings`:
+
+```yaml
+# components/my-app.yaml
+  contract:
+    connectionRequirements:
+      llm:
+        protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES
+        capabilities: [STREAMING]
+        inputs: { baseURL: llmBaseURL, apiKey: llmAPIKey, model: llmModel }
+
+# blueprint.yaml
+  parameters:
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui: { label: Language model }
+  components:
+    web:
+      connectionBindings:
+        llm: { parameter: llm }
+```
+
+Each role names a required, `type: string` input with no default, the credential's
+input is `sensitive: true`, and those three inputs take no ordinary binding of
+their own — the connection supplies all three at once, so an address from one
+provider can never sit beside a key from another.
+
 A node the platform does not run — a service addressed elsewhere, such as a
-language-model endpoint — is a component declaring `spec.external` in place of
-`spec.workload`. Its blueprint node writes `size: null`, and the values it holds
-reach the install form through parameters covering its inputs, like any other
-node's.
+managed database — is a component declaring `spec.type: EXTERNAL`. It has no
+`workload`, its inputs carry no `target`, its `outputs` are non-empty, and its
+blueprint node carries no `compute`.
 
 An item holding **no** `blueprint.yaml` is an `itemType: COMPONENT` item: a
 single building block rather than a composition — `postgres` and `redis`, which

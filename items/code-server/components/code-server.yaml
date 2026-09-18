@@ -1,36 +1,36 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: code-server, VS Code in the browser, with a persistent home directory.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: codercom/code-server:4.130.0
+      image: codercom/code-server:4.130.0
     endpoints:
       primary:
-        containerPort: 8080
+        targetPort: 8080
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
-        path: /healthz
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /healthz
         initialDelaySeconds: 30
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 3
     volumes:
       data:
-        sizeGiB: 8
+        minSizeGiB: 8
         mountPath: /home/coder
   contract:
     inputs:
       password:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: PASSWORD

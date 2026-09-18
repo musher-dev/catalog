@@ -2,13 +2,56 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: label-studio
-  revision: 3
+  revision: 4
+  description: Label Studio with a generated admin account and its own public URL wired into Django's CSRF trust list.
 spec:
   components:
     web:
       componentRef: ./components/label-studio.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      exposure:
+        primary: PUBLIC
+      bindings:
+        adminEmail:
+          parameter: adminEmail
+        adminPassword:
+          parameter: adminPassword
+        secretKey:
+          parameter: secretKey
+        # Both of these take this node's own allocated public URL, from the
+        # output the component derives from its `primary` endpoint. A node
+        # reading its own endpoint output is a discovery dependency, not a
+        # value cycle (blueprint BP-CONN-002), because an endpoint address is
+        # allocated before anything runs.
+        #
+        # The address has to arrive WITHOUT a trailing slash for the second one
+        # to work. Django keeps the non-wildcard entries in a set and tests the
+        # browser's Origin header for exact membership (allowed_origins_exact,
+        # matched in CsrfViewMiddleware._origin_verified); an Origin header
+        # never carries a trailing slash, so "https://host/" matches nothing
+        # and fails exactly as an unset list does. LABEL_STUDIO_HOST is immune —
+        # base.py strips its own trailing slash before use — which is why the
+        # same source is merely tidy there and load-bearing here.
+        #
+        # publicHostname is not the alternative: it names the bare host with no
+        # scheme, and the membership test above compares whole origins, so a
+        # bare host matches nothing either. Django says as much directly — since
+        # 4.0 a scheme-less entry is a check error (4_0.E001).
+        #
+        # Not a wildcard, deliberately. "https://*.musher.io" would satisfy
+        # Django — only entries containing '*' reach the subdomain-matching
+        # path — and would make every other tenant's deployment on the shared
+        # edge a trusted CSRF origin for this one.
+        publicURL:
+          node: web
+          output: publicURL
+        csrfTrustedOrigins:
+          node: web
+          output: publicURL
   parameters:
     adminEmail:
       ui:
@@ -17,49 +60,14 @@ spec:
     adminPassword:
       generator:
         byteLength: 24
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: Admin password
         order: 2
     secretKey:
       generator:
         byteLength: 32
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: Secret key
         order: 3
-    publicUrl:
-      default: "${{ self.publicUrl }}"
-      ui:
-        label: Public URL
-        order: 4
-        prominence: SECONDARY
-        examples:
-          - https://label-studio.example.com
-    # self.publicUrl has to resolve WITHOUT a trailing slash for this to work.
-    # Django keeps the non-wildcard entries in a set and tests the browser's
-    # Origin header for exact membership (allowed_origins_exact, matched in
-    # CsrfViewMiddleware._origin_verified); an Origin header never carries a
-    # trailing slash, so "https://host/" matches nothing and fails exactly as
-    # an unset list does. LABEL_STUDIO_HOST above is immune — base.py strips
-    # its own trailing slash before use — which is why the same source is
-    # merely tidy there and load-bearing here.
-    #
-    # self.publicHostname is not the alternative: it names the bare host with no
-    # scheme, and the membership test above compares whole origins, so a bare
-    # host matches nothing either. Django says as much directly — since 4.0 a
-    # scheme-less entry is a check error (4_0.E001).
-    #
-    # Not a wildcard, deliberately. "https://*.musher.io" would satisfy
-    # Django — only entries containing '*' reach the subdomain-matching path
-    # — and would make every other tenant's deployment on the shared edge a
-    # trusted CSRF origin for this one.
-    csrfTrustedOrigins:
-      default: "${{ self.publicUrl }}"
-      ui:
-        label: Trusted origins
-        order: 5
-        prominence: SECONDARY
-        examples:
-          - https://label-studio.example.com
-          - https://label-studio.example.com,https://alt.example.com

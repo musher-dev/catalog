@@ -2,17 +2,26 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: code-server
-  revision: 2
+  revision: 3
+  description: code-server behind a generated access password, with a persistent home directory.
 spec:
   components:
     web:
       componentRef: ./components/code-server.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 8
+      exposure:
+        primary: PUBLIC
+      bindings:
+        password:
+          parameter: password
   parameters:
     password:
       generator:
         byteLength: 32
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: Access password

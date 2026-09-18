@@ -1,26 +1,26 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
+  description: n8n workflow automation, with its database and credentials on one volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: n8nio/n8n:2.31.6
+      image: n8nio/n8n:2.31.6
     endpoints:
       primary:
-        containerPort: 5678
+        targetPort: 5678
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
         # /healthz/readiness answers 200 only once the DB is connected and
         # migrated; bare /healthz answers as soon as the process is reachable,
         # which would declare readiness before n8n can serve traffic
         # (docs.n8n.io monitor-n8n).
-        path: /healthz/readiness
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /healthz/readiness
         # n8n runs DB migrations before it becomes ready on a nano profile, so
         # give the startup gate generous runway. With the agent's startup-probe
         # fix, non-200s during boot count as "not ready yet" (never a kill);
@@ -33,62 +33,73 @@ spec:
     envVars:
       # n8n builds webhook URLs from N8N_PROTOCOL + N8N_HOST; the platform
       # fronts every public endpoint with HTTPS, so pin the protocol.
-      - key: N8N_PROTOCOL
-        value:
-          type: LITERAL
-          value: https
+      N8N_PROTOCOL: https
       # One TLS-terminating proxy hop (the gateway) sits in front of n8n; this
       # makes n8n trust X-Forwarded-* from it (docs.n8n.io
       # configure-webhook-urls-with-reverse-proxy).
-      - key: N8N_PROXY_HOPS
-        value:
-          type: LITERAL
-          value: '1'
+      N8N_PROXY_HOPS: '1'
     volumes:
       data:
-        sizeGiB: 4
+        minSizeGiB: 4
         mountPath: /home/node/.n8n
   contract:
     inputs:
       n8nHost:
         schema:
-          type: STRING
-          format: HOSTNAME
+          type: string
+        presentationHint: HOSTNAME
         required: false
         target:
           envVarKey: N8N_HOST
-        description: >-
-          Public hostname n8n uses for webhook URLs. Override only for a custom
-          domain.
-      webhookUrl:
+        description: Public hostname n8n uses for webhook URLs.
+      webhookURL:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
+          type: string
+        presentationHint: ENDPOINT_URL
         required: false
         target:
           envVarKey: WEBHOOK_URL
         description: >-
           Full public base URL n8n registers webhooks under. Without it n8n
           composes protocol://host:port and leaks the internal container port
-          into webhook URLs behind the TLS-terminating gateway. Override only
-          for a custom domain.
-      editorBaseUrl:
+          into webhook URLs behind the TLS-terminating gateway.
+      editorBaseURL:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
+          type: string
+        presentationHint: ENDPOINT_URL
         required: false
         target:
           envVarKey: N8N_EDITOR_BASE_URL
         description: >-
-          Public URL of the n8n editor, used in emails and OAuth/SAML redirects.
-          Override only for a custom domain.
+          Public URL of the n8n editor, used in emails and OAuth/SAML
+          redirects.
       timezone:
         schema:
-          type: STRING
-          format: TIMEZONE
-          default: UTC
+          type: string
+        presentationHint: TIMEZONE
+        default: UTC
         required: false
         target:
           envVarKey: GENERIC_TIMEZONE
         description: IANA timezone for scheduled workflows
-    outputs: {}
+    outputs:
+      publicHostname:
+        schema:
+          type: string
+        presentationHint: HOSTNAME
+        description: >-
+          Bare public hostname this deployment answers on, as the platform
+          allocated it — no scheme, which is what N8N_HOST wants.
+        from:
+          endpoint: primary
+          property: publicHostname
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public base URL this deployment answers at, for the two settings n8n
+          composes absolute webhook and editor links from.
+        from:
+          endpoint: primary
+          property: publicURL
