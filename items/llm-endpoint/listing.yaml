@@ -11,7 +11,7 @@ spec:
   description: |
     **LLM Endpoint** stands for a language-model service that runs somewhere
     other than your deployment. It holds the three values an application needs
-    to reach one — an API base URL, an API key, and optionally a model name —
+    to reach one — an API base URL, an API key and a model name —
     and hands them to whatever it is wired into as one set.
 
     It runs nothing. There is no container, no compute and no charge for the
