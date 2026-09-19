@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: Open WebUI chat interface for any OpenAI-compatible language-model API.
 spec:
   type: SERVICE
@@ -61,15 +61,29 @@ spec:
         presentationHint: ENDPOINT_URL
         target:
           envVarKey: OPENAI_API_BASE_URL
-        # v0.10.2 reads this into DEFAULT_CONFIG['openai.api_base_urls'], and
-        # Config.get (models/config.py) prefers a stored row over that default.
-        # A row exists only once an admin saves Connections in the UI, so this
-        # value holds until then and is ignored after — including on redeploy.
-        # ENABLE_PERSISTENT_CONFIG=false would make it authoritative, at the
-        # cost of every admin setting reverting on restart; not worth it here.
+        # CAPTURED AT FIRST BOOT, for all three connection roles. v0.10.2 reads
+        # these env vars into DEFAULT_CONFIG (config.py), and on every start
+        # main.py:317 calls seed_registered_defaults(). That runs
+        # Config.seed_defaults (models/config.py:237), which writes a row for
+        # every key that has none, and Config.get prefers a stored row. So the
+        # first boot saves this URL, the key and the model into the database,
+        # whether or not an admin ever opens Connections. Every later boot
+        # ignores the env: rotating the credential, changing the organization
+        # default, or overriding the connection does not reach a running
+        # deployment. A fresh deployment, or an admin editing Connections,
+        # does.
+        #
+        # ENABLE_PERSISTENT_CONFIG=false or RESET_CONFIG_ON_START=true would
+        # make the env authoritative again. Neither is scoped to these keys:
+        # both revert every admin setting on each restart. Rejected for that.
+        #
+        # Open WebUI appends /chat/completions (routers/openai.py:1238) and
+        # also lists models from GET {url}/models (routers/openai.py:128). A
+        # chat for a model missing from that list fails with MODEL_NOT_FOUND,
+        # so the endpoint behind this URL has to serve /models too.
         description: >-
           Base URL of the OpenAI-compatible API Open WebUI sends chat requests
-          to, until an admin saves connection settings in the UI.
+          to, saved at first boot.
       openaiApiKey:
         schema:
           type: string
@@ -97,14 +111,20 @@ spec:
         description: Secret key used to sign session tokens
     outputs: {}
     connectionRequirements:
-      # STREAMING only. Open WebUI streams chat completions by default, and
-      # v0.10.2's tool calling is served by its own pipelines rather than by the
-      # upstream API's tool-call protocol, so requiring TOOL_CALLS here would
-      # reject compatible endpoints for a capability this image does not use.
+      # Streaming and tool calls. Open WebUI streams chat completions by
+      # default. v0.10.2 also defaults to native function calling: every UI
+      # chat is sent with its built-in tools (time, knowledge-base retrieval,
+      # chat search) as OpenAI `tools`, unless an admin sets a model's function
+      # calling to `legacy` (utils/middleware.py:2518-2522, 2763-2767). An
+      # endpoint without tool calls would be accepted and then fail on ordinary
+      # chats. Everything else it asks of the model is plain chat: title, tag
+      # and follow-up generation reuse the chat model, and RAG embeds locally
+      # with sentence-transformers.
       llm:
         protocol: OPENAI_CHAT_COMPLETIONS
         capabilities:
           - STREAMING
+          - TOOL_CALLS
         inputs:
           baseURL: openaiApiBaseURL
           apiKey: openaiApiKey
