@@ -25,8 +25,8 @@ spec:
     Single-container deployment of `n8nio/n8n:2.31.6` with the web UI on
     port 5678 behind the platform's HTTPS edge; you create the owner
     account from the setup screen on first launch. Webhook, editor, and
-    host URLs default to this deployment's own public https URL — override
-    them only when fronting n8n with a custom domain. The readiness probe
+    host URLs are taken from this deployment's own public https address, so
+    webhook URLs are right the first time. The readiness probe
     waits for `/healthz/readiness`, so first boot reports ready only after
     database migrations finish. A 4 GiB persistent volume mounted at
     `/home/node/.n8n` keeps workflows, credentials, and execution history

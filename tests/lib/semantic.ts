@@ -37,31 +37,52 @@ const HTTP_FAMILY = new Set(['HTTP', 'HTTPS', 'WS', 'GRPC']);
 /** L4 — the protocols whose PUBLIC endpoint publishes a `host:port` address. */
 const L4_FAMILY = new Set(['TCP', 'UDP']);
 
-/** Which address form each `self` path reads (blueprint spec §5.2). */
-const SELF_PATH_ADDRESS_FORM: Record<string, 'url' | 'host-port'> = {
-  publicUrl: 'url',
+/** The protocols a probe may address — component spec §5.4, COMP-EP-002. */
+const PROBE_FAMILY = new Set(['HTTP', 'HTTPS']);
+
+/**
+ * Every address property an endpoint publishes, and the protocol family each
+ * one needs (component spec §5.2, COMP-EP-004). A private property is published
+ * by every endpoint, whatever it speaks.
+ */
+const ADDRESS_PROPERTIES: Record<string, 'url' | 'host-port' | 'any'> = {
+  privateHostname: 'any',
+  privatePort: 'any',
+  privateAddress: 'any',
+  publicURL: 'url',
   publicHostname: 'url',
   publicAddress: 'host-port',
   publicPort: 'host-port',
 };
 
+/** The four properties that only exist once a node exposes the endpoint PUBLIC. */
+const PUBLIC_PROPERTIES = new Set(['publicURL', 'publicHostname', 'publicAddress', 'publicPort']);
+
 /**
- * The closed namespace set core spec §5.2 reserves. Only `self` has a meaning at
- * this line; the rest are reserved so they can never become a name an author
- * addresses, and writing one is CORE-REF-003 rather than CORE-REF-002.
+ * The closed namespace set core spec §5.2 reserves, as ADR 0031 §5 re-spells it:
+ * `config` became `variables`, `params` became `parameters`, and `connections`
+ * was added. Two positions are open, and each admits a different subset —
+ * a component's output template admits `self` alone (COMP-REF-001), and a
+ * blueprint parameter's `from` admits `variables` and `connections` alone
+ * (BP-REF-001). Everything else here is reserved so it can never become a name
+ * an author addresses, and writing one is CORE-REF-003 rather than CORE-REF-002.
  */
 const RESERVED_NAMESPACES = new Set([
   'self',
-  'params',
-  'config',
+  'parameters',
+  'variables',
+  'connections',
   'deployment',
   'environment',
   'organization',
   'output',
 ]);
 
+/** The namespaces a blueprint parameter's `from` may name — BP-REF-001. */
+const PARAMETER_SOURCE_NAMESPACES = new Set(['variables', 'connections']);
+
 /**
- * COMP-SRC-001. Held here rather than in the schema so it can grow in a minor
+ * COMP-SRC-003. Held here rather than in the schema so it can grow in a minor
  * release: growing a `pattern` makes a previously valid document invalid.
  */
 const FLOATING_TAGS = new Set([
@@ -100,15 +121,15 @@ export type SemanticContext = {
   nodes: NodeBinding[];
   /** Media-path grammar, read out of the fetched listing bundle. */
   isMediaPath: (value: string) => boolean;
-  /** ComponentValueSchema property defaults, read out of the fetched component bundle. */
-  valueSchemaDefaults: Record<string, unknown>;
+  /** ComponentInput property defaults, read out of the fetched component bundle. */
+  inputDefaults: Record<string, unknown>;
 };
 
 export function buildContext(
   item: Item,
   documents: ItemDocuments,
   isMediaPath: (value: string) => boolean,
-  valueSchemaDefaults: Record<string, unknown>,
+  inputDefaults: Record<string, unknown>,
 ): SemanticContext {
   const components = record(specOf(documents.blueprint)['components']);
 
@@ -139,7 +160,7 @@ export function buildContext(
     return { name, node, reference, form: 'unrecognised', componentPath: null, component: null, unreadable: true };
   });
 
-  return { item, documents, nodes, isMediaPath, valueSchemaDefaults };
+  return { item, documents, nodes, isMediaPath, inputDefaults };
 }
 
 /* ---------------------------------------------------------------- identity */
@@ -271,24 +292,24 @@ export function checkMedia(context: SemanticContext): Diagnostic[] {
     found.push(...checkOneMediaPath(context, `${listing.label} ${pointer}`, value));
   }
 
-  // LIST-MEDIA-003. A gallery addresses its entries by basename, so two
-  // screenshots called overview.png are one entry. It stops at the gallery:
-  // the published media set is keyed on the whole path.
+  // LIST-MEDIA-003. A gallery entry is its whole item-relative path, so
+  // media/desktop/overview.png and media/mobile/overview.png are two entries and
+  // only an exact repeat is a collision. It stops at the gallery: listing §4.1
+  // exempts a description image, which may reuse a screenshot's path.
   const screenshots = listingSpec['screenshots'];
   if (Array.isArray(screenshots)) {
     const seen = new Map<string, number>();
     screenshots.forEach((shot, index) => {
       const file = record(shot)['file'];
       if (typeof file !== 'string') return;
-      const base = path.posix.basename(file);
-      const first = seen.get(base);
-      if (first === undefined) seen.set(base, index);
+      const first = seen.get(file);
+      if (first === undefined) seen.set(file, index);
       else
         found.push(
           diag(
-            'ERR_DUPLICATE_MEDIA_BASENAME',
+            'ERR_DUPLICATE_MEDIA_PATH',
             `${listing.label} /spec/screenshots/${index}/file`,
-            `basename ${JSON.stringify(base)} is already used by screenshot ${first}`,
+            `${JSON.stringify(file)} is already declared by screenshot ${first}`,
           ),
         );
     });
@@ -350,9 +371,9 @@ export function checkImagePinning(context: SemanticContext): Diagnostic[] {
   for (const [componentPath, doc] of context.documents.components) {
     if (!doc.value) continue;
     const source = record(record(specOf(doc)['workload'])['source']);
-    if (source['type'] !== 'IMAGE') continue;
 
-    const ref = source['ref'];
+    // `image` and `git` are the two sources; only an image carries a tag.
+    const ref = source['image'];
     if (typeof ref !== 'string') continue;
 
     const tag = tagOf(ref);
@@ -360,7 +381,7 @@ export function checkImagePinning(context: SemanticContext): Diagnostic[] {
       found.push(
         diag(
           'ERR_UNPINNED_IMAGE',
-          `${rel(componentPath)} /spec/workload/source/ref`,
+          `${rel(componentPath)} /spec/workload/source/image`,
           `tag ${JSON.stringify(tag)} floats; it mutates under whoever curates the registry, shifting the deployment with no change to any document in the item`,
         ),
       );
@@ -386,82 +407,51 @@ export function tagOf(ref: string): string | null {
 
 /* --------------------------------------------------------------- endpoints */
 
-type EndpointResolution =
-  | { ok: true; name: string; endpoint: Record<string, unknown> }
-  | { ok: false; code: 'ERR_AMBIGUOUS_ENDPOINT' | 'ERR_UNKNOWN_ENDPOINT'; message: string };
-
 /**
- * The primary endpoint (component spec §5.2): the sole endpoint, failing that
- * the sole PUBLIC one, failing that nothing.
- *
- * Electing the first name in sort order would give every document an answer, and
- * would let a new endpoint called `api` silently re-point a probe that has worked
- * for a year — so "nothing" is an error rather than a tiebreak.
+ * Component spec §5.2 — COMP-EP-001. Every endpoint reference names its
+ * endpoint, including on a single-endpoint workload: there is no primary
+ * endpoint to elect and no `ERR_AMBIGUOUS_ENDPOINT` to report. A probe with no
+ * `endpoint` fails structurally, because `ComponentHttpProbe` requires it.
  */
-export function resolveEndpoint(workload: Record<string, unknown>, named: unknown): EndpointResolution {
-  const endpoints = record(workload['endpoints']);
-  const entries = Object.entries(endpoints);
-
-  if (typeof named === 'string') {
-    const endpoint = endpoints[named];
-    if (!isRecord(endpoint)) {
-      return { ok: false, code: 'ERR_UNKNOWN_ENDPOINT', message: `the workload declares no endpoint named ${JSON.stringify(named)}` };
-    }
-    return { ok: true, name: named, endpoint };
-  }
-
-  if (entries.length === 1) {
-    const [name, endpoint] = entries[0]!;
-    return { ok: true, name, endpoint: record(endpoint) };
-  }
-
-  const publicEntries = entries.filter(([, endpoint]) => record(endpoint)['visibility'] === 'PUBLIC');
-  if (publicEntries.length === 1) {
-    const [name, endpoint] = publicEntries[0]!;
-    return { ok: true, name, endpoint: record(endpoint) };
-  }
-
-  return {
-    ok: false,
-    code: 'ERR_AMBIGUOUS_ENDPOINT',
-    message:
-      entries.length === 0
-        ? 'the reference omits an endpoint and the workload declares none'
-        : `the reference omits an endpoint and ${entries.length} candidates elect no primary`,
-  };
+export function lookupEndpoint(
+  component: Record<string, unknown> | null,
+  named: unknown,
+): Record<string, unknown> | null {
+  if (typeof named !== 'string') return null;
+  const endpoint = endpointsOf(component)[named];
+  return isRecord(endpoint) ? endpoint : null;
 }
 
-/** Component spec §5.4 — probe endpoint resolution and the HTTP-family rule. */
+/** Component spec §5.4 — probe endpoint resolution, COMP-EP-002. */
 export function checkHealthProbes(context: SemanticContext): Diagnostic[] {
   const found: Diagnostic[] = [];
 
   for (const [componentPath, doc] of context.documents.components) {
     if (!doc.value) continue;
-    const workload = record(specOf(doc)['workload']);
-    const health = record(workload['health']);
+
+    const health = record(record(specOf(doc)['workload'])['health']);
 
     for (const probe of ['startup', 'readiness', 'liveness']) {
       const block = health[probe];
       if (!isRecord(block)) continue;
 
-      const where = `${rel(componentPath)} /spec/workload/health/${probe}/endpoint`;
-      const resolved = resolveEndpoint(workload, block['endpoint']);
+      const named = record(block['http'])['endpoint'];
+      const where = `${rel(componentPath)} /spec/workload/health/${probe}/http/endpoint`;
+      const endpoint = lookupEndpoint(doc.value, named);
 
-      if (!resolved.ok) {
-        found.push(diag(resolved.code, where, resolved.message));
+      if (!endpoint) {
+        found.push(diag('ERR_UNKNOWN_ENDPOINT', where, `the workload declares no endpoint named ${JSON.stringify(named)}`));
         continue;
       }
 
-      // Every probe polls an HTTP path, so an endpoint whose protocol is TCP or
-      // UDP has nothing for one to poll.
-      const protocol = resolved.endpoint['protocol'];
-      if (typeof protocol === 'string' && !HTTP_FAMILY.has(protocol)) {
+      // A probe sends an HTTP request and reads a status. WS and GRPC are in the
+      // HTTP family for addressing — they publish a URL — but neither answers a
+      // plain GET, so a workload serving one declares a separate HTTP endpoint
+      // for its probe rather than pointing the probe at the wrong protocol.
+      const protocol = endpoint['protocol'];
+      if (typeof protocol === 'string' && !PROBE_FAMILY.has(protocol)) {
         found.push(
-          diag(
-            'ERR_ENDPOINT_NOT_HTTP',
-            where,
-            `the probe resolves to endpoint ${JSON.stringify(resolved.name)}, whose protocol is ${protocol}`,
-          ),
+          diag('ERR_ENDPOINT_NOT_HTTP', where, `the probe names endpoint ${JSON.stringify(named)}, whose protocol is ${protocol}`),
         );
       }
     }
@@ -472,53 +462,170 @@ export function checkHealthProbes(context: SemanticContext): Diagnostic[] {
 
 /* ------------------------------------------------------------- connections */
 
+const contractOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
+  record(record(record(component ?? {})['spec'])['contract']);
+
 const inputsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(record(record(component ?? {})['spec'])['contract'])['inputs'] as Record<string, unknown>;
+  record(contractOf(component)['inputs']);
 
 const outputsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(record(record(component ?? {})['spec'])['contract'])['outputs'] as Record<string, unknown>;
+  record(contractOf(component)['outputs']);
+
+const connectionRequirementsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
+  record(contractOf(component)['connectionRequirements']);
 
 const isRequired = (input: Record<string, unknown>): boolean => input['required'] !== false;
 
-const isExternal = (component: Record<string, unknown> | null): boolean =>
-  isRecord(record(record(component ?? {})['spec'])['external']);
+/** Component spec §5 — the category, which ADR 0031 made a tag rather than a shape. */
+const categoryOf = (component: Record<string, unknown> | null): string => {
+  const type = record(record(component ?? {})['spec'])['type'];
+  return typeof type === 'string' ? type : '';
+};
+
+const runsNothing = (component: Record<string, unknown> | null): boolean => categoryOf(component) === 'EXTERNAL';
 
 const workloadOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(record(component ?? {})['spec'])['workload'] as Record<string, unknown>;
+  record(record(record(component ?? {})['spec'])['workload']);
 
-/** The keys of the inputs a connection on this node fills. A wired input is never covered. */
-const wiredInputs = (node: Record<string, unknown>): Set<string> =>
-  new Set(Object.keys(record(node['connections'])));
+const endpointsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
+  record(workloadOf(component)['endpoints']);
 
-/* ---------------------------------------------------------- output inputs */
+const volumesOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
+  record(workloadOf(component)['volumes']);
+
+/** The exposure a node selects for one endpoint; an endpoint left out is PRIVATE. */
+const exposureOf = (node: Record<string, unknown>, endpoint: string): string =>
+  record(node['exposure'])[endpoint] === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE';
 
 /**
- * Component spec §6.2 — COMP-OUT-002.
- *
- * An `INPUT` output republishes one of its own component's inputs, and the name
- * has to resolve. That the input is not also wired is BP-CONN-002, decided by
- * the blueprint: a component cannot tell which of its inputs a composition
- * wires, so it is not the document that can enforce the invariant.
+ * The input names a connection requirement owns. Those inputs take no ordinary
+ * binding of their own: the connection supplies all three at once.
  */
-export function checkOutputInputReferences(context: SemanticContext): Diagnostic[] {
+const connectionOwnedInputs = (component: Record<string, unknown> | null): Set<string> => {
+  const owned = new Set<string>();
+  for (const requirement of Object.values(connectionRequirementsOf(component))) {
+    for (const named of Object.values(record(record(requirement)['inputs']))) {
+      if (typeof named === 'string') owned.add(named);
+    }
+  }
+  return owned;
+};
+
+/* -------------------------------------------------------- output origins */
+
+/**
+ * Component spec §6.2 — where an output's value comes from.
+ *
+ * `from` names exactly one origin, which the schema decides; what needs a second
+ * look is whether the names inside it resolve. An `input` origin names one of
+ * this component's own inputs (COMP-OUT-002). An `endpoint` origin names one of
+ * its own endpoints and a property that endpoint publishes (COMP-EP-004), and a
+ * `template` reads the same pair through a `self` reference (COMP-REF-001).
+ *
+ * Whether a `public…` property is actually published is the blueprint's to
+ * decide, because exposure lives on the node — see `checkExposure`.
+ */
+export function checkOutputOrigins(context: SemanticContext): Diagnostic[] {
   const found: Diagnostic[] = [];
 
   for (const [componentPath, doc] of context.documents.components) {
     if (!doc.value) continue;
-    const inputs = inputsOf(doc.value);
+    const component = record(doc.value);
+    const inputs = inputsOf(component);
 
-    for (const [outputName, rawOutput] of Object.entries(outputsOf(doc.value))) {
-      const output = record(rawOutput);
-      if (output['valueFrom'] !== 'INPUT') continue;
+    for (const [outputName, rawOutput] of Object.entries(outputsOf(component))) {
+      const from = record(record(rawOutput)['from']);
+      const at = `${rel(componentPath)} /spec/contract/outputs/${outputName}/from`;
 
-      const named = output['input'];
-      const where = `${rel(componentPath)} /spec/contract/outputs/${outputName}/input`;
-      const input = typeof named === 'string' ? inputs[named] : undefined;
+      if ('input' in from) {
+        const named = from['input'];
+        if (!isRecord(typeof named === 'string' ? inputs[named] : undefined)) {
+          found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', `${at}/input`, `${JSON.stringify(named)} names no input this component declares`));
+        }
+        continue;
+      }
 
-      if (!isRecord(input)) {
-        found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', where, `${JSON.stringify(named)} names no input this component declares`));
+      if ('endpoint' in from) {
+        found.push(...checkAddressOrigin(component, from['endpoint'], from['property'], `${at}/endpoint`));
+        continue;
+      }
+
+      if (typeof from['template'] === 'string') {
+        found.push(...checkOutputTemplate(component, from['template'], `${at}/template`));
       }
     }
+  }
+
+  return found;
+}
+
+/** One `{endpoint, property}` pair, wherever it is written. */
+function checkAddressOrigin(
+  component: Record<string, unknown>,
+  named: unknown,
+  property: unknown,
+  where: string,
+): Diagnostic[] {
+  const endpoint = lookupEndpoint(component, named);
+  if (!endpoint) {
+    return [diag('ERR_UNKNOWN_ENDPOINT', where, `the component declares no endpoint named ${JSON.stringify(named)}`)];
+  }
+
+  const family = typeof property === 'string' ? ADDRESS_PROPERTIES[property] : undefined;
+  if (family === undefined) {
+    return [diag('ERR_UNKNOWN_ADDRESS_PROPERTY', where, `${JSON.stringify(property)} names no address property an endpoint publishes`)];
+  }
+
+  // COMP-TYPE-003. A WORKER is never request-driven, so no node may expose one
+  // of its endpoints, so no public property of one ever has a value.
+  if (PUBLIC_PROPERTIES.has(String(property)) && categoryOf(component) === 'WORKER') {
+    return [diag('ERR_ENDPOINT_NOT_EXPOSABLE', where, `endpoint ${JSON.stringify(named)} belongs to a WORKER, which is never exposed, so it publishes no ${property}`)];
+  }
+
+  const protocol = endpoint['protocol'];
+  if (typeof protocol !== 'string' || family === 'any') return [];
+
+  if (family === 'url' && !HTTP_FAMILY.has(protocol)) {
+    return [diag('ERR_ENDPOINT_NOT_HTTP', where, `${property} needs an HTTP-family endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
+  }
+  if (family === 'host-port' && !L4_FAMILY.has(protocol)) {
+    return [diag('ERR_ENDPOINT_NOT_L4', where, `${property} needs a TCP or UDP endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
+  }
+  return [];
+}
+
+/**
+ * Component spec §6.2 — COMP-REF-001. A template is the one position in a
+ * component that admits a reference, it admits `self` alone, and the path shape
+ * is exactly `endpoints.<name>.<property>`.
+ *
+ * The withdrawn property-first order, `${{ self.publicHostname.web }}`, lands
+ * here as an unknown endpoint named `publicHostname` — which is the right
+ * diagnostic and the reason the shape is checked rather than pattern-matched.
+ */
+function checkOutputTemplate(component: Record<string, unknown>, template: string, where: string): Diagnostic[] {
+  const { references, malformed } = scanReferences(template);
+  const found = malformed.map((raw) => diag('ERR_MALFORMED_REFERENCE', where, `${JSON.stringify(raw)} begins no well-formed reference`));
+
+  for (const reference of references) {
+    if (!RESERVED_NAMESPACES.has(reference.namespace)) {
+      found.push(diag('ERR_UNKNOWN_REFERENCE_NAMESPACE', where, `${JSON.stringify(reference.namespace)} names a namespace core reserves none of`));
+      continue;
+    }
+    if (reference.namespace !== 'self') {
+      found.push(diag('ERR_REFERENCE_NOT_IN_SCOPE', where, `only self is in scope in a component, and this names ${JSON.stringify(reference.namespace)}`));
+      continue;
+    }
+
+    // An EXTERNAL component runs nothing, so it has no endpoint of its own to
+    // read — COMP-EXT-004, and the same diagnostic a misspelling would get.
+    const [head, name, property, ...rest] = reference.path;
+    if (head !== 'endpoints' || name === undefined || property === undefined || rest.length > 0) {
+      found.push(diag('ERR_UNKNOWN_ENDPOINT', where, `${JSON.stringify(reference.raw)} is not of the form \${{ self.endpoints.<name>.<property> }}`));
+      continue;
+    }
+
+    found.push(...checkAddressOrigin(component, name, property, where));
   }
 
   return found;
@@ -527,9 +634,11 @@ export function checkOutputInputReferences(context: SemanticContext): Diagnostic
 /* ------------------------------------------------------------ node compute */
 
 /**
- * Blueprint spec §4.3 — BP-NODE-002. `size` is null if and only if the node's
- * component is external. Silent where the component cannot be read offline,
- * because whether it is external is exactly what an unread component hides.
+ * Blueprint spec §4.3 — BP-NODE-001 and BP-NODE-002. `compute` is required on a
+ * node whose component runs and forbidden on one whose component is EXTERNAL.
+ *
+ * Silent where the component cannot be read offline, because its category is
+ * exactly what an unread component hides (BP-REF-002: deferred, not passed).
  */
 export function checkNodeCompute(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
@@ -539,114 +648,365 @@ export function checkNodeCompute(context: SemanticContext): Diagnostic[] {
   for (const binding of context.nodes) {
     if (binding.unreadable) continue;
 
-    const runsNothing = binding.node['size'] === null;
-    const external = isExternal(binding.component);
-    if (runsNothing === external) continue;
+    const declared = isRecord(binding.node['compute']);
+    const external = runsNothing(binding.component);
+    if (declared !== external) continue;
 
     found.push(
-      diag(
-        'ERR_CONFLICTING_NODE_COMPUTE',
-        `${blueprint.label} /spec/components/${binding.name}/size`,
-        external
-          ? `the component ${JSON.stringify(binding.reference)} is external and runs nothing, so the node names no Compute Profile — write size: null`
-          : `the component ${JSON.stringify(binding.reference)} runs a workload, so size: null leaves it nowhere to run`,
-      ),
+      external
+        ? diag(
+            'ERR_CONFLICTING_NODE_COMPUTE',
+            `${blueprint.label} /spec/components/${binding.name}/compute`,
+            `the component ${JSON.stringify(binding.reference)} is EXTERNAL and runs nothing, so there is nothing to size or place`,
+          )
+        : diag(
+            'ERR_CONFLICTING_NODE_COMPUTE',
+            `${blueprint.label} /spec/components/${binding.name}`,
+            `the component ${JSON.stringify(binding.reference)} runs a workload, so the node must name the compute it runs on`,
+          ),
     );
   }
 
   return found;
 }
 
-/** Blueprint spec §4.2. */
-export function checkConnections(context: SemanticContext): Diagnostic[] {
+/* ----------------------------------------------------------------- storage */
+
+/**
+ * Blueprint spec §4.3. The component declares the volumes and the floor; the
+ * node allocates the actual size. Every declared volume needs an allocation, no
+ * allocation may name a volume the component does not declare, and none may sit
+ * below the component's own minimum. One code covers all three: they are the
+ * same disagreement read from three sides.
+ */
+export function checkVolumeAllocations(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
   if (!blueprint?.value) return [];
 
   const found: Diagnostic[] = [];
-  const byName = new Map(context.nodes.map((binding) => [binding.name, binding]));
+  for (const binding of context.nodes) {
+    if (binding.unreadable) continue;
 
-  for (const consumer of context.nodes) {
-    const connections = record(consumer.node['connections']);
-    const consumerInputs = inputsOf(consumer.component);
+    const declared = volumesOf(binding.component);
+    const allocated = record(binding.node['volumes']);
+    const at = `${blueprint.label} /spec/components/${binding.name}/volumes`;
 
-    for (const [inputKey, rawConnection] of Object.entries(connections)) {
-      const connection = record(rawConnection);
-      const where = `${blueprint.label} /spec/components/${consumer.name}/connections/${inputKey}`;
+    for (const name of Object.keys(declared)) {
+      if (!isRecord(allocated[name])) {
+        found.push(diag('ERR_INVALID_VOLUME_ALLOCATION', at, `the component declares volume ${JSON.stringify(name)} and the node allocates it nothing`));
+      }
+    }
 
-      // The consumer end is named rather than written: the map key is the input
-      // being filled. A wire whose two ends are each checked and whose consumer
-      // end is not is a wire that can be misspelled at one end only.
-      const consumerInput = consumerInputs[inputKey];
-      if (!consumer.unreadable && !isRecord(consumerInput)) {
-        found.push(diag('ERR_UNKNOWN_INPUT', where, `${JSON.stringify(inputKey)} names no input of the component ${JSON.stringify(consumer.name)} deploys`));
+    for (const [name, rawAllocation] of Object.entries(allocated)) {
+      const declaration = declared[name];
+      if (!isRecord(declaration)) {
+        found.push(diag('ERR_INVALID_VOLUME_ALLOCATION', `${at}/${name}`, `${JSON.stringify(name)} names no volume the component declares`));
+        continue;
       }
 
-      // BP-CONN-002. Component §6.2 makes every output resolvable before any
-      // edge is bound, which is what lets §4.2's legal cycles resolve. An output
-      // reading a wired input would depend on an inbound edge; the component
-      // cannot tell which inputs a composition wires, so this document decides.
-      const republishes = Object.entries(outputsOf(consumer.component)).find(
-        ([, rawOutput]) => record(rawOutput)['valueFrom'] === 'INPUT' && record(rawOutput)['input'] === inputKey,
-      );
-      if (republishes) {
+      const size = record(rawAllocation)['sizeGiB'];
+      const floor = declaration['minSizeGiB'];
+      if (typeof size === 'number' && typeof floor === 'number' && size < floor) {
+        found.push(
+          diag('ERR_INVALID_VOLUME_ALLOCATION', `${at}/${name}/sizeGiB`, `${size} GiB is below the ${floor} GiB the component says it needs`),
+        );
+      }
+    }
+  }
+
+  return found;
+}
+
+/* ---------------------------------------------------------------- exposure */
+
+/**
+ * Blueprint spec §4.3. Exposure is the node's to choose, so every rule that
+ * depends on whether an endpoint is public is decided here rather than in the
+ * component — including the ones that read a component's own outputs.
+ */
+export function checkExposure(context: SemanticContext): Diagnostic[] {
+  const blueprint = context.documents.blueprint;
+  if (!blueprint?.value) return [];
+
+  const found: Diagnostic[] = [];
+  for (const binding of context.nodes) {
+    if (binding.unreadable) continue;
+
+    const endpoints = endpointsOf(binding.component);
+    const category = categoryOf(binding.component);
+    const at = `${blueprint.label} /spec/components/${binding.name}/exposure`;
+    const health = record(record(workloadOf(binding.component))['health']);
+
+    for (const [name, selected] of Object.entries(record(binding.node['exposure']))) {
+      const endpoint = endpoints[name];
+      if (!isRecord(endpoint)) {
+        found.push(diag('ERR_UNKNOWN_ENDPOINT', `${at}/${name}`, `${JSON.stringify(name)} names no endpoint the component declares`));
+        continue;
+      }
+      if (selected !== 'PUBLIC') continue;
+
+      // A WORKER is not request-driven. Exposing one is rejected even when it
+      // carries a readiness probe, which it now may.
+      if (category === 'WORKER') {
+        found.push(diag('ERR_ENDPOINT_NOT_EXPOSABLE', `${at}/${name}`, 'a WORKER endpoint is never PUBLIC'));
+        continue;
+      }
+
+      // COMP-EP-003, decided here because exposure is. Traffic reaching an
+      // endpoint with no readiness gate reaches a process that may not be
+      // listening yet. The gate has to poll *this* endpoint: a readiness probe
+      // on a sibling says nothing about whether this one answers.
+      const protocol = endpoint['protocol'];
+      if (typeof protocol !== 'string' || !HTTP_FAMILY.has(protocol)) continue;
+
+      if (record(record(health['readiness'])['http'])['endpoint'] !== name) {
+        found.push(
+          diag('ERR_READINESS_REQUIRED', `${at}/${name}`, `endpoint ${JSON.stringify(name)} is PUBLIC and no readiness probe polls it`),
+        );
+      }
+    }
+
+    // An output reading a public property of an endpoint this node does not
+    // expose reads an address that was never allocated. The component cannot
+    // decide this; only the node knows what it exposed.
+    for (const [outputName, rawOutput] of Object.entries(outputsOf(binding.component))) {
+      const from = record(record(rawOutput)['from']);
+      const pairs: { endpoint: unknown; property: unknown }[] = [];
+
+      if ('endpoint' in from) pairs.push({ endpoint: from['endpoint'], property: from['property'] });
+      if (typeof from['template'] === 'string') {
+        for (const reference of scanReferences(from['template']).references) {
+          if (reference.namespace === 'self' && reference.path[0] === 'endpoints') {
+            pairs.push({ endpoint: reference.path[1], property: reference.path[2] });
+          }
+        }
+      }
+
+      for (const pair of pairs) {
+        if (!PUBLIC_PROPERTIES.has(String(pair.property))) continue;
+        if (!isRecord(endpoints[String(pair.endpoint)])) continue;
+        if (exposureOf(binding.node, String(pair.endpoint)) === 'PUBLIC') continue;
+
         found.push(
           diag(
-            'ERR_INPUT_NOT_CONNECTABLE',
-            where,
-            `output ${JSON.stringify(republishes[0])} republishes input ${JSON.stringify(inputKey)}, so a wire filling it would make that output depend on an inbound edge`,
+            'ERR_ENDPOINT_NOT_PUBLIC',
+            `${blueprint.label} /spec/components/${binding.name}/componentRef`,
+            `output ${JSON.stringify(outputName)} reads ${pair.property} of endpoint ${JSON.stringify(pair.endpoint)}, which this node keeps PRIVATE`,
           ),
         );
       }
+    }
+  }
 
-      const fromNode = connection['fromNode'];
-      const producer = typeof fromNode === 'string' ? byName.get(fromNode) : undefined;
+  return found;
+}
+
+/* ---------------------------------------------------------------- bindings */
+
+/**
+ * Blueprint spec §4.2 — BP-PARAM-006 and BP-PARAM-007.
+ *
+ * A binding says where one input's value comes from. That it names exactly one
+ * supplier is structural (`BlueprintBinding`'s `oneOf`), so what is left here is
+ * resolving the names: the input it fills, and — for a `{node, output}` binding
+ * — the producer and its output, with the two schemas agreeing.
+ *
+ * The draft's `connections`, `fromNode`, `fromOutput` and name-based coverage
+ * are gone: adding an unrelated node must not change existing recipients, so
+ * every recipient is written down.
+ */
+export function checkBindings(context: SemanticContext): Diagnostic[] {
+  const blueprint = context.documents.blueprint;
+  if (!blueprint?.value) return [];
+
+  const parameters = record(specOf(blueprint)['parameters']);
+  const byName = new Map(context.nodes.map((binding) => [binding.name, binding]));
+  const found: Diagnostic[] = [];
+
+  for (const consumer of context.nodes) {
+    const consumerInputs = inputsOf(consumer.component);
+    const owned = connectionOwnedInputs(consumer.component);
+
+    for (const [inputKey, rawBinding] of Object.entries(record(consumer.node['bindings']))) {
+      const binding = record(rawBinding);
+      const where = `${blueprint.label} /spec/components/${consumer.name}/bindings/${inputKey}`;
+
+      const consumerInput = consumerInputs[inputKey];
+      if (!consumer.unreadable && !isRecord(consumerInput)) {
+        found.push(diag('ERR_UNKNOWN_INPUT', where, `${JSON.stringify(inputKey)} names no input of the component ${JSON.stringify(consumer.name)} deploys`));
+        continue;
+      }
+
+      // BP-CONNECTION-001. A connection supplies its three roles together, so an
+      // ordinary binding onto one of them would put two suppliers behind one
+      // value and let a key from one provider sit beside an address from another.
+      if (owned.has(inputKey)) {
+        found.push(
+          diag('ERR_INVALID_CONNECTION_BINDING', where, `${JSON.stringify(inputKey)} is owned by a connection requirement and takes no binding of its own`),
+        );
+        continue;
+      }
+
+      if (typeof binding['parameter'] === 'string') {
+        const named = binding['parameter'];
+        const parameter = parameters[named];
+        if (!isRecord(parameter)) {
+          found.push(diag('ERR_UNKNOWN_PARAMETER', `${where}/parameter`, `${JSON.stringify(named)} names no parameter this blueprint declares`));
+          continue;
+        }
+        // A connection is a bundle, not a value; it reaches its consumer through
+        // connectionBindings and never through an ordinary one.
+        if (namespaceOfSource(parameter['from']) === 'connections') {
+          found.push(
+            diag('ERR_INVALID_CONNECTION_BINDING', `${where}/parameter`, `parameter ${JSON.stringify(named)} names a connection, which binds only through connectionBindings`),
+          );
+        }
+        continue;
+      }
+
+      if (typeof binding['node'] !== 'string') continue; // a literal `value`; nothing to resolve
+
+      const producer = byName.get(binding['node']);
       if (!producer) {
-        found.push(diag('ERR_UNKNOWN_NODE', `${where}/fromNode`, `${JSON.stringify(fromNode)} names no node in this blueprint`));
+        found.push(diag('ERR_UNKNOWN_NODE', `${where}/node`, `${JSON.stringify(binding['node'])} names no node in this blueprint`));
         continue;
       }
       if (producer.unreadable) continue; // its outputs were never readable
 
-      const fromOutput = connection['fromOutput'];
-      const output = typeof fromOutput === 'string' ? outputsOf(producer.component)[fromOutput] : undefined;
+      const named = binding['output'];
+      const output = typeof named === 'string' ? outputsOf(producer.component)[named] : undefined;
       if (!isRecord(output)) {
         found.push(
-          diag('ERR_UNKNOWN_OUTPUT', `${where}/fromOutput`, `${JSON.stringify(fromOutput)} names no output of the component ${JSON.stringify(producer.name)} deploys`),
+          diag('ERR_UNKNOWN_OUTPUT', `${where}/output`, `${JSON.stringify(named)} names no output of the component ${JSON.stringify(producer.name)} deploys`),
         );
         continue;
       }
 
       if (!isRecord(consumerInput)) continue;
+      found.push(...checkTypeAgreement(record(output['schema']), record(consumerInput['schema']), `${where}/output`));
+    }
+  }
 
-      const producerSchema = record(output['schema']);
-      const consumerSchema = record(consumerInput['schema']);
+  return found;
+}
 
-      // No widening, in either direction. Everything is a string by the time it
-      // reaches a container, but *which* string is a decision each language's
-      // formatter makes differently.
-      if (producerSchema['type'] !== consumerSchema['type']) {
-        found.push(
-          diag(
-            'ERR_INCOMPATIBLE_TYPE',
-            `${where}/fromOutput`,
-            `output type ${JSON.stringify(producerSchema['type'])} does not equal input type ${JSON.stringify(consumerSchema['type'])}`,
-          ),
-        );
+/**
+ * BP-PARAM-008. The two ends of a wire agree on type, with one widening: an
+ * integer is a number, so an integer producer satisfies a number consumer. The
+ * reverse is not true, and nothing else widens — everything is a string by the
+ * time it reaches a container, but *which* string is a decision each language's
+ * formatter makes differently.
+ */
+function checkTypeAgreement(producer: Record<string, unknown>, consumer: Record<string, unknown>, where: string): Diagnostic[] {
+  const from = producer['type'];
+  const to = consumer['type'];
+  if (from === to) return [];
+  if (from === 'integer' && to === 'number') return [];
+
+  return [diag('ERR_INCOMPATIBLE_TYPE', where, `output type ${JSON.stringify(from)} does not satisfy input type ${JSON.stringify(to)}`)];
+}
+
+/* ------------------------------------------------------------- connections */
+
+/**
+ * Component spec §6.4 — COMP-CONNECTION-001.
+ *
+ * A connection is acquired as one thing, so each of its three roles has to name
+ * an input that is genuinely waiting for it: required, a string, and with no
+ * default that could stand in when acquisition is what supplies the value. The
+ * credential's input is sensitive, because a connection credential is secret
+ * material whatever the component calls it.
+ */
+export function checkConnectionRequirements(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+
+    const inputs = inputsOf(record(doc.value));
+    const claimed = new Map<string, string>();
+
+    for (const [name, rawRequirement] of Object.entries(connectionRequirementsOf(record(doc.value)))) {
+      const at = `${rel(componentPath)} /spec/contract/connectionRequirements/${name}`;
+
+      for (const [role, named] of Object.entries(record(record(rawRequirement)['inputs']))) {
+        const where = `${at}/inputs/${role}`;
+        if (typeof named !== 'string') continue;
+
+        const input = inputs[named];
+        if (!isRecord(input)) {
+          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `${JSON.stringify(named)} names no input this component declares`));
+          continue;
+        }
+
+        const owner = claimed.get(named);
+        if (owner !== undefined) {
+          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `input ${JSON.stringify(named)} is already claimed by ${owner}`));
+          continue;
+        }
+        claimed.set(named, `${name}.${role}`);
+
+        if (record(input['schema'])['type'] !== 'string') {
+          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `a connection role names a string input, and ${JSON.stringify(named)} is not one`));
+        }
+        if (!isRequired(input)) {
+          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `a connection role names a required input, and ${JSON.stringify(named)} is optional`));
+        }
+        if ('default' in input) {
+          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `a connection supplies ${JSON.stringify(named)}, so a default could never apply`));
+        }
+        if (role === 'apiKey' && input['sensitive'] !== true) {
+          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `the credential input ${JSON.stringify(named)} is not marked sensitive`));
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+/**
+ * Blueprint spec §5.3 — BP-CONNECTION-001. Every requirement the node's
+ * component declares gets exactly one binding, each binding names a declared
+ * parameter, and that parameter names a connection.
+ */
+export function checkConnectionBindings(context: SemanticContext): Diagnostic[] {
+  const blueprint = context.documents.blueprint;
+  if (!blueprint?.value) return [];
+
+  const parameters = record(specOf(blueprint)['parameters']);
+  const found: Diagnostic[] = [];
+
+  for (const binding of context.nodes) {
+    const bound = record(binding.node['connectionBindings']);
+    const at = `${blueprint.label} /spec/components/${binding.name}/connectionBindings`;
+    const required = connectionRequirementsOf(binding.component);
+
+    if (!binding.unreadable) {
+      for (const name of Object.keys(required)) {
+        if (!isRecord(bound[name])) {
+          found.push(diag('ERR_INVALID_CONNECTION_BINDING', at, `the component requires connection ${JSON.stringify(name)} and the node binds nothing to it`));
+        }
+      }
+    }
+
+    for (const [name, rawBinding] of Object.entries(bound)) {
+      const where = `${at}/${name}`;
+      if (!binding.unreadable && !isRecord(required[name])) {
+        found.push(diag('ERR_INVALID_CONNECTION_BINDING', where, `${JSON.stringify(name)} names no connection requirement the component declares`));
+        continue;
       }
 
-      // A consumer declaring none accepts any producer. A consumer declaring an
-      // identifier requires the same one — including rejecting a producer that
-      // declares none, because an unconstrained producer does not satisfy a
-      // constrained consumer. An equality of two strings, so it stays offline:
-      // whether the identifier is registered is `capability`.
-      const consumerTag = consumerSchema['resourceType'] ?? null;
-      const producerTag = producerSchema['resourceType'] ?? null;
-      if (consumerTag !== null && producerTag !== consumerTag) {
+      const named = record(rawBinding)['parameter'];
+      const parameter = typeof named === 'string' ? parameters[named] : undefined;
+      if (!isRecord(parameter)) {
+        found.push(diag('ERR_UNKNOWN_PARAMETER', `${where}/parameter`, `${JSON.stringify(named)} names no parameter this blueprint declares`));
+        continue;
+      }
+
+      if (namespaceOfSource(parameter['from']) !== 'connections') {
         found.push(
-          diag(
-            'ERR_INCOMPATIBLE_RESOURCE_TYPE',
-            `${where}/fromOutput`,
-            `input requires resourceType ${JSON.stringify(consumerTag)} but the output declares ${JSON.stringify(producerTag)}`,
-          ),
+          diag('ERR_INVALID_CONNECTION_BINDING', `${where}/parameter`, `parameter ${JSON.stringify(named)} names no connection, so it cannot satisfy a connection requirement`),
         );
       }
     }
@@ -657,180 +1017,198 @@ export function checkConnections(context: SemanticContext): Diagnostic[] {
 
 /* -------------------------------------------------------------- parameters */
 
-/** One input a parameter covers, on the node declaring it. */
-type Coverage = { node: string; binding: NodeBinding; input: Record<string, unknown> };
+/** One input a parameter supplies, on the node whose binding names it. */
+type Bound = { node: string; input: Record<string, unknown> };
 
 /**
- * Blueprint spec §5.1 — binding is by key. A parameter covers every input whose
- * key equals `toInput ?? <the parameter's own key>`, on every node `toNode`
- * admits, **where no connection on that node fills it**.
- *
- * There is no precedence: a wired input is never covered, so a wire and a field
- * never claim one value, and a composition wiring node A's `apiKey` while asking
- * the user for node B's stays expressible.
+ * The namespace a parameter's `from` names, or null where it names nothing
+ * usable. Used to tell a connection parameter from every other kind.
  */
-function coverageOf(context: SemanticContext, key: string, parameter: Record<string, unknown>): Coverage[] {
-  const inputKey = typeof parameter['toInput'] === 'string' ? parameter['toInput'] : key;
-  const toNode = typeof parameter['toNode'] === 'string' ? parameter['toNode'] : null;
-
-  const covered: Coverage[] = [];
-  for (const binding of context.nodes) {
-    if (binding.unreadable) continue;
-    if (toNode !== null && binding.name !== toNode) continue;
-    const input = inputsOf(binding.component)[inputKey];
-    if (!isRecord(input)) continue;
-    if (wiredInputs(binding.node).has(inputKey)) continue;
-    covered.push({ node: binding.name, binding, input });
-  }
-  return covered;
+function namespaceOfSource(from: unknown): string | null {
+  if (typeof from !== 'string') return null;
+  const { references, malformed } = scanReferences(from);
+  if (malformed.length > 0 || references.length !== 1) return null;
+  return references[0]!.raw.trim() === from.trim() ? references[0]!.namespace : null;
 }
 
-/** `<node>/<inputKey>` — neither grammar admits a slash, so the join is unambiguous. */
-const satisfied = (node: string, inputKey: string): string => `${node}/${inputKey}`;
+/** Every input bound to each parameter, keyed by parameter name. */
+function boundByParameter(context: SemanticContext): Map<string, Bound[]> {
+  const bound = new Map<string, Bound[]>();
+
+  for (const binding of context.nodes) {
+    if (binding.unreadable) continue;
+    const inputs = inputsOf(binding.component);
+
+    for (const [inputKey, rawBinding] of Object.entries(record(binding.node['bindings']))) {
+      const named = record(rawBinding)['parameter'];
+      if (typeof named !== 'string') continue;
+      const input = inputs[inputKey];
+      if (!isRecord(input)) continue;
+      bound.set(named, [...(bound.get(named) ?? []), { node: binding.name, input }]);
+    }
+  }
+
+  return bound;
+}
 
 /**
- * Blueprint spec §5 — the install form, always authored. Nothing derives a field
- * from a component any more, so absent and empty both mean a form with no
- * fields, and §5.1 rejects that for any composition with a required input left
- * unsupplied.
+ * Blueprint spec §5 — the parameters, and the install form derived from them.
  *
- * BP-PARAM-001..008 and BP-UI-003, plus core §5.2's reference grammar at the one
- * position this family opens to references.
+ * Nothing binds by name any more. A parameter reaches an input because some
+ * node's `bindings` says so, which is what makes adding an unrelated node safe.
+ * So the rules invert: a parameter is reachable iff something names it, and a
+ * required input is supplied iff something binds it.
+ *
+ * BP-PARAM-001..004 and BP-UI-003.
  */
 export function checkParameters(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
   if (!blueprint?.value) return [];
 
   const parameters = record(specOf(blueprint)['parameters']);
+  const bound = boundByParameter(context);
   const found: Diagnostic[] = [];
 
-  // ERR_UNBOUND_PARAMETER asserts that *no* node has a covered input, which is a
-  // claim about every node's inputs. Where any node's component is unreadable the
-  // claim stops being decidable, and a diagnostic an implementation cannot
-  // substantiate is worse than a silence. The equality and satisfaction rules are
-  // the mirror image: they read only the inputs in front of them.
-  const everyNodeReadable = context.nodes.every((binding) => !binding.unreadable);
-
-  /** Every input some parameter covers — read by BP-PARAM-003 below. */
-  const covered = new Set<string>();
+  // A connection parameter is reached through connectionBindings, which names it
+  // the same way an ordinary binding does but from a different map.
+  const connectionBound = new Set<string>();
+  for (const binding of context.nodes) {
+    for (const rawBinding of Object.values(record(binding.node['connectionBindings']))) {
+      const named = record(rawBinding)['parameter'];
+      if (typeof named === 'string') connectionBound.add(named);
+    }
+  }
 
   for (const [key, rawParameter] of Object.entries(parameters)) {
     const parameter = record(rawParameter);
     const at = `${blueprint.label} /spec/parameters/${key}`;
-    const inputKey = typeof parameter['toInput'] === 'string' ? parameter['toInput'] : key;
-    const toNode = typeof parameter['toNode'] === 'string' ? parameter['toNode'] : null;
+    const supplies = bound.get(key) ?? [];
 
-    // BP-PARAM-006. Both narrowing failures are the coverage failure below,
-    // caught one step earlier and at the field that caused it: a parameter whose
-    // `toNode` is a typo covers nothing, and "this names no node" says why.
-    if (toNode !== null && !context.nodes.some((binding) => binding.name === toNode)) {
-      found.push(diag('ERR_UNKNOWN_NODE', `${at}/toNode`, `${JSON.stringify(toNode)} names no node in this blueprint`));
-      continue;
-    }
-
-    const coverage = coverageOf(context, key, parameter);
-    for (const one of coverage) covered.add(satisfied(one.node, inputKey));
-
-    if (coverage.length === 0) {
-      if (!everyNodeReadable) continue;
-
-      // BP-PARAM-007. Distinguished from BP-PARAM-001 by whether the key names
-      // an input at all: one that does, covered nowhere, is wired everywhere.
-      const inScope = context.nodes.filter((binding) => toNode === null || binding.name === toNode);
-      const declared = inScope.some((binding) => isRecord(inputsOf(binding.component)[inputKey]));
-      if (typeof parameter['toInput'] === 'string' && !declared) {
-        found.push(
-          diag('ERR_UNKNOWN_INPUT', `${at}/toInput`, `${JSON.stringify(inputKey)} names no input of any node this parameter covers`),
-        );
-      } else {
-        found.push(diag('ERR_UNBOUND_PARAMETER', at, 'the install form asks a deploying user for a value that no node ever reads'));
+    // BP-PARAM-001. Asking a deploying user for a value nothing reads is a field
+    // that cannot do anything, and it is silent — which is why it is an error.
+    if (supplies.length === 0 && !connectionBound.has(key)) {
+      const everyNodeReadable = context.nodes.every((binding) => !binding.unreadable);
+      if (everyNodeReadable) {
+        found.push(diag('ERR_UNBOUND_PARAMETER', at, 'no node binds this parameter, so nothing ever reads the value it asks for'));
       }
       continue;
     }
 
-    // BP-PARAM-002. Two declarations are equal when their `schema` blocks are
-    // equal once defaults are applied. `description`, `required` and `target` are
-    // not compared: they say what each component does with the value, not what
-    // the value is. Reported at the field that joined them.
-    const schemas = coverage.map((one) => ({
-      node: one.node,
-      schema: normaliseValueSchema(record(one.input['schema']), context.valueSchemaDefaults),
-    }));
-    const first = schemas[0]!;
-    const conflict = schemas.find((one) => !deepEqual(first.schema, one.schema));
-    if (conflict) {
-      found.push(
-        diag(
-          'ERR_CONFLICTING_INPUT_SCHEMA',
-          at,
-          `input ${JSON.stringify(inputKey)} is declared by ${JSON.stringify(first.node)} and ${JSON.stringify(conflict.node)} with different schemas`,
-        ),
-      );
-    }
-
-    // BP-PARAM-004. A generator mints a credential, and a value not marked
-    // sensitive is echoed back into logs and interfaces. Whether it is sensitive
-    // is what the covered input declares, so the rule reads it there.
-    if (isRecord(parameter['generator'])) {
-      const exposed = coverage.find((one) => record(one.input['schema'])['sensitive'] !== true);
-      if (exposed) {
+    // BP-PARAM-002. Two inputs sharing one parameter share one value, so they
+    // have to agree on what the value is. Description, target and requiredness
+    // say what each component does with it, not what it is.
+    const first = supplies[0];
+    if (first) {
+      const conflict = supplies.find((one) => !deepEqual(record(one.input['schema']), record(first.input['schema'])));
+      if (conflict) {
         found.push(
           diag(
-            'ERR_GENERATED_INPUT_NOT_SENSITIVE',
-            `${at}/generator`,
-            `the parameter is generated, but input ${JSON.stringify(inputKey)} on node ${JSON.stringify(exposed.node)} is not marked sensitive`,
+            'ERR_CONFLICTING_INPUT_SCHEMA',
+            at,
+            `nodes ${JSON.stringify(first.node)} and ${JSON.stringify(conflict.node)} bind this parameter to inputs with different schemas`,
           ),
         );
       }
     }
 
-    // BP-UI-003. The members are declared by the inputs the parameter covers, so
-    // where they disagree there is no one `enum` to compare against.
-    const enumLabels = record(record(parameter['ui'])['enumLabels']);
-    if (!conflict && Object.keys(enumLabels).length > 0) {
-      const members = new Set((Array.isArray(first.schema['enum']) ? first.schema['enum'] : []) as unknown[]);
-      for (const member of Object.keys(enumLabels)) {
-        if (!members.has(member)) {
-          found.push(
-            diag(
-              'ERR_UNKNOWN_ENUM_MEMBER',
-              `${at}/ui/enumLabels/${member}`,
-              `${JSON.stringify(member)} names no member of the covered inputs' enum`,
-            ),
-          );
-        }
+    // BP-PARAM-004. A generator mints secret material. An input not marked
+    // sensitive is one the platform may echo back, log or show in a preview.
+    if (isRecord(parameter['generator'])) {
+      const insensitive = supplies.find((one) => one.input['sensitive'] !== true);
+      if (insensitive) {
+        found.push(
+          diag(
+            'ERR_GENERATED_INPUT_NOT_SENSITIVE',
+            `${at}/generator`,
+            `the parameter is generated, but input on node ${JSON.stringify(insensitive.node)} is not marked sensitive`,
+          ),
+        );
       }
     }
 
-    if (typeof parameter['default'] === 'string') {
-      found.push(...checkDefaultReferences(parameter['default'], `${at}/default`, coverage));
-    }
+    found.push(...checkParameterSource(parameter, at));
+    found.push(...checkEnumLabels(parameter, supplies, at));
   }
 
-  // BP-PARAM-003. A required input whose schema declares a default has a value
-  // already; every other one MUST be filled by a connection on its node or
-  // covered by a parameter. Reported at the node that would start without it,
-  // and the message names the input, since a JSON Pointer addresses this document
-  // and the input is not in it.
+  // BP-PARAM-003. A required input with no binding and no default has no value
+  // and no way to acquire one.
   for (const binding of context.nodes) {
     if (binding.unreadable) continue;
-    const wired = wiredInputs(binding.node);
+    const declared = record(binding.node['bindings']);
+    const owned = connectionOwnedInputs(binding.component);
+
     for (const [inputKey, rawInput] of Object.entries(inputsOf(binding.component))) {
       const input = record(rawInput);
       if (!isRequired(input)) continue;
-      if ((record(input['schema'])['default'] ?? null) !== null) continue;
-      if (wired.has(inputKey) || covered.has(satisfied(binding.name, inputKey))) continue;
+      if ('default' in input) continue;
+      if (isRecord(declared[inputKey])) continue;
+      if (owned.has(inputKey)) continue; // a connection supplies it
+
       found.push(
         diag(
           'ERR_UNSATISFIED_REQUIRED_INPUT',
           `${blueprint.label} /spec/components/${binding.name}`,
-          `required input ${JSON.stringify(inputKey)} is neither wired nor covered by a parameter`,
+          `required input ${JSON.stringify(inputKey)} is bound to nothing and declares no default`,
         ),
       );
     }
   }
 
   return found;
+}
+
+/**
+ * Blueprint spec §5.2 — BP-REF-001. A parameter's `from` is exactly one whole
+ * reference, in `variables` or `connections`.
+ *
+ * "Whole" is the load-bearing word: a `from` that interpolates a reference into
+ * surrounding text, or names two, is not a reference to one entry, and there is
+ * nothing for the platform to look up.
+ */
+function checkParameterSource(parameter: Record<string, unknown>, at: string): Diagnostic[] {
+  const from = parameter['from'];
+  if (typeof from !== 'string') return [];
+
+  const where = `${at}/from`;
+  const { references, malformed } = scanReferences(from);
+
+  if (malformed.length > 0) {
+    return [diag('ERR_MALFORMED_REFERENCE', where, `${JSON.stringify(malformed[0])} begins no well-formed reference`)];
+  }
+  if (references.length !== 1 || references[0]!.raw.trim() !== from.trim()) {
+    return [diag('ERR_INVALID_PARAMETER_SOURCE', where, 'a parameter source is exactly one whole reference, with no surrounding text')];
+  }
+
+  const { namespace } = references[0]!;
+  if (!RESERVED_NAMESPACES.has(namespace)) {
+    return [diag('ERR_UNKNOWN_REFERENCE_NAMESPACE', where, `${JSON.stringify(namespace)} names a namespace core reserves none of`)];
+  }
+  if (!PARAMETER_SOURCE_NAMESPACES.has(namespace)) {
+    return [
+      diag('ERR_REFERENCE_NOT_IN_SCOPE', where, `a parameter takes a value from variables or connections, and this names ${JSON.stringify(namespace)}`),
+    ];
+  }
+  return [];
+}
+
+/** BP-UI-003. A label for a choice that is not on offer labels nothing. */
+function checkEnumLabels(parameter: Record<string, unknown>, supplies: Bound[], at: string): Diagnostic[] {
+  const labels = record(record(parameter['ui'])['enumLabels']);
+  if (Object.keys(labels).length === 0) return [];
+
+  const members = new Set<string>();
+  for (const one of supplies) {
+    const schema = record(one.input['schema']);
+    // A list offers its members through the item schema, not the array's.
+    const source = Array.isArray(schema['enum']) ? schema['enum'] : record(schema['items'])['enum'];
+    // Members may be integers or booleans; the label key is always a string.
+    if (Array.isArray(source)) for (const member of source) members.add(String(member));
+  }
+  if (members.size === 0) return [];
+
+  return Object.keys(labels)
+    .filter((key) => !members.has(key))
+    .map((key) => diag('ERR_UNKNOWN_ENUM_MEMBER', `${at}/ui/enumLabels/${key}`, `${JSON.stringify(key)} names no member of the enum this parameter supplies`));
 }
 
 /* -------------------------------------------------------------- references */
@@ -882,111 +1260,6 @@ export function scanReferences(value: string): { references: Reference[]; malfor
   return { references, malformed };
 }
 
-/**
- * Blueprint spec §5.2 — BP-REF-001, BP-PARAM-005 and BP-PARAM-008, plus core
- * §5.2's CORE-REF-001 and CORE-REF-002, at the one position this family opens to
- * a reference. Every diagnostic is reported at the parameter's `default`, once
- * however the reference is written.
- */
-function checkDefaultReferences(value: string, where: string, coverage: Coverage[]): Diagnostic[] {
-  const found: Diagnostic[] = [];
-  const { references, malformed } = scanReferences(value);
-
-  for (const raw of malformed) {
-    // Treating it as text would carry the mistake into the deployed thing as the
-    // literal characters, where whatever reads the value discovers it.
-    found.push(diag('ERR_MALFORMED_REFERENCE', where, `${JSON.stringify(raw)} does not begin a well-formed reference`));
-  }
-
-  for (const reference of references) {
-    if (!RESERVED_NAMESPACES.has(reference.namespace)) {
-      found.push(
-        diag('ERR_UNKNOWN_REFERENCE_NAMESPACE', where, `${JSON.stringify(reference.namespace)} is not a namespace core §5.2 reserves`),
-      );
-      continue;
-    }
-    if (reference.namespace !== 'self') {
-      found.push(
-        diag(
-          'ERR_REFERENCE_NOT_IN_SCOPE',
-          where,
-          `namespace ${JSON.stringify(reference.namespace)} is reserved, and a parameter default admits only self`,
-        ),
-      );
-      continue;
-    }
-
-    // BP-PARAM-008. A parameter is one field on one form showing one value, and
-    // two nodes have two addresses. `toNode` is how an author says which.
-    if (coverage.length !== 1) {
-      found.push(
-        diag('ERR_AMBIGUOUS_SELF_REFERENCE', where, `${reference.raw} reads self, but the parameter covers ${coverage.length} nodes`),
-      );
-      continue;
-    }
-
-    // BP-PARAM-005. v1 names four paths; a fifth is not a rule this contract
-    // declares a diagnostic for, so it passes in silence rather than inventing one.
-    const [head, endpoint] = reference.path;
-    const wanted = head === undefined ? undefined : SELF_PATH_ADDRESS_FORM[head];
-    if (wanted === undefined) continue;
-
-    const one = coverage[0]!;
-    const resolved = resolveEndpoint(workloadOf(one.binding.component), endpoint);
-    if (!resolved.ok) {
-      // A node deploying an external component declares no endpoint and elects
-      // none, so a reference covering one lands here: it has no addressing to read.
-      found.push(diag(resolved.code, where, resolved.message));
-      continue;
-    }
-
-    // Every path derives an externally reachable address, and a PRIVATE endpoint
-    // has none to give.
-    if (resolved.endpoint['visibility'] !== 'PUBLIC') {
-      found.push(diag('ERR_ENDPOINT_NOT_PUBLIC', where, `endpoint ${JSON.stringify(resolved.name)} is PRIVATE`));
-      continue;
-    }
-
-    const protocol = resolved.endpoint['protocol'];
-    if (typeof protocol !== 'string') continue;
-
-    if (wanted === 'url' && !HTTP_FAMILY.has(protocol)) {
-      found.push(
-        diag('ERR_ENDPOINT_NOT_HTTP', where, `self.${head} reads a URL, but endpoint ${JSON.stringify(resolved.name)} speaks ${protocol}`),
-      );
-    } else if (wanted === 'host-port' && !L4_FAMILY.has(protocol)) {
-      // An HTTP-family endpoint is published through the shared ingress rather
-      // than on a port allocated to it, so the path would yield the ingress
-      // address on the ingress port: true, and not what the author asked for.
-      found.push(
-        diag(
-          'ERR_ENDPOINT_NOT_L4',
-          where,
-          `self.${head} reads a host:port address, but endpoint ${JSON.stringify(resolved.name)} speaks ${protocol} and is published through the shared ingress`,
-        ),
-      );
-    }
-  }
-
-  return found;
-}
-
-/**
- * Two declarations are identical when their `schema` blocks are equal **once
- * defaults are applied**. The defaults come out of the fetched component bundle
- * rather than a copy held here.
- */
-export function normaliseValueSchema(
-  schema: Record<string, unknown>,
-  defaults: Record<string, unknown>,
-): Record<string, unknown> {
-  const normalised: Record<string, unknown> = {};
-  for (const key of new Set([...Object.keys(defaults), ...Object.keys(schema)])) {
-    normalised[key] = schema[key] ?? defaults[key] ?? null;
-  }
-  return normalised;
-}
-
 function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (Array.isArray(a) && Array.isArray(b)) {
@@ -999,13 +1272,27 @@ function deepEqual(a: unknown, b: unknown): boolean {
   return false;
 }
 
-/** ComponentValueSchema property defaults, read out of the fetched component bundle. */
-export function valueSchemaDefaultsFrom(componentSchema: Record<string, unknown>): Record<string, unknown> {
+/**
+ * The defaults a component input carries when it declares neither — read out of
+ * the fetched component bundle rather than restated here, so the place this
+ * phase needs them cannot drift from what the spec publishes.
+ *
+ * This reads `$defs.ComponentInput`, not `$defs.ComponentValueSchema`. ADR 0028
+ * moved `required`, `sensitive` and `default` out of the value schema and beside
+ * it, and a value schema now publishes no default at all — so the previous
+ * reader found its `$defs` entry, declined to throw, and returned a map of
+ * nulls. The assertion below therefore names the two keys this module actually
+ * consumes rather than merely checking the object exists: a drift alarm that
+ * cannot tell an empty answer from a right one is not an alarm.
+ */
+export function inputDefaultsFrom(componentSchema: Record<string, unknown>): Record<string, unknown> {
   const defs = componentSchema['$defs'] as Record<string, Record<string, unknown>> | undefined;
-  const properties = defs?.['ComponentValueSchema']?.['properties'] as Record<string, Record<string, unknown>> | undefined;
-  if (!properties) {
+  const properties = defs?.['ComponentInput']?.['properties'] as Record<string, Record<string, unknown>> | undefined;
+  const missing = ['required', 'sensitive'].filter((key) => properties?.[key]?.['default'] === undefined);
+
+  if (!properties || missing.length > 0) {
     throw new Error(
-      'the component schema no longer publishes $defs.ComponentValueSchema.properties; ' +
+      `the component schema no longer publishes a default for $defs.ComponentInput.properties.{${missing.join(', ')}}; ` +
         'the spec has changed shape and this module needs updating',
     );
   }

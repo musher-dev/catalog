@@ -2,15 +2,29 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 3
+  revision: 4
+  description: MLflow tracking server on local SQLite and volume-backed artifacts, both overridable at install.
 spec:
   components:
     web:
       componentRef: ./components/mlflow.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 20
+      exposure:
+        primary: PUBLIC
+      bindings:
+        backendStoreURI:
+          parameter: backendStoreURI
+        artifactsDestination:
+          parameter: artifactsDestination
   parameters:
-    backendStoreUri:
+    # A bound parameter never falls back to its input's default (BP-PARAM-003),
+    # so each default the form offers is stated here as well as on the input.
+    backendStoreURI:
+      default: sqlite:////mlflow/mlflow.db
       ui:
         label: Backend store URI
         order: 1
@@ -18,6 +32,7 @@ spec:
           - sqlite:////mlflow/mlflow.db
           - postgresql://mlflow:password@postgres.internal:5432/mlflow
     artifactsDestination:
+      default: /mlflow/mlruns
       ui:
         label: Artifact storage destination
         order: 2

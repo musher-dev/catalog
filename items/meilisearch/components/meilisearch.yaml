@@ -1,45 +1,39 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: Meilisearch search engine serving its HTTP API from one data volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: getmeili/meilisearch:v1.50.0
+      image: getmeili/meilisearch:v1.50.0
     endpoints:
       primary:
-        containerPort: 7700
+        targetPort: 7700
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
-        path: /health
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /health
         initialDelaySeconds: 30
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 3
     envVars:
-      - key: MEILI_ENV
-        value:
-          type: LITERAL
-          value: production
-      - key: MEILI_NO_ANALYTICS
-        value:
-          type: LITERAL
-          value: 'true'
+      MEILI_ENV: production
+      MEILI_NO_ANALYTICS: 'true'
     volumes:
       data:
-        sizeGiB: 8
+        minSizeGiB: 8
         mountPath: /meili_data
   contract:
     inputs:
       masterKey:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: MEILI_MASTER_KEY

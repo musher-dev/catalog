@@ -15,8 +15,9 @@ Media paths are **item-relative**, must live under that item's own `media/`
 directory, must not contain `..`, and must use a supported extension
 (`.png`, `.jpg`, `.jpeg`, `.webp`). Every declared path must exist on disk.
 
-A listing without an `icon:` key ships no icon. Screenshot basenames must be
-unique within a listing.
+A listing without an `icon:` key ships no icon. Two screenshots must not declare
+the same item-relative path — `media/desktop/overview.png` and
+`media/mobile/overview.png` are two gallery entries, not a collision.
 
 ## Provenance — official upstream project marks
 

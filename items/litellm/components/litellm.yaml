@@ -1,24 +1,24 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: LiteLLM proxy exposing one OpenAI-compatible API in front of many model providers.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3
+      image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3
     endpoints:
       primary:
-        containerPort: 4000
+        targetPort: 4000
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
         # /health/liveliness (LiteLLM's spelling) is the pure unauthenticated
         # alive signal; /health/readiness is DB/cache-coupled (proxy/health docs).
-        path: /health/liveliness
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /health/liveliness
         initialDelaySeconds: 30
         timeoutSeconds: 5
         successThreshold: 1
@@ -27,8 +27,8 @@ spec:
     inputs:
       masterKey:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: LITELLM_MASTER_KEY

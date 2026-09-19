@@ -1,33 +1,29 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
+  description: PostgreSQL relational database with a single persistent data volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: postgres:17.10-alpine
+      image: postgres:17.10-alpine
     endpoints:
       primary:
-        containerPort: 5432
+        targetPort: 5432
         protocol: TCP
-        visibility: PRIVATE
     envVars:
-      - key: PGDATA
-        value:
-          type: LITERAL
-          value: /var/lib/postgresql/data/pgdata
+      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       data:
-        sizeGiB: 10
+        minSizeGiB: 10
         mountPath: /var/lib/postgresql/data
   contract:
     inputs:
       postgresPassword:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: POSTGRES_PASSWORD
@@ -36,16 +32,16 @@ spec:
           Configuration tab.
       postgresUser:
         schema:
-          type: STRING
-          default: postgres
+          type: string
+        default: postgres
         required: false
         target:
           envVarKey: POSTGRES_USER
         description: Role the database is initialised with and clients connect as.
       postgresDb:
         schema:
-          type: STRING
-          default: app
+          type: string
+        default: app
         required: false
         target:
           envVarKey: POSTGRES_DB
@@ -53,11 +49,12 @@ spec:
     outputs:
       address:
         schema:
-          type: STRING
-          resourceType: dev.musher.postgresql.address
+          type: string
         description: >-
           Mesh-internal `host:port` of the database endpoint (for example
           `db-myapp.internal:5432`), resolvable only by workloads in the same
           deployment. Wire it into a consuming component's input to point that
           workload at this database.
-        valueFrom: DERIVED
+        from:
+          endpoint: primary
+          property: privateAddress

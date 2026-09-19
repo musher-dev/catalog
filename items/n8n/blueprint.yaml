@@ -2,39 +2,45 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: n8n
-  revision: 2
+  revision: 3
+  description: n8n workflow automation with its own public address wired into the webhook and editor URLs it publishes.
 spec:
   components:
     web:
       componentRef: ./components/n8n.yaml
-      size: general.economy.nano
-      connections: {}
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 4
+      exposure:
+        primary: PUBLIC
+      bindings:
+        timezone:
+          parameter: timezone
+        # All three take this node's own allocated address, from the outputs the
+        # component derives from its `primary` endpoint. A node reading its own
+        # endpoint output is a discovery dependency and not a value cycle
+        # (BP-CONN-002): an endpoint address is allocated before anything runs.
+        #
+        # N8N_HOST wants the bare host and the other two want the whole URL,
+        # which is why the component publishes both properties rather than one.
+        n8nHost:
+          node: web
+          output: publicHostname
+        webhookURL:
+          node: web
+          output: publicURL
+        editorBaseURL:
+          node: web
+          output: publicURL
   parameters:
     timezone:
+      default: UTC
       ui:
         label: Timezone
         order: 1
-    n8nHost:
-      default: "${{ self.publicHostname }}"
-      ui:
-        label: Public hostname
-        order: 2
-        prominence: SECONDARY
         examples:
-          - n8n.example.com
-    webhookUrl:
-      default: "${{ self.publicUrl }}"
-      ui:
-        label: Webhook base URL
-        order: 3
-        prominence: SECONDARY
-        examples:
-          - https://n8n.example.com
-    editorBaseUrl:
-      default: "${{ self.publicUrl }}"
-      ui:
-        label: Editor base URL
-        order: 4
-        prominence: SECONDARY
-        examples:
-          - https://n8n.example.com
+          - UTC
+          - Europe/London
+          - America/New_York

@@ -2,17 +2,23 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: litellm
-  revision: 2
+  revision: 3
+  description: LiteLLM proxy with a generated master key, reachable over a public HTTP API.
 spec:
   components:
     web:
       componentRef: ./components/litellm.yaml
-      size: general.economy.nano
-      connections: {}
+      compute:
+        profile: general.economy.nano
+      exposure:
+        primary: PUBLIC
+      bindings:
+        masterKey:
+          parameter: masterKey
   parameters:
     masterKey:
       generator:
         byteLength: 32
-        encoding: ALPHANUMERIC
+        encoding: HEX
       ui:
         label: Master key

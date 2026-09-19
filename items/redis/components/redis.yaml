@@ -1,33 +1,38 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
+  description: Redis in-memory data store with append-only persistence on one volume.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: redis:8.8.1-alpine
-    command: redis-server --appendonly yes
+      image: redis:8.8.1-alpine
+    # Exec form, no shell: `command` replaces the image's CMD and keeps its
+    # ENTRYPOINT, which is what Docker and Compose mean by the same word.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
     endpoints:
       primary:
-        containerPort: 6379
+        targetPort: 6379
         protocol: TCP
-        visibility: PRIVATE
     volumes:
       data:
-        sizeGiB: 5
+        minSizeGiB: 5
         mountPath: /data
   contract:
     inputs: {}
     outputs:
       address:
         schema:
-          type: STRING
-          resourceType: dev.musher.redis.address
+          type: string
         description: >-
           Mesh-internal `host:port` of the cache endpoint (for example
           `cache-myapp.internal:6379`), resolvable only by workloads in the same
           deployment. Wire it into a consuming component's input to point that
           workload at this cache.
-        valueFrom: DERIVED
+        from:
+          endpoint: primary
+          property: privateAddress

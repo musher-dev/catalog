@@ -37,8 +37,16 @@ spec:
 
     Any service speaking the chat-completions wire protocol works, including an
     inference engine you host yourself.
+
+    ## Superseded
+
+    Musher now treats a model endpoint, its credential and its model name as a
+    single **connection**, chosen once when you install and replaced as a whole.
+    An item that needs a language model asks for that connection directly, so it
+    no longer needs this building block standing in for one. Items already
+    composed against it keep working; new ones should take a connection.
   category: AI_ML
-  lifecycleStage: BETA
+  lifecycleStage: SUNSET
   tags:
     - ai
     - llm

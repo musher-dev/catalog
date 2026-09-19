@@ -2,13 +2,22 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  revision: 2
+  revision: 3
+  description: Flowise with a generated credential-encryption key and a public web UI.
 spec:
   components:
     web:
       componentRef: ./components/flowise.yaml
-      size: general.standard.small
-      connections: {}
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 5
+      exposure:
+        primary: PUBLIC
+      bindings:
+        flowiseSecretKey:
+          parameter: flowiseSecretKey
   parameters:
     flowiseSecretKey:
       generator:

@@ -1,22 +1,22 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
+  description: Open WebUI chat interface for any OpenAI-compatible language-model API.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
-      ref: ghcr.io/open-webui/open-webui:v0.10.2
+      image: ghcr.io/open-webui/open-webui:v0.10.2
     endpoints:
       primary:
-        containerPort: 8080
+        targetPort: 8080
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
-        path: /health
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /health
         # uvicorn binds the socket only after the FastAPI lifespan returns, so
         # nothing answers on 8080 until the whole first boot has run: ~50
         # alembic migrations, then a cold pull of the default embedding model
@@ -32,37 +32,33 @@ spec:
         successThreshold: 1
         failureThreshold: 10
     envVars:
-      # The language model arrives over the blueprint's `models` node as an
-      # OpenAI-compatible base URL and key (the inputs below). ENABLE_OPENAI_API
-      # already defaults to True in v0.10.2 (config.py); it is pinned so the item
-      # does not depend on an upstream default it cannot see change.
-      - key: ENABLE_OPENAI_API
-        value:
-          type: LITERAL
-          value: 'true'
+      # The language model arrives as one atomic connection — endpoint,
+      # credential and model acquired together — over the connection requirement
+      # declared at the foot of this file. ENABLE_OPENAI_API already defaults to
+      # True in v0.10.2 (config.py); it is pinned so the item does not depend on
+      # an upstream default it cannot see change.
+      ENABLE_OPENAI_API: 'true'
       # The native Ollama integration is off, and no longer a user choice. It
       # used to be an input whose default named a sibling `ollama` service this
       # deployment never contained. An Ollama server is reachable through the
-      # `models` node like any other engine, via its OpenAI-compatible /v1.
-      - key: ENABLE_OLLAMA_API
-        value:
-          type: LITERAL
-          value: 'false'
+      # connection like any other engine, via its OpenAI-compatible /v1.
+      ENABLE_OLLAMA_API: 'false'
     volumes:
       data:
-        sizeGiB: 8
+        minSizeGiB: 8
         mountPath: /app/backend/data
   contract:
     inputs:
-      # The three inputs below are wired from the blueprint's `models` node and
-      # never reach the install form: the deploying user types the endpoint once,
-      # on that node. Each carries the node's resourceType, so blueprint §4.2
-      # rejects a wire from anything that is not an LLM endpoint.
-      openaiApiBaseUrl:
+      # The three inputs below are the roles of one atomic connection, declared
+      # under connectionRequirements at the foot of this file. They are never
+      # bound one at a time and never reach the install form separately: the
+      # deploying user picks a language model once, and the platform supplies the
+      # address, the credential and the model name together. An address from one
+      # provider beside a key from another is unreachable by construction.
+      openaiApiBaseURL:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
-          resourceType: dev.musher.llm.base-url
+          type: string
+        presentationHint: ENDPOINT_URL
         target:
           envVarKey: OPENAI_API_BASE_URL
         # v0.10.2 reads this into DEFAULT_CONFIG['openai.api_base_urls'], and
@@ -76,28 +72,40 @@ spec:
           to, until an admin saves connection settings in the UI.
       openaiApiKey:
         schema:
-          type: STRING
-          sensitive: true
-          resourceType: dev.musher.llm.api-key
+          type: string
+        sensitive: true
         target:
           envVarKey: OPENAI_API_KEY
         description: Bearer credential for the API above.
-      # Optional on both ends: the endpoint's model name is optional, and with
-      # none Open WebUI simply lets each user pick from the models the API lists.
+      # Required, because a connection role names a required input with no
+      # default (COMP-CONNECTION-001) — and an acquired connection always
+      # carries a model, so there is nothing left for the old optional case to
+      # cover. Users can still pick any other model the API lists.
       defaultModels:
         schema:
-          type: STRING
-          resourceType: dev.musher.llm.model-name
-        required: false
+          type: string
         target:
           envVarKey: DEFAULT_MODELS
         description: Model preselected for new chats.
       webuiSecretKey:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: WEBUI_SECRET_KEY
         description: Secret key used to sign session tokens
     outputs: {}
+    connectionRequirements:
+      # STREAMING only. Open WebUI streams chat completions by default, and
+      # v0.10.2's tool calling is served by its own pipelines rather than by the
+      # upstream API's tool-call protocol, so requiring TOOL_CALLS here would
+      # reject compatible endpoints for a capability this image does not use.
+      llm:
+        protocol: OPENAI_CHAT_COMPLETIONS
+        capabilities:
+          - STREAMING
+        inputs:
+          baseURL: openaiApiBaseURL
+          apiKey: openaiApiKey
+          model: defaultModels

@@ -1,12 +1,12 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
+  description: OpenClaw agent gateway and Control UI, with its config, sessions and auth secrets on two volumes.
 spec:
+  type: SERVICE
   workload:
-    type: SERVICE
     source:
-      type: IMAGE
       # PINNED, and the pin is load-bearing rather than merely current: 2026.7.1
       # is the last stable release in which
       # `gateway.controlUi.dangerouslyDisableDeviceAuth` still works, and this
@@ -25,7 +25,7 @@ spec:
       # `gateway.auth.trustedProxy.deviceAutoApprove` (2026.8.x only), which
       # needs `gateway.auth.mode: "trusted-proxy"` and therefore a platform edge
       # that injects an identity header. Settle that before changing the tag.
-      ref: ghcr.io/openclaw/openclaw:2026.7.1
+      image: ghcr.io/openclaw/openclaw:2026.7.1
     # Converge config through OpenClaw's own `config set` CLI, then exec the
     # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
     #
@@ -82,33 +82,40 @@ spec:
     # device token. `openclaw security audit` reports
     # `gateway.control_ui.device_auth_disabled` as critical — expected here, not
     # a regression. The token is the whole boundary; rotate it if it leaks.
-    command: >-
-      sh -c 'set -e;
-      node /app/dist/index.js config set --batch-json
-      "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
-      {\"path\":\"gateway.bind\",\"value\":\"lan\"},
-      {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
-      {\"path\":\"gateway.controlUi.dangerouslyDisableDeviceAuth\",\"value\":true}]";
-      exec node openclaw.mjs gateway'
+    # Exec form: argv, no shell of the platform's own. The shell this needs is
+    # the one named here, because the script uses `${VAR%/}` to strip a trailing
+    # slash off the origin before writing it into the allowlist.
+    command:
+      - sh
+      - -c
+      - >-
+        set -e;
+        node /app/dist/index.js config set --batch-json
+        "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
+        {\"path\":\"gateway.bind\",\"value\":\"lan\"},
+        {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
+        {\"path\":\"gateway.controlUi.dangerouslyDisableDeviceAuth\",\"value\":true}]";
+        exec node openclaw.mjs gateway
     endpoints:
       primary:
-        containerPort: 18789
+        targetPort: 18789
         protocol: HTTP
-        visibility: PUBLIC
     health:
       readiness:
         # /readyz is the machine-readable gate; /healthz can return the Control UI
         # HTML shell with a 200, which would falsely read as ready.
-        path: /readyz
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /readyz
         # Node boot + SQLite migrations run before the gate opens on first start.
         initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
       liveness:
-        path: /healthz
-        endpoint: primary
+        http:
+          endpoint: primary
+          path: /healthz
         periodSeconds: 30
         timeoutSeconds: 5
         failureThreshold: 3
@@ -116,33 +123,30 @@ spec:
       # OPENCLAW_GATEWAY_BIND is deliberately left at its default (routable) bind:
       # the "loopback" guidance assumes a reverse proxy sharing the container's
       # network namespace, but here the platform edge is a separate hop, so a
-      # loopback bind would make containerPort 18789 unreachable.
+      # loopback bind would make targetPort 18789 unreachable.
       #
       # No mDNS advertising inside a container network (also auto-disabled when
       # the runtime detects a container; kept explicit for intent).
-      - key: OPENCLAW_DISABLE_BONJOUR
-        value:
-          type: LITERAL
-          value: "1"
+      OPENCLAW_DISABLE_BONJOUR: "1"
     volumes:
       # Core state: openclaw.json, SQLite session DBs, installed plugins, .env, and
       # the agent workspace (default /home/node/.openclaw/workspace lives inside
       # this directory, so a single claim covers config + workspace).
       config:
-        sizeGiB: 10
+        minSizeGiB: 10
         mountPath: /home/node/.openclaw
       # Master encryption key for OAuth-backed auth profiles. Kept as its own claim
       # because OpenClaw intentionally places this key outside the config directory,
       # so connected-channel tokens survive restarts and stay decryptable.
       auth-secrets:
-        sizeGiB: 1
+        minSizeGiB: 1
         mountPath: /home/node/.config/openclaw
   contract:
     inputs:
       gatewayToken:
         schema:
-          type: STRING
-          sensitive: true
+          type: string
+        sensitive: true
         required: true
         target:
           envVarKey: OPENCLAW_GATEWAY_TOKEN
@@ -150,20 +154,20 @@ spec:
           Master token authenticating the Control UI, WebSocket streams, and HTTP API.
       publicOrigin:
         schema:
-          type: STRING
-          format: ENDPOINT_URL
+          type: string
+        presentationHint: ENDPOINT_URL
         required: false
         target:
           envVarKey: OPENCLAW_PUBLIC_ORIGIN
         description: >-
           Public https origin of this deployment's Control UI, written into
           gateway.controlUi.allowedOrigins at first boot so browser sessions from
-          the public hostname are accepted. Override only for a custom domain.
+          the public hostname are accepted.
       timezone:
         schema:
-          type: STRING
-          format: TIMEZONE
-          default: UTC
+          type: string
+        presentationHint: TIMEZONE
+        default: UTC
         required: false
         # The container consumes the standard TZ variable (upstream compose maps
         # its host-side OPENCLAW_TZ input onto TZ; OPENCLAW_TZ itself is not read
@@ -171,4 +175,15 @@ spec:
         target:
           envVarKey: TZ
         description: IANA timezone for the agent's scheduled tasks and temporal reasoning.
-    outputs: {}
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https origin this deployment's Control UI answers at, as the
+          platform allocated it. The blueprint binds it back into this node's own
+          allowlist.
+        from:
+          endpoint: primary
+          property: publicURL
