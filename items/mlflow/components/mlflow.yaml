@@ -1,20 +1,20 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: MLflow tracking server with its metadata store and proxied artifacts on one volume.
 spec:
   type: SERVICE
   workload:
     source:
       # The -full build, not the bare one. The bare image is
-      # `pip install mlflow==$VERSION` (docker/Dockerfile, v3.14.0), and core
+      # `pip install mlflow==$VERSION` (docker/Dockerfile, v3.16.1), and core
       # mlflow carries no psycopg2, PyMySQL, boto3 or google-cloud-storage, so
       # the Postgres, S3 and GCS stores the install form offers would fail at
       # boot. docker/Dockerfile.full installs
-      # mlflow[extras,azure,db,gateway,genai,auth] from the same base, for 334 MB
-      # compressed against 267 MB (linux/amd64).
-      image: ghcr.io/mlflow/mlflow:v3.14.0-full
+      # mlflow[extras,azure,db,gateway,genai,auth] from the same base, for 369 MB
+      # compressed against 291 MB (linux/amd64).
+      image: ghcr.io/mlflow/mlflow:v3.16.1-full
     # The official image ships NO ENTRYPOINT/CMD (its Dockerfile is a bare
     # `pip install`); without an explicit server command the container
     # inherits python:slim's `python3`, reads EOF, and exits immediately. The
@@ -48,7 +48,7 @@ spec:
       # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
       # protection) whose default allowlist rejects gateway traffic on the
       # public hostname. The health probe is not affected: /health and /version
-      # are exempt (HEALTH_ENDPOINTS, mlflow/server/security_utils.py, v3.14.0).
+      # are exempt (HEALTH_ENDPOINTS, mlflow/server/security_utils.py, v3.16.1).
       # The container port binds loopback-only on the compute host and is
       # reachable solely through the platform edge, so Host validation adds
       # nothing here — disable it rather than chase every proxied hostname
@@ -88,9 +88,9 @@ spec:
       # This deployment's own origin, bound from the output below. Without it
       # the UI cannot write. MLflow rejects any POST, PUT, PATCH or DELETE to
       # /api/ or /ajax-api/ whose Origin is not localhost or on this list
-      # (should_block_cors_request, security_utils.py, v3.14.0), and browsers
+      # (should_block_cors_request, security_utils.py, v3.16.1), and browsers
       # send Origin on same-origin POSTs. MLflow's UI searches and edits over
-      # POST. Observed against a 3.14.0 server: a POST to
+      # POST. Observed against 3.14.0 and 3.16.1 servers: a POST to
       # /ajax-api/2.0/mlflow/experiments/search with this origin was
       # "Cross-origin request blocked" until the origin was listed, and 200
       # after. The match is exact, and the platform's publicURL carries no

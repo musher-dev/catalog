@@ -22,7 +22,7 @@ spec:
       need the artifacts archived next to them.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.14.0-full`
+    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.16.1-full`
     running `mlflow server` with the tracking UI on port 5000 behind the
     platform's HTTPS edge. The backend store defaults to SQLite and
     artifacts are server-proxied onto the 20 GiB persistent volume at
