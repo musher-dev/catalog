@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 3
-  description: OpenClaw agent gateway behind a generated master token, with its own public origin in the Control UI allowlist.
+  revision: 4
+  description: OpenClaw agent gateway on the installer's language-model connection, behind a generated master token, with its own public origin in the Control UI allowlist.
 spec:
   components:
     web:
@@ -30,7 +30,19 @@ spec:
         publicOrigin:
           node: web
           output: publicURL
+      # A connection parameter is bound here and never through `bindings`; the
+      # three inputs the requirement owns take no binding of their own.
+      connectionBindings:
+        llm:
+          parameter: llm
   parameters:
+    # The language model the agent runs on: endpoint, credential and model
+    # acquired together as one connection, defaulting to the organization's.
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
     # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
     # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
     # matching the project's `openssl rand -hex 32` guidance.
@@ -40,12 +52,12 @@ spec:
         encoding: HEX
       ui:
         label: Gateway token
-        order: 1
+        order: 2
     timezone:
       default: UTC
       ui:
         label: Timezone
-        order: 2
+        order: 3
         examples:
           - UTC
           - Europe/London
