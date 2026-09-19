@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 4
+  revision: 5
   description: Open WebUI chat interface wired to the language model the installer selects, as one connection.
 # One participant. The language model is not a node: it is an atomic connection
 # — endpoint, credential and model acquired together — bound to the component's

@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: code-server
-  revision: 3
+  revision: 4
   description: code-server behind a generated access password, with a persistent home directory.
 spec:
   components:
