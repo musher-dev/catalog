@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: Meilisearch search engine serving its HTTP API from one data volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: getmeili/meilisearch:v1.50.0
+      image: getmeili/meilisearch:v1.53.2
     endpoints:
       primary:
         targetPort: 7700
@@ -24,6 +24,36 @@ spec:
     envVars:
       MEILI_ENV: production
       MEILI_NO_ANALYTICS: 'true'
+      # IN-PLACE UPGRADES, the self-hosted path upstream documents
+      # (documentation: resources/migration/updating.mdx). A database only
+      # opens under the exact version that wrote it. check_version
+      # (crates/meilisearch/src/lib.rs, v1.53.2) refuses any major, minor or
+      # patch mismatch unless this flag is set. Without it, every tag bump
+      # leaves existing deployments unable to start.
+      #
+      # It is set permanently rather than for one release, because it does
+      # nothing unless there is something to upgrade. It is skipped for an
+      # empty data dir and when the VERSION file already matches the binary.
+      # So it takes effect only on the first start after the tag below
+      # changes.
+      #
+      # What it costs, both upstream's words:
+      #   - one-way. The VERSION file is rewritten and a later downgrade is
+      #     refused (DowngradeNotSupported).
+      #   - "not atomic". A partial failure can corrupt the database, which
+      #     is why upstream takes a snapshot first. This deployment exposes
+      #     no --import-snapshot or --import-dump, so a backup could not be
+      #     restored here anyway. The listing tells users to keep the index
+      #     rebuildable from its source data instead.
+      #
+      # It does not stretch the readiness budget. At startup only the
+      # task-queue migrations run. The index upgrade itself is enqueued as an
+      # UpgradeDatabase task and processed after the server is listening
+      # (crates/index-scheduler/src/upgrade/mod.rs).
+      #
+      # Stable since v1.51, which renamed it from
+      # MEILI_EXPERIMENTAL_DUMPLESS_UPGRADE (option.rs).
+      MEILI_UPGRADE_DB: 'true'
     volumes:
       data:
         minSizeGiB: 8
