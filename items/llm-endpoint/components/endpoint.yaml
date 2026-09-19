@@ -21,7 +21,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: A language-model API addressed outside this deployment, holding its base URL, credential and model name.
 spec:
   type: EXTERNAL
@@ -40,10 +40,13 @@ spec:
           type: string
         sensitive: true
         description: Bearer credential presented to the service above.
+      # Required, because the `model` output below forwards it. Every declared
+      # output must be produced, so an absent optional input cannot supply an
+      # `input` origin (COMP-OUT-002). A connection always carries a model too,
+      # so the old optional case matches nothing this component stands in for.
       model:
         schema:
           type: string
-        required: false
         description: Name the service uses to select which model answers.
     outputs:
       baseURL:

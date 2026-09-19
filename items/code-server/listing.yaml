@@ -22,7 +22,7 @@ spec:
       that outlives any single machine.
 
     ## Defaults
-    Single-container deployment of `codercom/code-server:4.130.0` with the
+    Single-container deployment of `codercom/code-server:4.137.0` with the
     web UI published on port 8080 behind the platform's HTTPS edge. Access
     is gated by an auto-generated password — copy or rotate it from the
     deployment's Configuration tab. An 8 GiB persistent volume is mounted

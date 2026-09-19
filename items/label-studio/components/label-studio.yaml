@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
@@ -18,22 +18,39 @@ spec:
           endpoint: primary
           path: /health
         # First boot runs the full Django migration chain against SQLite —
-        # several minutes on a nano profile — so the gate opens late and the
-        # budget must outlast it (observed ~3-4 min to first listen in live E2E).
-        # failureThreshold is capped at 10 by the probe schema, so the wait
-        # is carried by the initial delay rather than by more retries.
+        # several minutes — so the gate opens late and the budget must outlast
+        # it (observed ~3-4 min to first listen in live E2E). The wait is
+        # carried by the initial delay rather than by more retries, the same
+        # shape as open-webui and mlflow.
         initialDelaySeconds: 240
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
     envVars:
       LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: 'true'
+      # Browsers only ever reach this deployment over https at the platform
+      # edge, so the session cookie can be Secure. The value is '1', not
+      # 'true': base.py:470 parses it with int() before label_studio.py:27
+      # re-reads it as a bool, and int('true') would fail at settings import.
+      # CSRF_COOKIE_SECURE follows it (base.py:473), which is wanted.
+      # CSRF_COOKIE_HTTPONLY would follow it too (base.py:474), and it is
+      # pinned at its current '0' so the frontend reads the CSRF cookie
+      # exactly as before.
+      LABEL_STUDIO_SESSION_COOKIE_SECURE: '1'
+      LABEL_STUDIO_CSRF_COOKIE_HTTPONLY: '0'
     volumes:
       data:
         minSizeGiB: 10
         mountPath: /label-studio/data
   contract:
     inputs:
+      # Both admin inputs take effect ONCE, when the account is created. With
+      # a username set, 1.23.0's _create_user (label_studio/server.py) calls
+      # create_user, and for an existing email the IntegrityError is only
+      # printed as "already exists": the stored password is never updated. A
+      # changed email is a new account, created as a second superuser and
+      # added to the same organization. Rotate the password from Label
+      # Studio's own account settings.
       adminEmail:
         schema:
           type: string
@@ -49,8 +66,9 @@ spec:
         required: true
         target:
           envVarKey: LABEL_STUDIO_PASSWORD
-        description: Password for the bootstrap admin account; rotate from the
-          Configuration tab
+        description: >-
+          Password the bootstrap admin account is created with. Changing it
+          after the first boot has no effect; change it in Label Studio.
       # The two inputs below both bind this deployment's own public URL, into
       # two settings Label Studio reads independently — base.py makes one
       # get_env call for HOST and a separate one for CSRF_TRUSTED_ORIGINS. Only

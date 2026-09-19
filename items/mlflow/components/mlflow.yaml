@@ -1,15 +1,22 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 6
   description: MLflow tracking server with its metadata store and proxied artifacts on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: ghcr.io/mlflow/mlflow:v3.14.0
+      # The -full build, not the bare one. The bare image is
+      # `pip install mlflow==$VERSION` (docker/Dockerfile, v3.16.1), and core
+      # mlflow carries no psycopg2, PyMySQL, boto3 or google-cloud-storage, so
+      # the Postgres, S3 and GCS stores the install form offers would fail at
+      # boot. docker/Dockerfile.full installs
+      # mlflow[extras,azure,db,gateway,genai,auth] from the same base, for 369 MB
+      # compressed against 291 MB (linux/amd64).
+      image: ghcr.io/mlflow/mlflow:v3.16.1-full
     # The official image ships NO ENTRYPOINT/CMD (its Dockerfile is a bare
-    # `pip install mlflow`); without an explicit server command the container
+    # `pip install`); without an explicit server command the container
     # inherits python:slim's `python3`, reads EOF, and exits immediately. The
     # server reads MLFLOW_HOST / MLFLOW_PORT / MLFLOW_BACKEND_STORE_URI /
     # MLFLOW_ARTIFACTS_DESTINATION from the environment, so the bare command
@@ -39,12 +46,13 @@ spec:
       MLFLOW_HOST: 0.0.0.0
       MLFLOW_PORT: '5000'
       # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
-      # protection) whose default allowlist rejects both the platform health
-      # probe (Host carries the host-mapped port, not :5000) and gateway
-      # traffic on the public hostname. The container port binds loopback-only
-      # on the compute host and is reachable solely through the platform edge,
-      # so Host validation adds nothing here — disable it rather than chase
-      # every proxied hostname (https://mlflow.org/docs/latest/self-hosting/security/).
+      # protection) whose default allowlist rejects gateway traffic on the
+      # public hostname. The health probe is not affected: /health and /version
+      # are exempt (HEALTH_ENDPOINTS, mlflow/server/security_utils.py, v3.16.1).
+      # The container port binds loopback-only on the compute host and is
+      # reachable solely through the platform edge, so Host validation adds
+      # nothing here — disable it rather than chase every proxied hostname
+      # (https://mlflow.org/docs/latest/self-hosting/security/).
       MLFLOW_SERVER_ALLOWED_HOSTS: '*'
     volumes:
       data:
@@ -52,9 +60,11 @@ spec:
         mountPath: /mlflow
   contract:
     inputs:
+      # Sensitive, because a Postgres or MySQL URI carries its password inline.
       backendStoreURI:
         schema:
           type: string
+        sensitive: true
         presentationHint: CONNECTION_STRING
         default: sqlite:////mlflow/mlflow.db
         required: true
@@ -75,4 +85,34 @@ spec:
           envVarKey: MLFLOW_ARTIFACTS_DESTINATION
         description: Where the tracking server stores proxied run artifacts. Default
           uses the local volume; production should use s3:// or gs://.
-    outputs: {}
+      # This deployment's own origin, bound from the output below. Without it
+      # the UI cannot write. MLflow rejects any POST, PUT, PATCH or DELETE to
+      # /api/ or /ajax-api/ whose Origin is not localhost or on this list
+      # (should_block_cors_request, security_utils.py, v3.16.1), and browsers
+      # send Origin on same-origin POSTs. MLflow's UI searches and edits over
+      # POST. Observed against 3.14.0 and 3.16.1 servers: a POST to
+      # /ajax-api/2.0/mlflow/experiments/search with this origin was
+      # "Cross-origin request blocked" until the origin was listed, and 200
+      # after. The match is exact, and the platform's publicURL carries no
+      # trailing slash (component spec §5.2), which is what it needs.
+      corsAllowedOrigins:
+        schema:
+          type: string
+        required: false
+        target:
+          envVarKey: MLFLOW_SERVER_CORS_ALLOWED_ORIGINS
+        description: >-
+          Comma-separated browser origins allowed to change state through the
+          API. Must match the Origin header exactly — scheme included, no
+          trailing slash.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public base URL this deployment answers at, as the platform allocated
+          it. The blueprint binds it back into this node's own CORS allowlist.
+        from:
+          endpoint: primary
+          property: publicURL

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: Flowise low-code LLM flow builder, storing flows and credentials on one volume.
 spec:
   type: SERVICE
@@ -17,10 +17,15 @@ spec:
         http:
           endpoint: primary
           path: /api/v1/ping
-        initialDelaySeconds: 30
+        # First boot runs the TypeORM migrations against SQLite and loads every
+        # node package before the server listens. The old gate, 30s and three
+        # failures at the default 10s period, gave that one minute in all. The
+        # wait now runs to about two and a half minutes, the same shape as
+        # n8n's. Retries are cheap, and a reaped first boot starts over.
+        initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
-        failureThreshold: 3
+        failureThreshold: 10
     envVars:
       DATABASE_PATH: /root/.flowise
       SECRETKEY_PATH: /root/.flowise

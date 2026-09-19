@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: n8n
-  revision: 3
+  revision: 4
   description: n8n workflow automation with its own public address wired into the webhook and editor URLs it publishes.
 spec:
   components:

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: Langflow visual flow builder for LLM applications, with its database on one volume.
 spec:
   type: SERVICE
@@ -39,6 +39,12 @@ spec:
         mountPath: /app/langflow
   contract:
     inputs:
+      # Both superuser inputs take effect ONCE, when the account is created.
+      # With AUTO_LOGIN off, 1.11.0's setup_superuser calls
+      # get_or_create_super_user (services/utils.py), which returns early for
+      # an existing superuser without touching its password. A changed
+      # username is a new account, created as a second superuser. Change the
+      # password inside Langflow.
       superuser:
         schema:
           type: string
@@ -54,8 +60,9 @@ spec:
         required: true
         target:
           envVarKey: LANGFLOW_SUPERUSER_PASSWORD
-        description: Password for the initial admin account; rotate from the
-          Configuration tab
+        description: >-
+          Password the initial admin account is created with. Changing it after
+          the first boot has no effect; change it in Langflow.
       secretKey:
         schema:
           type: string

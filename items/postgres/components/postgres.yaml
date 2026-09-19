@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
@@ -19,6 +19,10 @@ spec:
         minSizeGiB: 10
         mountPath: /var/lib/postgresql/data
   contract:
+    # All three inputs are read by the image's docker-entrypoint.sh only while
+    # it initialises an EMPTY data directory. Once PGDATA holds a cluster they
+    # are ignored, so changing any of them later does not change the
+    # database: use ALTER ROLE / CREATE DATABASE instead.
     inputs:
       postgresPassword:
         schema:
@@ -28,8 +32,8 @@ spec:
         target:
           envVarKey: POSTGRES_PASSWORD
         description: >-
-          Password for the database superuser; copy it from the deployment's
-          Configuration tab.
+          Password the database superuser is created with on first boot; copy
+          it from the deployment's Configuration tab.
       postgresUser:
         schema:
           type: string

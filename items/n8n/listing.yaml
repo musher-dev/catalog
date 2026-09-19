@@ -22,9 +22,11 @@ spec:
       webhook endpoints on your own domain.
 
     ## Defaults
-    Single-container deployment of `n8nio/n8n:2.31.6` with the web UI on
+    Single-container deployment of `n8nio/n8n:2.39.8` with the web UI on
     port 5678 behind the platform's HTTPS edge; you create the owner
-    account from the setup screen on first launch. Webhook, editor, and
+    account from the setup screen on first launch. Open the app as soon as
+    it reports ready: until an owner exists, whoever reaches the setup
+    screen first becomes the owner. Webhook, editor, and
     host URLs are taken from this deployment's own public https address, so
     webhook URLs are right the first time. The readiness probe
     waits for `/healthz/readiness`, so first boot reports ready only after
@@ -41,5 +43,5 @@ spec:
   homepageURL: https://n8n.io
   sourceRepoURL: https://github.com/n8n-io/n8n
   supportURL: https://docs.n8n.io
-  license: SUL-1.0
+  license: SUL-1.0 AND LicenseRef-n8n-Enterprise
   icon: media/icon.png

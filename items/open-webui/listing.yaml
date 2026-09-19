@@ -23,17 +23,19 @@ spec:
       providers.
 
     ## What you'll be asked for
-    A **language model**, chosen once. The address, the credential and the
-    model name travel together as a single connection, so Open WebUI can never
-    end up holding a key from one provider beside an address from another, and
-    changing provider later replaces all three at once rather than one at a
-    time. Anything speaking the OpenAI chat-completions protocol will do,
-    including an engine you run yourself.
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model name travel
+    together as a single connection, so Open WebUI can never end up holding a
+    key from one provider beside an address from another. Anything speaking the
+    OpenAI chat-completions protocol with streaming and tool calls will do,
+    including an engine you run yourself, as long as it also lists its models
+    at `/models`.
 
-    Open WebUI uses that model until an admin saves its connection settings
-    under **Admin Settings → Connections**. From then on its own stored
-    settings take precedence, so a redeploy does not override them — change
-    providers from that page.
+    Open WebUI saves that connection into its own settings the first time it
+    starts, and uses the saved copy from then on. Changing your organization's
+    default model or rotating its credential later does not reach an existing
+    deployment. To switch providers, deploy again or edit the connection under
+    **Admin Settings → Connections**.
 
     ## Defaults
     Single-container deployment of `ghcr.io/open-webui/open-webui:v0.10.2`

@@ -25,9 +25,11 @@ spec:
     Single-container deployment of `heartexlabs/label-studio:1.23.0` with
     the web UI on port 8080 behind the platform's HTTPS edge.
     SQLite-backed — suitable for personal and small-team labeling. The
-    admin account is created from the email/password parameters at deploy
-    (the password is auto-generated; rotate it from the deployment's
-    Configuration tab), and open self-signup is disabled — invite
+    admin account is created from the email/password parameters on first
+    boot (the password is auto-generated). After that, change the password
+    in Label Studio's account settings: editing either parameter later does
+    not update the account, and a new email creates a second admin. Open
+    self-signup is disabled — invite
     annotators by link. The public URL, and the origins the sign-in form
     is accepted from, are both taken from this deployment's own https
     address, so the sign-in form works without anything being typed in.
