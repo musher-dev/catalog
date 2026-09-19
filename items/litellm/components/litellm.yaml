@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: LiteLLM proxy exposing one OpenAI-compatible API in front of many model providers.
 spec:
   type: SERVICE
@@ -32,6 +32,12 @@ spec:
         required: true
         target:
           envVarKey: LITELLM_MASTER_KEY
-        description: Admin token for the proxy API. The 'sk-' prefix is added
-          automatically by LiteLLM
+        # Presented exactly as generated. v1.83.14-stable.patch.3 compares it
+        # to the request's key with secrets.compare_digest
+        # (proxy/auth/user_api_key_auth.py) and adds no prefix. The "must start
+        # with sk-" assertion there applies only to virtual keys, which this
+        # database-less build cannot issue anyway.
+        description: >-
+          Admin token for the proxy API and dashboard, presented exactly as
+          generated.
     outputs: {}
