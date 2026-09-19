@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: n8n workflow automation, with its database and credentials on one volume.
 spec:
   type: SERVICE
@@ -22,10 +22,8 @@ spec:
           endpoint: primary
           path: /healthz/readiness
         # n8n runs DB migrations before it becomes ready on a nano profile, so
-        # give the startup gate generous runway. With the agent's startup-probe
-        # fix, non-200s during boot count as "not ready yet" (never a kill);
-        # the effective budget is initial_delay + (success + failure + 30)
-        # attempts at 1s.
+        # give the startup gate generous runway: 45s, then ten failures at the
+        # spec's default 10s period, about two and a half minutes in all.
         initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
@@ -52,17 +50,24 @@ spec:
         target:
           envVarKey: N8N_HOST
         description: Public hostname n8n uses for webhook URLs.
+      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.31.6 lists WEBHOOK_URL as
+      # deprecated ("Use N8N_WEBHOOK_URL instead, which sets the base URL for
+      # both test and production webhooks", cli/src/deprecation/
+      # deprecation.service.ts). UrlService prefers the new name for both
+      # kinds. The old one fed only production webhooks, so test webhooks were
+      # right only because N8N_EDITOR_BASE_URL happened to be the same URL.
       webhookURL:
         schema:
           type: string
         presentationHint: ENDPOINT_URL
         required: false
         target:
-          envVarKey: WEBHOOK_URL
+          envVarKey: N8N_WEBHOOK_URL
         description: >-
-          Full public base URL n8n registers webhooks under. Without it n8n
-          composes protocol://host:port and leaks the internal container port
-          into webhook URLs behind the TLS-terminating gateway.
+          Full public base URL n8n registers test and production webhooks
+          under. Without it n8n composes protocol://host:port and leaks the
+          internal container port into webhook URLs behind the TLS-terminating
+          gateway.
       editorBaseURL:
         schema:
           type: string
