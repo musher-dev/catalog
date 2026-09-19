@@ -22,15 +22,21 @@ spec:
       need the artifacts archived next to them.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.14.0` running
-    `mlflow server` with the tracking UI on port 5000 behind the
+    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.14.0-full`
+    running `mlflow server` with the tracking UI on port 5000 behind the
     platform's HTTPS edge. The backend store defaults to SQLite and
     artifacts are server-proxied onto the 20 GiB persistent volume at
     `/mlflow` — suitable for a small team. First boot creates the database
     schema before the server listens, so allow a couple of minutes before
-    the app reports ready. Production teams upgrade the two store URIs to
-    Postgres + S3-compatible storage; that path is documented upstream and
-    exposed as deploy parameters, but not pre-configured by this listing.
+    the app reports ready. Production teams point the two store URIs at
+    Postgres or MySQL and at S3, GCS or Azure storage. The `-full` image
+    carries those drivers, and both URIs are deploy parameters.
+
+    ## Access and security
+    The tracking server has **no login**. Anyone who has the deployment's URL
+    can read, create and delete experiments, runs and registered models, from
+    the browser or the MLflow client. Keep the URL private, and don't store
+    anything in it you wouldn't share with everyone who might have it.
   category: AI_ML
   lifecycleStage: STABLE
   tags:

@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 4
+  revision: 5
   description: MLflow tracking server on local SQLite and volume-backed artifacts, both overridable at install.
 spec:
   components:
@@ -20,6 +20,13 @@ spec:
           parameter: backendStoreURI
         artifactsDestination:
           parameter: artifactsDestination
+        # This node's own allocated origin, from the output the component derives
+        # from its `primary` endpoint, so the UI's writes pass MLflow's
+        # cross-origin check. A node reading its own endpoint output is a
+        # discovery dependency and not a value cycle (BP-CONN-002).
+        corsAllowedOrigins:
+          node: web
+          output: publicURL
   parameters:
     # A bound parameter never falls back to its input's default (BP-PARAM-003),
     # so each default the form offers is stated here as well as on the input.
