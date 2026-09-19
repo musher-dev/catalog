@@ -24,10 +24,13 @@ spec:
     ## Defaults
     Single-container deployment of `postgres:17.10-alpine` listening on
     the standard port 5432 as a private TCP endpoint — reachable by your
-    other workloads, not exposed to the public internet. The database
-    password is auto-generated at deploy — copy it from the deployment's
-    Configuration tab; the user defaults to `postgres` and the database
-    name to `app`. A 10 GiB persistent volume mounted at
+    other workloads, not exposed to the public internet. The superuser
+    password is set when you deploy, and you can copy it from the
+    deployment's Configuration tab later. The user defaults to `postgres`
+    and the database name to `app`. All three are applied only on first
+    boot, when the data directory is empty. Changing them afterwards does
+    not change the database, so use `ALTER ROLE` or `CREATE DATABASE`
+    instead. A 10 GiB persistent volume mounted at
     `/var/lib/postgresql/data` keeps the data directory across restarts.
   category: INFRASTRUCTURE
   lifecycleStage: STABLE
