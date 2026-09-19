@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: code-server, VS Code in the browser, with a persistent home directory.
 spec:
   type: SERVICE
   workload:
     source:
-      image: codercom/code-server:4.130.0
+      image: codercom/code-server:4.137.0
     endpoints:
       primary:
         targetPort: 8080
@@ -23,7 +23,7 @@ spec:
         failureThreshold: 3
     volumes:
       # The volume must be writable by uid 1000. The image runs as USER 1000
-      # (ci/release-image/Dockerfile, v4.130.0), and its entrypoint's
+      # (ci/release-image/Dockerfile, v4.137.0), and its entrypoint's
       # `fixuid -q` only remaps and re-owns files when the container runs
       # under a different uid than `coder`'s. It does nothing here, so a volume
       # mounted root-owned stays root-owned, and code-server cannot write
