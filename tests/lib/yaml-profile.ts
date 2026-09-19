@@ -17,6 +17,8 @@ import YAML, { Alias, Scalar, type Node, type Pair } from 'yaml';
 export type ParserDiagnostic = {
   code:
     | 'ERR_INVALID_YAML'
+    | 'ERR_INVALID_UTF8'
+    | 'ERR_INVALID_NUMBER'
     | 'ERR_MULTIPLE_DOCUMENTS'
     | 'ERR_NON_STRING_KEY'
     | 'ERR_DUPLICATE_KEY'
@@ -64,7 +66,7 @@ export async function parseDocument(absolutePath: string): Promise<ParsedDocumen
   try {
     text = new TextDecoder('utf-8', { fatal: true }).decode(bytes).replace(/^﻿/, '');
   } catch (error) {
-    return { value: undefined, diagnostics: [diag('ERR_INVALID_YAML', `not valid UTF-8: ${(error as Error).message}`)] };
+    return { value: undefined, diagnostics: [diag('ERR_INVALID_UTF8', `not valid UTF-8: ${(error as Error).message}`)] };
   }
 
   return parseText(text);
@@ -118,6 +120,13 @@ export function parseText(text: string): ParsedDocument {
         diagnostics.push(diag('ERR_EXPLICIT_TAG', `explicit tag ${node.tag}`));
       }
 
+      // Core §6.1: a non-finite number, or an integer outside ±(2^53 − 1), has no
+      // one reading every implementation agrees on.
+      if (node instanceof Scalar && typeof node.value === 'number') {
+        const problem = numberProblem(node, text);
+        if (problem) diagnostics.push(diag('ERR_INVALID_NUMBER', problem));
+      }
+
       // CORE-YAML-012.
       if (node instanceof Scalar && typeof node.value === 'string') {
         const size = Buffer.byteLength(node.value, 'utf8');
@@ -160,6 +169,29 @@ export function parseText(text: string): ParsedDocument {
   }
 
   return { value, diagnostics };
+}
+
+/** YAML 1.2 core-schema integer spellings: decimal, octal `0o`, hexadecimal `0x`. */
+const INTEGER_SOURCE = /^[-+]?(?:[0-9]+|0o[0-7]+|0x[0-9a-fA-F]+)$/;
+const SAFE_LIMIT = BigInt(Number.MAX_SAFE_INTEGER);
+
+/**
+ * Why a numeric scalar is outside core §6.1, or null. An integer is judged by
+ * its source text rather than by the parsed number: 9007199254740993 has already
+ * rounded to 9007199254740992 by the time it is a `number`.
+ */
+function numberProblem(node: Scalar, text: string): string | null {
+  const value = node.value as number;
+  if (!Number.isFinite(value)) return `${String(value)} is not a finite number`;
+
+  const raw = node.range ? text.slice(node.range[0], node.range[1]).trim() : String(value);
+  if (!INTEGER_SOURCE.test(raw)) return null;
+
+  const negative = raw.startsWith('-');
+  const digits = raw.replace(/^[-+]/, '');
+  const magnitude = BigInt(digits.startsWith('0o') ? `0o${digits.slice(2)}` : digits);
+  if (magnitude > SAFE_LIMIT) return `integer ${negative ? '-' : ''}${digits} is outside ±${Number.MAX_SAFE_INTEGER}`;
+  return null;
 }
 
 /** Depth in containers: a document whose root is a scalar is 0, a flat mapping 1. */

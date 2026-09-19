@@ -8,10 +8,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { FAMILIES, KIND_OF, externalRefs, loadSchema } from './lib/spec-schemas.ts';
+import { BUNDLE_SHA256, FAMILIES, KIND_OF, SPEC_RELEASE, externalRefs, loadSchema, schemaUrl } from './lib/spec-schemas.ts';
 
 describe('musher-dev/specifications', () => {
-  it('resolves all three bundles from the public repository at run time', async () => {
+  it(`resolves all three v${SPEC_RELEASE} bundles from the published origin`, async () => {
     const bundles = await Promise.all(FAMILIES.map(loadSchema));
     for (const bundle of bundles) {
       console.log(`  ${bundle.family.padEnd(10)} sha256:${bundle.sha256.slice(0, 12)}  ${bundle.origin}`);
@@ -21,6 +21,14 @@ describe('musher-dev/specifications', () => {
 
   for (const family of FAMILIES) {
     describe(family, () => {
+      it(`is the ${family}/v${SPEC_RELEASE} release, byte for byte`, async () => {
+        // The ledger's digest, not one computed here: the exact release URL
+        // serves the same bytes for as long as the site exists.
+        const { sha256, schema } = await loadSchema(family);
+        assert.equal(sha256, BUNDLE_SHA256[family]);
+        assert.equal(schema['$id'], schemaUrl(family));
+      });
+
       it('is a JSON Schema 2020-12 document', async () => {
         const { schema } = await loadSchema(family);
         assert.equal(schema['$schema'], 'https://json-schema.org/draft/2020-12/schema');

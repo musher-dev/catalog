@@ -1,20 +1,19 @@
 # Validates the catalog corpus against musher-dev/specifications.
 #
-# The schemas are fetched at run time from the v1 alias that project publishes at
-# specifications.musher.dev, rather than vendored, so this job also tells us when
-# a change to the published contract stops accepting an item that used to
-# validate — which is the whole point of not holding a copy. The scheduled run is
-# what catches that in the window between a spec release and the next catalog PR.
+# The suite is pinned to one exact release (SPEC_RELEASE in
+# tests/lib/spec-schemas.ts). It fetches that release's schemas from
+# specifications.musher.dev and its conformance corpus from the GitHub release
+# assets, and checks every byte against a recorded SHA-256. Pinned bytes never
+# change, so nothing here runs on a schedule: a verdict changes only with a
+# commit to this repository, including the one that adopts a new release.
 #
-# No credential is involved: the origin is public and the suite reads no token.
+# No credential is involved: both origins are public and the suite reads no token.
 name: validate
 
 on:
   push:
     branches: [main]
   pull_request:
-  schedule:
-    - cron: '17 6 * * *'
   workflow_dispatch:
 
 permissions:

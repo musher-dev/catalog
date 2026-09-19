@@ -18,29 +18,8 @@ import { after, describe, it } from 'node:test';
 import YAML from 'yaml';
 
 import { loadItemDocuments, readItem } from './lib/catalog.ts';
-import { mediaPathPatternFrom } from './lib/media.ts';
-import { KIND_OF, formatAjvErrors, loadSchema, validatorFor, type Family } from './lib/spec-schemas.ts';
-import {
-  buildContext,
-  checkBindings,
-  checkComponentReferences,
-  checkConnectionBindings,
-  checkConnectionRequirements,
-  checkDescription,
-  checkExposure,
-  checkHealthProbes,
-  checkIdentity,
-  checkImagePinning,
-  checkItemType,
-  checkMedia,
-  checkNodeCompute,
-  checkOutputOrigins,
-  checkParameters,
-  checkVolumeAllocations,
-  inputDefaultsFrom,
-  tagOf,
-  type Diagnostic,
-} from './lib/semantic.ts';
+import { KIND_OF, formatAjvErrors, validatorFor, type Family } from './lib/spec-schemas.ts';
+import { contextForItem, runSemanticChecks, tagOf, type Diagnostic } from './lib/semantic.ts';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-rules-'));
 after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -211,29 +190,7 @@ function build(fixture: Fixture): string {
 }
 
 async function diagnose(root: string): Promise<Diagnostic[]> {
-  const [listingBundle, componentBundle] = await Promise.all([loadSchema('listing'), loadSchema('component')]);
-  const item = readItem(root);
-  const documents = await loadItemDocuments(item);
-  const pattern = mediaPathPatternFrom(listingBundle.schema);
-  const context = buildContext(item, documents, (value) => pattern.test(value), inputDefaultsFrom(componentBundle.schema));
-
-  return [
-    ...checkIdentity(context),
-    ...checkItemType(context),
-    ...checkComponentReferences(context),
-    ...checkMedia(context),
-    ...checkDescription(context),
-    ...checkImagePinning(context),
-    ...checkHealthProbes(context),
-    ...checkOutputOrigins(context),
-    ...checkConnectionRequirements(context),
-    ...checkNodeCompute(context),
-    ...checkVolumeAllocations(context),
-    ...checkExposure(context),
-    ...checkBindings(context),
-    ...checkConnectionBindings(context),
-    ...checkParameters(context),
-  ];
+  return runSemanticChecks(await contextForItem(readItem(root)));
 }
 
 async function assertReports(fixture: Fixture, code: string): Promise<void> {
@@ -319,14 +276,14 @@ describe('item type — listing §3, LIST-ITEM-001', () => {
 describe('component references — blueprint §4.1', () => {
   it('ERR_COMPONENT_NOT_FOUND when a reference names no document', async () => {
     await assertReports(
-      { blueprint: blueprint({ spec: { components: { web: { componentRef: './components/missing.yaml', size: 'general.standard.small', connections: {} } } } }) },
+      { blueprint: blueprint({ spec: { components: { web: node({ componentRef: './components/missing.yaml' }) } } }) },
       'ERR_COMPONENT_NOT_FOUND',
     );
   });
 
   it('ERR_REFERENCE_ESCAPE when a reference resolves outside the item root', async () => {
     await assertReports(
-      { blueprint: blueprint({ spec: { components: { web: { componentRef: '../shared/web.yaml', size: 'general.standard.small', connections: {} } } } }) },
+      { blueprint: blueprint({ spec: { components: { web: node({ componentRef: '../shared/web.yaml' }) } } }) },
       'ERR_REFERENCE_ESCAPE',
     );
   });
@@ -336,6 +293,12 @@ describe('component references — blueprint §4.1', () => {
       { components: { 'components/web.yaml': component(), 'components/web-legacy.yaml': component() } },
       'ERR_UNREFERENCED_COMPONENT',
     );
+  });
+
+  it('ERR_INVALID_DEPENDENCY when the referenced document is not a valid component — blueprint §10', async () => {
+    const broken = component();
+    delete (broken['spec'] as Doc)['workload'];
+    await assertReports({ components: { 'components/web.yaml': broken } }, 'ERR_INVALID_DEPENDENCY');
   });
 
   it('finds a component document outside components/, which the spec permits', async () => {
@@ -378,6 +341,124 @@ describe('media — listing §5', () => {
 
   it('accepts an icon that exists', async () => {
     await assertClean({ media: ['media/icon.png'], listing: listing({ spec: { icon: 'media/icon.png' } }) });
+  });
+
+  it('ERR_PATH_ESCAPE when the icon is a dangling symlink pointing outside the item — LIST-MEDIA-002', async () => {
+    // The target need not exist: containment is a property of where the link
+    // points, not of whether anything is there (conformance listing 004).
+    const root = build({ listing: listing({ spec: { icon: 'media/icon.png' } }) });
+    fs.mkdirSync(path.join(root, 'media'), { recursive: true });
+    fs.symlinkSync('../../../secrets.png', path.join(root, 'media', 'icon.png'));
+    const diagnostics = await diagnose(root);
+    assert.ok(
+      diagnostics.some((diagnostic) => diagnostic.code === 'ERR_PATH_ESCAPE'),
+      `expected ERR_PATH_ESCAPE, got ${diagnostics.map((d) => d.code).join(', ') || 'no diagnostics'}`,
+    );
+  });
+});
+
+describe('workload contract — component §5.3, §5.5, §5.7', () => {
+  const withWorkload = (workload: Doc, inputs: Doc = {}): Doc =>
+    component({
+      spec: {
+        type: 'SERVICE',
+        workload: {
+          source: { image: 'ghcr.io/acme/web:1.2.3' },
+          endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
+          health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+          ...workload,
+        },
+        contract: { inputs, outputs: {} },
+      },
+    });
+
+  const job = (cron: string): Doc =>
+    component({
+      spec: {
+        type: 'JOB',
+        workload: { source: { image: 'ghcr.io/acme/backup:1.2.3' }, command: ['/bin/backup'], schedule: { cron } },
+        contract: { inputs: {}, outputs: {} },
+      },
+    });
+
+  it('ERR_CONFLICTING_ENV_KEY when an input targets a name envVars fixes — COMP-ENVVAR-002', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ bindings: { databaseURL: { value: 'postgres://db/app' } } }) } } }),
+        components: {
+          'components/web.yaml': withWorkload(
+            { envVars: { DATABASE_URL: 'postgres://localhost/app' } },
+            { databaseURL: input({ target: { envVarKey: 'DATABASE_URL' } }) },
+          ),
+        },
+      },
+      'ERR_CONFLICTING_ENV_KEY',
+    );
+  });
+
+  it('ERR_CONFLICTING_ENV_KEY when two inputs target one name — COMP-ENVVAR-002', async () => {
+    await assertReports(
+      {
+        components: {
+          'components/web.yaml': withWorkload({}, {
+            first: input({ required: false, target: { envVarKey: 'VALUE' } }),
+            second: input({ required: false, target: { envVarKey: 'VALUE' } }),
+          }),
+        },
+      },
+      'ERR_CONFLICTING_ENV_KEY',
+    );
+  });
+
+  it('ERR_INVALID_MOUNT when one volume mounts inside another — §5.5', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 1 }, nested: { sizeGiB: 1 } } }) } } }),
+        components: {
+          'components/web.yaml': withWorkload({
+            volumes: { data: { mountPath: '/data', minSizeGiB: 1 }, nested: { mountPath: '/data/cache', minSizeGiB: 1 } },
+          }),
+        },
+      },
+      'ERR_INVALID_MOUNT',
+    );
+  });
+
+  it('ERR_INVALID_MOUNT when a mount path is not canonical — §5.5', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 1 } } }) } } }),
+        components: { 'components/web.yaml': withWorkload({ volumes: { data: { mountPath: '/var/lib/../data/', minSizeGiB: 1 } } }) },
+      },
+      'ERR_INVALID_MOUNT',
+    );
+  });
+
+  it('accepts sibling mounts sharing a name prefix — §5.5', async () => {
+    await assertClean({
+      blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 1 }, other: { sizeGiB: 1 } } }) } } }),
+      components: {
+        'components/web.yaml': withWorkload({
+          volumes: { data: { mountPath: '/data', minSizeGiB: 1 }, other: { mountPath: '/database', minSizeGiB: 1 } },
+        }),
+      },
+    });
+  });
+
+  for (const cron of ['99 * * * *', '* * * JAN *', '* * * * 7', '* * 5-1 * *', '*/0 * * * *']) {
+    it(`ERR_INVALID_SCHEDULE for ${JSON.stringify(cron)} — COMP-JOB-002`, async () => {
+      await assertReports(
+        { blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }), components: { 'components/web.yaml': job(cron) } },
+        'ERR_INVALID_SCHEDULE',
+      );
+    });
+  }
+
+  it('accepts lists, ranges and steps — COMP-JOB-002', async () => {
+    await assertClean({
+      blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+      components: { 'components/web.yaml': job('*/15 9-17  1,15 1-12/3\t1-5') },
+    });
   });
 });
 
@@ -617,8 +698,8 @@ describe('output templates — component §6.2, COMP-REF-001', () => {
   });
 
   it('ERR_UNKNOWN_ENDPOINT for the withdrawn property-first order', async () => {
-    // `${{ self.publicHostname.primary }}` was the draft spelling. It lands here
-    // as an endpoint named `publicHostname`, which is what it now says.
+    // `${{ self.publicHostname.primary }}` is the property-first order v1 does
+    // not have. It lands here as an endpoint named `publicHostname`.
     await assertReports(
       { components: { 'components/web.yaml': withTemplate('https://${{ self.publicHostname.primary }}/cb') } },
       'ERR_UNKNOWN_ENDPOINT',
@@ -978,6 +1059,52 @@ describe('bindings — blueprint §4.2', () => {
   });
 });
 
+describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
+  const relay = component({
+    spec: {
+      type: 'WORKER',
+      workload: { source: { image: 'ghcr.io/acme/relay:1.2.3' } },
+      contract: {
+        inputs: { upstream: input({ target: { envVarKey: 'UPSTREAM' } }) },
+        outputs: { forwarded: { description: 'The received value.', schema: { type: 'string' }, from: { input: 'upstream' } } },
+      },
+    },
+  });
+  const relayNode = (from: string): Doc => node({ componentRef: './components/relay.yaml', exposure: {}, bindings: { upstream: { node: from, output: 'forwarded' } } });
+
+  it('ERR_VALUE_CYCLE when three nodes feed each other in a ring', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { a: relayNode('c'), b: relayNode('a'), c: relayNode('b') } } }),
+        components: { 'components/relay.yaml': relay },
+      },
+      'ERR_VALUE_CYCLE',
+    );
+  });
+
+  it('accepts two nodes reading each other\'s addresses — a discovery loop, not a value cycle', async () => {
+    const peer = component({
+      spec: {
+        type: 'SERVICE',
+        workload: {
+          source: { image: 'ghcr.io/acme/peer:1.2.3' },
+          endpoints: { primary: { targetPort: 8080, protocol: 'TCP' } },
+        },
+        contract: {
+          inputs: { peerAddress: input({ target: { envVarKey: 'PEER' } }) },
+          outputs: { address: { description: 'The address.', schema: { type: 'string' }, from: { endpoint: 'primary', property: 'privateAddress' } } },
+        },
+      },
+    });
+    const peerNode = (other: string): Doc =>
+      node({ componentRef: './components/peer.yaml', exposure: {}, bindings: { peerAddress: { node: other, output: 'address' } } });
+    await assertClean({
+      blueprint: blueprint({ spec: { components: { a: peerNode('b'), b: peerNode('a') } } }),
+      components: { 'components/peer.yaml': peer },
+    });
+  });
+});
+
 describe('connections — component §6.4, blueprint §5.3', () => {
   const composed = (over: { requirement?: Doc; inputs?: Doc; blueprintSpec?: Doc } = {}): Fixture => ({
     blueprint: blueprint({
@@ -1156,8 +1283,10 @@ describe('parameters — blueprint §5', () => {
     });
   });
 
-  it('ERR_GENERATED_INPUT_NOT_SENSITIVE when a generated parameter supplies a plain input — BP-PARAM-004', async () => {
-    await assertReports(
+  it('accepts a generated parameter bound to an input not marked sensitive — BP-PARAM-004', async () => {
+    // The generated value is sensitive regardless (BP-PARAM-002's union). The
+    // v1.0.0 corpus pins this as a pass: blueprint semantic-033.
+    await assertClean(
       {
         blueprint: blueprint({
           spec: {
@@ -1179,7 +1308,6 @@ describe('parameters — blueprint §5', () => {
           }),
         },
       },
-      'ERR_GENERATED_INPUT_NOT_SENSITIVE',
     );
   });
 

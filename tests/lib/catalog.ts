@@ -156,14 +156,35 @@ export function resolvesInside(root: string, target: string): boolean {
   return relative !== '..' && !relative.startsWith(`..${path.sep}`) && !path.isAbsolute(relative);
 }
 
-/** realpath of `target`, or of the deepest ancestor that exists, with the rest re-appended. */
-function realpathOrNearest(target: string): string | null {
+/** Symlink hops followed before a chain counts as unresolvable — Linux's own MAXSYMLINKS. */
+const MAX_SYMLINK_HOPS = 40;
+
+/**
+ * realpath of `target`, or of the deepest ancestor that exists, with the rest
+ * re-appended. A dangling symlink met on the way is followed by hand rather
+ * than stepped over: its location is where it points, not where it sits, and
+ * that is exactly the case an escape through a link to a missing file turns on.
+ */
+function realpathOrNearest(target: string, hops = 0): string | null {
   let current = path.resolve(target);
   const trailing: string[] = [];
   for (;;) {
     try {
       return path.join(fs.realpathSync(current), ...trailing);
     } catch {
+      let link: string | null = null;
+      try {
+        if (fs.lstatSync(current).isSymbolicLink()) link = fs.readlinkSync(current);
+      } catch {
+        // absent — fall through to the parent
+      }
+      if (link !== null) {
+        if (hops >= MAX_SYMLINK_HOPS) return null;
+        const directory = realpathOrNearest(path.dirname(current), hops + 1);
+        if (directory === null) return null;
+        return realpathOrNearest(path.join(path.resolve(directory, link), ...trailing), hops + 1);
+      }
+
       const parent = path.dirname(current);
       if (parent === current) return null;
       trailing.unshift(path.basename(current));
