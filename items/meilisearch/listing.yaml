@@ -22,13 +22,24 @@ spec:
       client-safe tokens.
 
     ## Defaults
-    Single-container deployment of `getmeili/meilisearch:v1.50.0` with the
+    Single-container deployment of `getmeili/meilisearch:v1.53.2` with the
     HTTP API on port 7700 behind the platform's HTTPS edge, running in
     production mode with telemetry disabled. A master key is
     auto-generated for admin and indexing access — copy it from the
     deployment's Configuration tab and mint scoped tenant tokens for
     client-facing searches. An 8 GiB persistent volume mounted at
     `/meili_data` keeps indexes across restarts.
+
+    ## Upgrades
+    When this listing moves to a newer Meilisearch version, an existing
+    deployment upgrades its database in place the first time it starts on the
+    new version. The upgrade runs in the background as an `upgradeDatabase`
+    task, which you can follow from the tasks API. It is one-way: the database
+    cannot go back to the older version afterwards. Meilisearch notes that the
+    upgrade is not atomic and can, rarely, leave the database unusable, and
+    this deployment has no way to restore a snapshot or dump. Treat the index
+    as something you can rebuild: keep your documents in their source system
+    and be ready to re-index them.
   category: DEVELOPER_TOOLS
   lifecycleStage: STABLE
   tags:

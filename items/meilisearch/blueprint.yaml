@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: meilisearch
-  revision: 3
+  revision: 4
   description: Meilisearch with a generated master key and a publicly reachable search API.
 spec:
   components:
