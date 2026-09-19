@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: Qdrant vector database serving its HTTP API from one storage volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: qdrant/qdrant:v1.18.3
+      image: qdrant/qdrant:v1.19.1
     endpoints:
       primary:
         targetPort: 6333
@@ -16,8 +16,9 @@ spec:
       readiness:
         # /healthz, not /readyz. /readyz consults a health checker that
         # exists only in distributed mode, so on a single node it returns 200
-        # unconditionally, the same as /healthz (src/actix/api/service_api.rs,
-        # v1.18.3). Both are exempt from the API key (src/actix/mod.rs).
+        # unconditionally, the same as /healthz (src/main.rs and
+        # src/actix/api/service_api.rs, v1.19.1). Both are exempt from the
+        # API key (src/actix/mod.rs).
         http:
           endpoint: primary
           path: /healthz
