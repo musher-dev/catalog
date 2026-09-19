@@ -11,9 +11,8 @@ spec:
     Flowise is an open-source visual builder for LLM applications. Drag
     nodes (models, vector stores, retrievers, tools, agents) onto a
     canvas, wire them together, and expose the result as a REST API or an
-    embeddable chat widget. Sister project to Langflow in the same
-    "agents on a canvas" niche; Flowise is chains-first where Langflow is
-    nodes-first.
+    embeddable chat widget. It is an independent project in the same
+    "agents on a canvas" niche as Langflow.
 
     ## When to use
     - You want to ship an LLM agent or RAG endpoint without writing
@@ -26,7 +25,11 @@ spec:
     ## Defaults
     Single-container deployment of `flowiseai/flowise:3.1.3` with the web
     UI on port 3000 behind the platform's HTTPS edge; you create the admin
-    account from the sign-up screen on first launch. SQLite-backed by
+    account from the sign-up screen on first launch. Open the app as soon as
+    it reports ready: until an admin exists, whoever reaches that screen
+    first becomes the admin. Model providers are added as credentials inside
+    Flowise, per flow; this deployment does not connect one for you.
+    SQLite-backed by
     default (pointing it at Postgres is documented upstream but not
     configured by this listing). A persistent encryption key is
     auto-generated at deploy so credentials stored in your flows stay
