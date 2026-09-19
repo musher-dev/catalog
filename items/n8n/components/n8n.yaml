@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: n8n workflow automation, with its database and credentials on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: n8nio/n8n:2.31.6
+      image: n8nio/n8n:2.39.8
     endpoints:
       primary:
         targetPort: 5678
@@ -50,7 +50,7 @@ spec:
         target:
           envVarKey: N8N_HOST
         description: Public hostname n8n uses for webhook URLs.
-      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.31.6 lists WEBHOOK_URL as
+      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.39.8 lists WEBHOOK_URL as
       # deprecated ("Use N8N_WEBHOOK_URL instead, which sets the base URL for
       # both test and production webhooks", cli/src/deprecation/
       # deprecation.service.ts). UrlService prefers the new name for both

@@ -22,7 +22,7 @@ spec:
       webhook endpoints on your own domain.
 
     ## Defaults
-    Single-container deployment of `n8nio/n8n:2.31.6` with the web UI on
+    Single-container deployment of `n8nio/n8n:2.39.8` with the web UI on
     port 5678 behind the platform's HTTPS edge; you create the owner
     account from the setup screen on first launch. Open the app as soon as
     it reports ready: until an owner exists, whoever reaches the setup
