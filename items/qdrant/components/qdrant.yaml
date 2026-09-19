@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: Qdrant vector database serving its HTTP API from one storage volume.
 spec:
   type: SERVICE
@@ -14,6 +14,10 @@ spec:
         protocol: HTTP
     health:
       readiness:
+        # /healthz, not /readyz. /readyz consults a health checker that
+        # exists only in distributed mode, so on a single node it returns 200
+        # unconditionally, the same as /healthz (src/actix/api/service_api.rs,
+        # v1.18.3). Both are exempt from the API key (src/actix/mod.rs).
         http:
           endpoint: primary
           path: /healthz
@@ -21,6 +25,16 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 3
+    envVars:
+      # Snapshots onto the volume. The image's config.yaml sets
+      # `snapshots_path: ./snapshots` from WORKDIR /qdrant, which is outside
+      # the mount below, so every snapshot was lost on restart. Qdrant scans
+      # only storage/collections at startup (lib/storage/src/content_manager/
+      # toc/mod.rs), so a sibling directory inside the storage path is safe.
+      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/storage/snapshots
+      # Anonymous usage telemetry is on by default (config.yaml:
+      # `telemetry_disabled: false`). It is off here, as meilisearch's analytics are.
+      QDRANT__TELEMETRY_DISABLED: 'true'
     volumes:
       data:
         minSizeGiB: 8
