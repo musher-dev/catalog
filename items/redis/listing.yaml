@@ -27,6 +27,12 @@ spec:
     append-only-file persistence enabled, journaling writes to the 5 GiB
     persistent volume mounted at `/data` so data survives restarts. No
     additional configuration is required at deploy.
+
+    ## Access and security
+    Redis runs **without a password**. The endpoint is private, so the public
+    internet cannot reach it, but every workload that can reach it can read,
+    change and delete any key. Don't store anything there that the other
+    workloads beside it shouldn't see.
   category: INFRASTRUCTURE
   lifecycleStage: STABLE
   tags:

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: Redis in-memory data store with append-only persistence on one volume.
 spec:
   type: SERVICE
@@ -10,6 +10,15 @@ spec:
       image: redis:8.8.1-alpine
     # Exec form, no shell: `command` replaces the image's CMD and keeps its
     # ENTRYPOINT, which is what Docker and Compose mean by the same word.
+    #
+    # NO AUTHENTICATION. There is no `requirepass`, and the official image
+    # compiles protected-mode off (alpine/Dockerfile:83-88 in
+    # docker-library-redis v8.8.1), so any workload that can reach the private
+    # endpoint can read and write every key. Adding a password needs a shell
+    # to put an input into argv. A `sh -c` command would also skip the
+    # entrypoint's `redis-server` branch, which drops root and chowns /data,
+    # so it is left for a change that also gives consumers a way to take the
+    # password.
     command:
       - redis-server
       - --appendonly
