@@ -15,54 +15,37 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { discoverItems, loadItemDocuments, type Item, type ItemDocuments } from './lib/catalog.ts';
-import { mediaPathPatternFrom } from './lib/media.ts';
-import { loadSchema } from './lib/spec-schemas.ts';
+import { discoverItems, type Item, type ItemDocuments } from './lib/catalog.ts';
 import {
-  buildContext,
   checkBindings,
   checkComponentReferences,
   checkConnectionBindings,
   checkConnectionRequirements,
   checkDescription,
+  checkEnvKeys,
   checkExposure,
   checkHealthProbes,
   checkIdentity,
   checkImagePinning,
   checkItemType,
   checkMedia,
+  checkMounts,
   checkNodeCompute,
   checkOutputOrigins,
   checkParameters,
+  checkSchedule,
+  checkValueCycles,
   checkVolumeAllocations,
-  inputDefaultsFrom,
+  contextForItem,
   type Diagnostic,
   type SemanticContext,
 } from './lib/semantic.ts';
 
 const items = discoverItems();
 
-/**
- * The media-path grammar and the component-input defaults are read back out of
- * the fetched bundles rather than restated here, so the two places this phase
- * needs them cannot drift from what the spec publishes.
- */
 async function contextFor(item: Item): Promise<{ context: SemanticContext; documents: ItemDocuments }> {
-  const [listingBundle, componentBundle, documents] = await Promise.all([
-    loadSchema('listing'),
-    loadSchema('component'),
-    loadItemDocuments(item),
-  ]);
-
-  const mediaPathPattern = mediaPathPatternFrom(listingBundle.schema);
-  const context = buildContext(
-    item,
-    documents,
-    (value) => mediaPathPattern.test(value),
-    inputDefaultsFrom(componentBundle.schema),
-  );
-
-  return { context, documents };
+  const context = await contextForItem(item);
+  return { context, documents: context.documents };
 }
 
 const report = (diagnostics: Diagnostic[]): string[] =>
@@ -80,7 +63,7 @@ for (const item of items) {
       assert.deepEqual(report(checkItemType(context)), []);
     });
 
-    it('every component reference resolves to a document inside the item root — §4.1, BP-ID-003', async () => {
+    it('every component reference resolves to a valid document inside the item root — §4.1, §10, BP-ID-003', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkComponentReferences(context)), []);
     });
@@ -98,6 +81,21 @@ for (const item of items) {
     it('every image reference is pinned — COMP-SRC-003', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkImagePinning(context)), []);
+    });
+
+    it('no environment variable has two writers — COMP-ENVVAR-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkEnvKeys(context)), []);
+    });
+
+    it('every mount path is canonical and no two mounts nest — §5.5', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkMounts(context)), []);
+    });
+
+    it('every schedule is a cron expression within §5.7\'s ranges — COMP-JOB-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkSchedule(context)), []);
     });
 
     it('every health probe names an endpoint that answers HTTP — §5.4, COMP-EP-002', async () => {
@@ -135,12 +133,17 @@ for (const item of items) {
       assert.deepEqual(report(checkBindings(context)), []);
     });
 
+    it('no value depends on itself — BP-CONN-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkValueCycles(context)), []);
+    });
+
     it('every connection requirement is bound to a connection parameter — BP-CONNECTION-001', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkConnectionBindings(context)), []);
     });
 
-    it('every parameter is bound, agrees with what it supplies, and names a source in scope — BP-PARAM-001..004, BP-REF-001, BP-UI-003', async () => {
+    it('every parameter is bound, agrees with what it supplies, and names a source in scope — BP-PARAM-001..003, BP-REF-001, BP-UI-003', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkParameters(context)), []);
     });

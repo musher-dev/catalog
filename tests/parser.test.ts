@@ -56,6 +56,8 @@ describe('the YAML profile itself', () => {
     { rule: 'CORE-YAML-008', code: 'ERR_MERGE_KEY', source: 'base: {a: 1}\nderived:\n  <<: {a: 1}\n' },
     { rule: 'CORE-YAML-009 (core tag)', code: 'ERR_EXPLICIT_TAG', source: "a: !!str 5\n" },
     { rule: 'CORE-YAML-009 (custom tag)', code: 'ERR_EXPLICIT_TAG', source: 'a: !secret hunter2\n' },
+    { rule: 'core §6.1 (unsafe integer)', code: 'ERR_INVALID_NUMBER', source: 'a: 9007199254740993\n' },
+    { rule: 'core §6.1 (non-finite)', code: 'ERR_INVALID_NUMBER', source: 'a: .inf\n' },
   ];
 
   for (const { rule, code, source } of cases) {

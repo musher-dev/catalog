@@ -1,23 +1,26 @@
 /**
- * Fetches the normative JSON Schema bundles from the published
- * `musher-dev/specifications` origin at run time.
+ * Fetches the normative JSON Schema bundles for one exact, released version of
+ * `musher-dev/specifications`, and refuses any bytes but the released ones.
  *
  * The catalog is not the authority on what a valid item looks like; the spec is.
- * A vendored or disk-cached copy of its schemas is a second authority that
- * drifts, and a stale one passes a corpus the live spec would reject — silently,
- * which is the failure this module exists to prevent. So the schemas are fetched
- * over the network on every run and memoised only for the lifetime of the
- * process.
+ * So nothing here is vendored: the bundles are fetched on every run and memoised
+ * only for the lifetime of the process. What is held here is the *identity* of
+ * the contract — a version and a digest per family — not a copy of it.
  *
- * There is exactly one source, and it is constant:
+ * There is exactly one source, and it is immutable:
  *
- *   https://specifications.musher.dev/<family>/v1/<family>.schema.json
+ *   https://specifications.musher.dev/<family>/v<SPEC_RELEASE>/<family>.schema.json
  *
- * That is the major-version alias: it serves the newest v1 release of a family,
- * or a build of the specification repository's `main` before the family's first
- * release. Either way it is the contract as currently published, which is what
- * this corpus is held to — an item here has to satisfy what an implementor
- * downloading v1 today would get.
+ * That is the exact release URL. The specification requires automation to pin
+ * one (docs/using-schemas.md → Pinning in automation) because the major-version
+ * alias, `/<family>/v1/`, changes its bytes whenever a release ships, and a
+ * suite whose verdict can change without a commit here reports on a contract
+ * nobody chose. Each bundle's SHA-256 is checked against the release ledger's
+ * `bundleSha256` (the specification repository's `published.json`), so a proxy,
+ * a cache or a mistaken origin cannot substitute other bytes.
+ *
+ * Adopting a new release is a deliberate change of `SPEC_RELEASE` and the
+ * digests beside it, in a pull request of its own, copied from that ledger.
  *
  * The origin is public and serves open CORS, so this is fetched with no
  * credential — nothing here reads a token, and none should be configured.
@@ -46,9 +49,23 @@ export const KIND_OF: Record<Family, string> = {
 
 const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
 
+/** The released version of every family this corpus is held to. */
+export const SPEC_RELEASE = '1.0.0';
+
+/**
+ * `bundleSha256` of each family's `SPEC_RELEASE` entry in the release ledger,
+ * https://specifications.musher.dev/published.json. Copied, never computed: a
+ * digest taken from the bytes it is meant to check would check nothing.
+ */
+export const BUNDLE_SHA256: Record<Family, string> = {
+  listing: '8a0ac418d4dacfc998310d11bf8003a1841e10b0869ca6b2b294caafb845305d',
+  blueprint: '4233cc2d744824fc5384bdbc72465eda6fbb0c0f87377c19793ec6b0ef568945',
+  component: '8bbbf9bbcb282991f5157732bfd92b3481692390e582f29c6e9f91c472ac124c',
+};
+
 /** The one place a schema comes from. */
-const schemaUrl = (family: Family): string =>
-  `https://specifications.musher.dev/${family}/v1/${family}.schema.json`;
+export const schemaUrl = (family: Family): string =>
+  `https://specifications.musher.dev/${family}/v${SPEC_RELEASE}/${family}.schema.json`;
 
 async function read(url: string): Promise<string> {
   // No credential is sent, and no code path here reads one. The specifications
@@ -88,9 +105,7 @@ function assertIsFamilyBundle(family: Family, schema: Record<string, unknown>, o
     throw new Error(`${where}: expected a JSON Schema 2020-12 document, got $schema=${String(schema['$schema'])}`);
   }
 
-  // The `kind` discriminator is what establishes the family, and it is the only
-  // thing that does. Matching `$id` as well would assert the same fact twice and
-  // pin a hostname this module does not read from.
+  // The `kind` discriminator is what establishes the family.
   const properties = schema['properties'] as Record<string, { const?: unknown }> | undefined;
   const kind = properties?.['kind']?.const;
   if (kind !== KIND_OF[family]) {
@@ -140,6 +155,17 @@ async function resolveSchema(family: Family): Promise<FetchedSchema> {
     );
   }
 
+  // The digest is checked before the bytes are even parsed: anything else is not
+  // the release this corpus is pinned to, whatever it claims to be.
+  const sha256 = createHash('sha256').update(text).digest('hex');
+  if (sha256 !== BUNDLE_SHA256[family]) {
+    throw new Error(
+      `${family} schema from ${url} has sha256 ${sha256}, but the ${family}/v${SPEC_RELEASE} ` +
+        `release ledger records ${BUNDLE_SHA256[family]}. An exact release URL never changes its ` +
+        'bytes, so whatever answered is not that release.',
+    );
+  }
+
   let schema: Record<string, unknown>;
   try {
     schema = JSON.parse(text) as Record<string, unknown>;
@@ -148,12 +174,12 @@ async function resolveSchema(family: Family): Promise<FetchedSchema> {
   }
   assertIsFamilyBundle(family, schema, url);
 
-  return {
-    family,
-    schema,
-    origin: url,
-    sha256: createHash('sha256').update(text).digest('hex'),
-  };
+  // A pinned bundle carries its exact-version `$id`; the alias restamps it.
+  if (schema['$id'] !== url) {
+    throw new Error(`${family} schema from ${url}: $id is ${String(schema['$id'])}, expected the exact release URL`);
+  }
+
+  return { family, schema, origin: url, sha256 };
 }
 
 /**

@@ -52,6 +52,11 @@ this repo:
 - every volume a component declares is allocated a `sizeGiB` on the node, at or
   above the component's own `minSizeGiB`;
 - image refs are **pinned** — `:latest`, `:main` and `:edge` are rejected;
+- one environment variable has one writer: an input's `target.envVarKey`
+  matches neither a `workload.envVars` key nor another input's key;
+- volume mount paths are canonical, and no two are the same or nested;
+- a `JOB`'s `schedule.cron` is five numeric fields, each within its range;
+- no value depends on itself through `{node, output}` bindings;
 - component shape follows `spec.type`: a `SERVICE` declares at least one
   endpoint, a `WORKER` may declare private ones but is never exposed, and a
   `JOB` declares none. A `PUBLIC` HTTP endpoint needs a readiness probe.
@@ -258,15 +263,25 @@ npm install
 npm test
 ```
 
-Every item is validated against the v1 schemas
-[`musher-dev/specifications`](https://github.com/musher-dev/specifications)
-publishes at `specifications.musher.dev`, **fetched at run time rather than
-vendored** — so what the corpus is judged against is the contract as it currently
-stands, not a copy of it that has quietly fallen behind. The origin is public, so
-no credential is involved. The suite covers the three phases a client can decide
-offline: the YAML profile, the JSON Schema bundles, and the semantic rules that
-bind an item's documents to each other and to its directory. See
-[`tests/README.md`](tests/README.md).
+Every item is validated against **release v1.0.0** of
+[`musher-dev/specifications`](https://github.com/musher-dev/specifications),
+the first stable release of the `core`, `component`, `listing` and `blueprint`
+families. Nothing is vendored. The schemas are fetched from their exact release
+URLs at `specifications.musher.dev`, and the release's conformance corpus from
+its GitHub release assets. Every byte is checked against the digest the release
+records, so the corpus is judged against exactly the contract it names, and
+adopting a newer release is a deliberate change of one version and its
+digests. The origins are
+public, so no credential is involved.
+
+The suite covers the three phases a client can decide offline: the YAML
+profile, the JSON Schema bundles, and the semantic rules that bind an item's
+documents to each other and to its directory. It also runs the specification's
+own conformance cases through those phases, so a rule here that disagrees with
+the specification fails by case id. See [`tests/README.md`](tests/README.md). For
+what each field means, read the generated
+[field reference](https://specifications.musher.dev/reference/) rather than a
+copy of it.
 
 The Musher platform remains the **sole authority**. These tests are the same
 contracts applied early, not a second one: they run the phases that need no

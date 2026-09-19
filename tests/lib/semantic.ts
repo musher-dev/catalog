@@ -17,14 +17,16 @@ import path from 'node:path';
 
 import {
   isRecord,
+  loadItemDocuments,
   resolvesInside,
   type Item,
   type ItemDocuments,
   type LoadedDocument,
 } from './catalog.ts';
-import { declaredMediaPaths } from './media.ts';
+import { declaredMediaPaths, mediaPathPatternFrom } from './media.ts';
 import { scanDescription } from './markdown.ts';
 import { rel } from './paths.ts';
+import { loadSchema, validatorFor } from './spec-schemas.ts';
 
 export type Diagnostic = { code: string; where: string; message: string };
 
@@ -123,6 +125,12 @@ export type SemanticContext = {
   isMediaPath: (value: string) => boolean;
   /** ComponentInput property defaults, read out of the fetched component bundle. */
   inputDefaults: Record<string, unknown>;
+  /**
+   * Component documents that fail the parser or the component schema, by
+   * absolute path. A node deploying one is ERR_INVALID_DEPENDENCY: the contract
+   * it supplies is not a contract.
+   */
+  invalidComponents: ReadonlySet<string>;
 };
 
 export function buildContext(
@@ -130,6 +138,7 @@ export function buildContext(
   documents: ItemDocuments,
   isMediaPath: (value: string) => boolean,
   inputDefaults: Record<string, unknown>,
+  invalidComponents: ReadonlySet<string> = new Set(),
 ): SemanticContext {
   const components = record(specOf(documents.blueprint)['components']);
 
@@ -160,8 +169,63 @@ export function buildContext(
     return { name, node, reference, form: 'unrecognised', componentPath: null, component: null, unreadable: true };
   });
 
-  return { item, documents, nodes, isMediaPath, inputDefaults };
+  return { item, documents, nodes, isMediaPath, inputDefaults, invalidComponents };
 }
+
+/**
+ * The whole context for one item, as every suite builds it. The media-path
+ * grammar and the component-input defaults are read back out of the fetched
+ * bundles rather than restated here, so the two places this phase needs them
+ * cannot drift from what the spec publishes.
+ */
+export async function contextForItem(item: Item): Promise<SemanticContext> {
+  const [listingBundle, componentBundle, validateComponent, documents] = await Promise.all([
+    loadSchema('listing'),
+    loadSchema('component'),
+    validatorFor('component'),
+    loadItemDocuments(item),
+  ]);
+
+  const invalidComponents = new Set<string>();
+  for (const [componentPath, doc] of documents.components) {
+    if (doc.parserDiagnostics.length > 0 || !doc.value || !validateComponent(doc.value)) invalidComponents.add(componentPath);
+  }
+
+  const mediaPathPattern = mediaPathPatternFrom(listingBundle.schema);
+  return buildContext(
+    item,
+    documents,
+    (value) => mediaPathPattern.test(value),
+    inputDefaultsFrom(componentBundle.schema),
+    invalidComponents,
+  );
+}
+
+/** Every rule in this phase, in the order the suites report them. */
+export const SEMANTIC_CHECKS: readonly ((context: SemanticContext) => Diagnostic[])[] = [
+  checkIdentity,
+  checkItemType,
+  checkComponentReferences,
+  checkMedia,
+  checkDescription,
+  checkImagePinning,
+  checkEnvKeys,
+  checkMounts,
+  checkSchedule,
+  checkHealthProbes,
+  checkOutputOrigins,
+  checkConnectionRequirements,
+  checkNodeCompute,
+  checkVolumeAllocations,
+  checkExposure,
+  checkBindings,
+  checkValueCycles,
+  checkConnectionBindings,
+  checkParameters,
+];
+
+export const runSemanticChecks = (context: SemanticContext): Diagnostic[] =>
+  SEMANTIC_CHECKS.flatMap((check) => check(context));
 
 /* ---------------------------------------------------------------- identity */
 
@@ -255,6 +319,12 @@ export function checkComponentReferences(context: SemanticContext): Diagnostic[]
     if (!documents.components.has(componentPath)) {
       found.push(
         diag('ERR_COMPONENT_NOT_FOUND', where, `${JSON.stringify(binding.reference)} names no document (${rel(componentPath)})`),
+      );
+    } else if (context.invalidComponents.has(componentPath)) {
+      // Blueprint §10. The component's own diagnostics say what is wrong with
+      // it; this one says the node deploying it cannot be judged against it.
+      found.push(
+        diag('ERR_INVALID_DEPENDENCY', where, `${JSON.stringify(binding.reference)} is not a valid component document (${rel(componentPath)})`),
       );
     }
   }
@@ -410,8 +480,8 @@ export function tagOf(ref: string): string | null {
 /**
  * Component spec §5.2 — COMP-EP-001. Every endpoint reference names its
  * endpoint, including on a single-endpoint workload: there is no primary
- * endpoint to elect and no `ERR_AMBIGUOUS_ENDPOINT` to report. A probe with no
- * `endpoint` fails structurally, because `ComponentHttpProbe` requires it.
+ * endpoint to elect. A probe with no `endpoint` fails structurally, because
+ * `ComponentHttpProbe` requires it.
  */
 export function lookupEndpoint(
   component: Record<string, unknown> | null,
@@ -631,6 +701,145 @@ function checkOutputTemplate(component: Record<string, unknown>, template: strin
   return found;
 }
 
+/* ------------------------------------------------------ workload contract */
+
+/** Names in UTF-8 byte order — the order the specification selects "the later declaration" by. */
+const utf8Order = (a: string, b: string): number => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
+
+/**
+ * Component spec §5.3 — COMP-ENVVAR-002. One environment variable has one
+ * writer: an input target claims neither a name `envVars` fixes nor a name
+ * another input already claims. The later input, in UTF-8 order, is the one
+ * reported.
+ */
+export function checkEnvKeys(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const claimed = new Map<string, string>(
+      Object.keys(record(record(specOf(doc)['workload'])['envVars'])).map((key) => [key, 'envVars']),
+    );
+
+    const inputs = inputsOf(doc.value);
+    for (const name of Object.keys(inputs).sort(utf8Order)) {
+      const key = record(record(inputs[name])['target'])['envVarKey'];
+      if (typeof key !== 'string') continue;
+      const owner = claimed.get(key);
+      if (owner !== undefined) {
+        const by = owner === 'envVars' ? 'workload.envVars' : `input ${JSON.stringify(owner)}`;
+        found.push(
+          diag('ERR_CONFLICTING_ENV_KEY', `${rel(componentPath)} /spec/contract/inputs/${name}/target/envVarKey`, `${key} is already claimed by ${by}`),
+        );
+        continue;
+      }
+      claimed.set(key, name);
+    }
+  }
+
+  return found;
+}
+
+/** Component spec §5.5: absolute, no dot segments, no doubled separator, no trailing slash but root's. */
+const isCanonicalMountPath = (value: string): boolean =>
+  value === '/' || (value.startsWith('/') && value.slice(1).split('/').every((segment) => segment !== '' && segment !== '.' && segment !== '..'));
+
+/**
+ * Component spec §5.5. A mount path is canonical, and no two volumes share one
+ * or nest one inside the other: which volume a file under a nested mount lands
+ * on is a fact about the runtime, not about the document. The deeper mount —
+ * or, for a duplicate, the later volume in UTF-8 order — is the one reported.
+ */
+export function checkMounts(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const volumes = Object.entries(record(record(specOf(doc)['workload'])['volumes']))
+      .map(([name, volume]) => ({ name, mountPath: record(volume)['mountPath'] }))
+      .filter((volume): volume is { name: string; mountPath: string } => typeof volume.mountPath === 'string')
+      .sort((a, b) => utf8Order(a.name, b.name));
+
+    const at = (name: string) => `${rel(componentPath)} /spec/workload/volumes/${name}/mountPath`;
+    const canonical = volumes.filter((volume) => {
+      if (isCanonicalMountPath(volume.mountPath)) return true;
+      found.push(diag('ERR_INVALID_MOUNT', at(volume.name), `${JSON.stringify(volume.mountPath)} is not a canonical absolute path`));
+      return false;
+    });
+
+    for (const [index, later] of canonical.entries()) {
+      for (const earlier of canonical.slice(0, index)) {
+        const [outer, inner] = earlier.mountPath.length <= later.mountPath.length ? [earlier, later] : [later, earlier];
+        const prefix = outer.mountPath === '/' ? '/' : `${outer.mountPath}/`;
+        if (outer.mountPath === inner.mountPath) {
+          found.push(diag('ERR_INVALID_MOUNT', at(later.name), `${later.mountPath} is also volume ${JSON.stringify(earlier.name)}'s mount path`));
+        } else if (inner.mountPath.startsWith(prefix)) {
+          found.push(diag('ERR_INVALID_MOUNT', at(inner.name), `${inner.mountPath} lies inside volume ${JSON.stringify(outer.name)}'s mount at ${outer.mountPath}`));
+        }
+      }
+    }
+  }
+
+  return found;
+}
+
+/** Component spec §5.7: minute, hour, day of month, month, day of week. */
+const CRON_RANGES: readonly [number, number][] = [
+  [0, 59],
+  [0, 23],
+  [1, 31],
+  [1, 12],
+  [0, 6],
+];
+
+const CRON_ELEMENT = /^(\*|[0-9]+|[0-9]+-[0-9]+)(?:\/([0-9]+))?$/;
+
+/** Why one cron field is outside §5.7's grammar or range, or null. */
+function cronFieldProblem(field: string, [min, max]: [number, number]): string | null {
+  for (const element of field.split(',')) {
+    const match = CRON_ELEMENT.exec(element);
+    if (!match) return `${JSON.stringify(element)} is not *, a number or a range, with an optional step`;
+    const [, base, step] = match;
+    if (step !== undefined && Number(step) < 1) return `the step in ${JSON.stringify(element)} is not positive`;
+    if (base === '*') continue;
+    const [low, high = low] = base!.split('-').map(Number) as [number, number?];
+    if (low > high!) return `the range ${base} runs backwards`;
+    for (const value of [low, high!]) {
+      if (value < min || value > max) return `${value} is outside ${min}–${max}`;
+    }
+  }
+  return null;
+}
+
+/**
+ * Component spec §5.7 — COMP-JOB-002. Five fields is structural; what each field
+ * may hold is not. Numbers only — no month or day names — each inside its
+ * field's range, with 0 as Sunday and no 7.
+ */
+export function checkSchedule(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+  const names = ['minute', 'hour', 'day of month', 'month', 'day of week'];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const cron = record(record(specOf(doc)['workload'])['schedule'])['cron'];
+    if (typeof cron !== 'string') continue;
+
+    const fields = cron.trim().split(/[ \t]+/);
+    if (fields.length !== CRON_RANGES.length) continue; // structural
+
+    for (const [index, field] of fields.entries()) {
+      const problem = cronFieldProblem(field, CRON_RANGES[index]!);
+      if (problem) {
+        found.push(diag('ERR_INVALID_SCHEDULE', `${rel(componentPath)} /spec/workload/schedule/cron`, `${names[index]} field: ${problem}`));
+        break;
+      }
+    }
+  }
+
+  return found;
+}
+
 /* ------------------------------------------------------------ node compute */
 
 /**
@@ -811,9 +1020,8 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
  * resolving the names: the input it fills, and — for a `{node, output}` binding
  * — the producer and its output, with the two schemas agreeing.
  *
- * The draft's `connections`, `fromNode`, `fromOutput` and name-based coverage
- * are gone: adding an unrelated node must not change existing recipients, so
- * every recipient is written down.
+ * Coverage by matching names does not exist: adding an unrelated node must not
+ * change existing recipients, so every recipient is written down.
  */
 export function checkBindings(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
@@ -888,6 +1096,65 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
   }
 
   return found;
+}
+
+/**
+ * Blueprint spec §4.2 — BP-CONN-002. The value-dependency graph is acyclic.
+ *
+ * A vertex is one node's input or output. A `{node, output}` binding makes the
+ * consumer's input depend on the producer's output, and an output whose `from`
+ * is `{input}` depends on that input. Endpoint and template outputs depend on
+ * allocated addresses rather than on values, so a discovery loop — two nodes
+ * reading each other's addresses — adds no edge and is permitted.
+ */
+export function checkValueCycles(context: SemanticContext): Diagnostic[] {
+  const blueprint = context.documents.blueprint;
+  if (!blueprint?.value) return [];
+
+  const edges = new Map<string, string[]>();
+  const edge = (from: string, to: string) => edges.set(from, [...(edges.get(from) ?? []), to]);
+
+  for (const node of context.nodes) {
+    for (const [outputName, output] of Object.entries(outputsOf(node.component))) {
+      const input = record(record(output)['from'])['input'];
+      if (typeof input === 'string') edge(`${node.name}.outputs.${outputName}`, `${node.name}.inputs.${input}`);
+    }
+    for (const [inputKey, rawBinding] of Object.entries(record(node.node['bindings']))) {
+      const binding = record(rawBinding);
+      if (typeof binding['node'] === 'string' && typeof binding['output'] === 'string') {
+        edge(`${node.name}.inputs.${inputKey}`, `${binding['node']}.outputs.${binding['output']}`);
+      }
+    }
+  }
+
+  // Iterative depth-first search, so a long chain cannot exhaust the stack.
+  const state = new Map<string, 'open' | 'done'>();
+  for (const start of edges.keys()) {
+    if (state.has(start)) continue;
+    const stack: { vertex: string; next: number }[] = [{ vertex: start, next: 0 }];
+    state.set(start, 'open');
+    while (stack.length > 0) {
+      const top = stack[stack.length - 1]!;
+      const successors = edges.get(top.vertex) ?? [];
+      if (top.next >= successors.length) {
+        state.set(top.vertex, 'done');
+        stack.pop();
+        continue;
+      }
+      const successor = successors[top.next++]!;
+      const seen = state.get(successor);
+      if (seen === 'open') {
+        const loop = [...stack.slice(stack.findIndex((frame) => frame.vertex === successor)).map((frame) => frame.vertex), successor];
+        return [diag('ERR_VALUE_CYCLE', `${blueprint.label} /spec/components`, `values depend on themselves: ${loop.join(' → ')}`)];
+      }
+      if (seen === undefined) {
+        state.set(successor, 'open');
+        stack.push({ vertex: successor, next: 0 });
+      }
+    }
+  }
+
+  return [];
 }
 
 /**
@@ -1059,7 +1326,7 @@ function boundByParameter(context: SemanticContext): Map<string, Bound[]> {
  * So the rules invert: a parameter is reachable iff something names it, and a
  * required input is supplied iff something binds it.
  *
- * BP-PARAM-001..004 and BP-UI-003.
+ * BP-PARAM-001..003 and BP-UI-003.
  */
 export function checkParameters(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
@@ -1111,20 +1378,10 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
       }
     }
 
-    // BP-PARAM-004. A generator mints secret material. An input not marked
-    // sensitive is one the platform may echo back, log or show in a preview.
-    if (isRecord(parameter['generator'])) {
-      const insensitive = supplies.find((one) => one.input['sensitive'] !== true);
-      if (insensitive) {
-        found.push(
-          diag(
-            'ERR_GENERATED_INPUT_NOT_SENSITIVE',
-            `${at}/generator`,
-            `the parameter is generated, but input on node ${JSON.stringify(insensitive.node)} is not marked sensitive`,
-          ),
-        );
-      }
-    }
+    // BP-PARAM-004 asks nothing of the receiving input. A generated value is
+    // sensitive whatever it is bound to, because sensitivity is the union of the
+    // receiving contracts and the supplied value (BP-PARAM-002), so an input not
+    // marked sensitive is not an error here.
 
     found.push(...checkParameterSource(parameter, at));
     found.push(...checkEnumLabels(parameter, supplies, at));
