@@ -1,6 +1,7 @@
 /**
  * Fetches the normative JSON Schema bundles for one exact, released version of
- * `musher-dev/specifications`, and refuses any bytes but the released ones.
+ * each `musher-dev/specifications` family, and refuses any bytes but the
+ * released ones.
  *
  * The catalog is not the authority on what a valid item looks like; the spec is.
  * So nothing here is vendored: the bundles are fetched on every run and memoised
@@ -9,7 +10,7 @@
  *
  * There is exactly one source, and it is immutable:
  *
- *   https://specifications.musher.dev/<family>/v<SPEC_RELEASE>/<family>.schema.json
+ *   https://specifications.musher.dev/<family>/v<version>/<family>.schema.json
  *
  * That is the exact release URL. The specification requires automation to pin
  * one (docs/using-schemas.md → Pinning in automation) because the major-version
@@ -19,8 +20,9 @@
  * `bundleSha256` (the specification repository's `published.json`), so a proxy,
  * a cache or a mistaken origin cannot substitute other bytes.
  *
- * Adopting a new release is a deliberate change of `SPEC_RELEASE` and the
- * digests beside it, in a pull request of its own, copied from that ledger.
+ * Adopting a new release is a deliberate change of that family's entry in
+ * `RELEASES`, in a pull request of its own, copied from that ledger. Families
+ * release independently, so they sit at different versions.
  *
  * The origin is public and serves open CORS, so this is fetched with no
  * credential — nothing here reads a token, and none should be configured.
@@ -49,23 +51,46 @@ export const KIND_OF: Record<Family, string> = {
 
 const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
 
-/** The released version of every family this corpus is held to. */
-export const SPEC_RELEASE = '1.0.0';
-
 /**
- * `bundleSha256` of each family's `SPEC_RELEASE` entry in the release ledger,
- * https://specifications.musher.dev/published.json. Copied, never computed: a
- * digest taken from the bytes it is meant to check would check nothing.
+ * The identity of the contract: one released version per family, with the
+ * digests that pin its bytes. Families release independently and sit at
+ * different versions — `component` and `blueprint` are past `1.0.0` because
+ * ADR 0033 reset the v1 compatibility baseline — so there is no single
+ * "the spec version" to hold, and never was.
+ *
+ * `bundleSha256` is the family's entry in the release ledger,
+ * https://specifications.musher.dev/published.json. `archiveSha256` is the
+ * digest GitHub records for the release's `.tar.gz` asset, and is present only
+ * for the two families whose archives carry the conformance corpus
+ * (lib/conformance.ts). Both are copied, never computed: a digest taken from
+ * the bytes it is meant to check would check nothing.
+ *
+ * Adopting a new release is a deliberate edit of this one literal, in a pull
+ * request of its own.
  */
-export const BUNDLE_SHA256: Record<Family, string> = {
-  listing: '8a0ac418d4dacfc998310d11bf8003a1841e10b0869ca6b2b294caafb845305d',
-  blueprint: '4233cc2d744824fc5384bdbc72465eda6fbb0c0f87377c19793ec6b0ef568945',
-  component: '8bbbf9bbcb282991f5157732bfd92b3481692390e582f29c6e9f91c472ac124c',
+export const RELEASES: Record<Family, { version: string; bundleSha256: string; archiveSha256?: string }> = {
+  listing: {
+    version: '1.0.0',
+    bundleSha256: '8a0ac418d4dacfc998310d11bf8003a1841e10b0869ca6b2b294caafb845305d',
+    archiveSha256: '0243c55999947de392d61468ff076bd82bf3234124bdd980ba3ed6538ddea27e',
+  },
+  blueprint: {
+    version: '1.3.0',
+    bundleSha256: '711baf20056ce4c9c5d109b12839a1210eb653fe0befd72c7c58822c3fa4a6b6',
+    archiveSha256: '9a9f6d95f754f63233a0c12bad9ae8116c977f61d2949fb7974be5681929475c',
+  },
+  component: {
+    version: '1.2.0',
+    bundleSha256: '8e1ace8bdbea68cfb697672545b2f24937cf84fdee633ac7baf58382fff063d5',
+  },
 };
+
+/** The released version of one family, as the release tag spells it. */
+export const releaseOf = (family: Family): string => RELEASES[family].version;
 
 /** The one place a schema comes from. */
 export const schemaUrl = (family: Family): string =>
-  `https://specifications.musher.dev/${family}/v${SPEC_RELEASE}/${family}.schema.json`;
+  `https://specifications.musher.dev/${family}/v${releaseOf(family)}/${family}.schema.json`;
 
 async function read(url: string): Promise<string> {
   // No credential is sent, and no code path here reads one. The specifications
@@ -158,10 +183,10 @@ async function resolveSchema(family: Family): Promise<FetchedSchema> {
   // The digest is checked before the bytes are even parsed: anything else is not
   // the release this corpus is pinned to, whatever it claims to be.
   const sha256 = createHash('sha256').update(text).digest('hex');
-  if (sha256 !== BUNDLE_SHA256[family]) {
+  if (sha256 !== RELEASES[family].bundleSha256) {
     throw new Error(
-      `${family} schema from ${url} has sha256 ${sha256}, but the ${family}/v${SPEC_RELEASE} ` +
-        `release ledger records ${BUNDLE_SHA256[family]}. An exact release URL never changes its ` +
+      `${family} schema from ${url} has sha256 ${sha256}, but the ${family}/v${releaseOf(family)} ` +
+        `release ledger records ${RELEASES[family].bundleSha256}. An exact release URL never changes its ` +
         'bytes, so whatever answered is not that release.',
     );
   }

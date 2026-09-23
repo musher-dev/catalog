@@ -20,13 +20,11 @@ import {
   checkBindings,
   checkComponentReferences,
   checkConnectionBindings,
-  checkConnectionRequirements,
   checkDescription,
   checkEnvKeys,
   checkExposure,
   checkHealthProbes,
   checkIdentity,
-  checkImagePinning,
   checkItemType,
   checkMedia,
   checkMounts,
@@ -78,12 +76,7 @@ for (const item of items) {
       assert.deepEqual(report(checkDescription(context)), []);
     });
 
-    it('every image reference is pinned — COMP-SRC-003', async () => {
-      const { context } = await contextFor(item);
-      assert.deepEqual(report(checkImagePinning(context)), []);
-    });
-
-    it('no environment variable has two writers — COMP-ENVVAR-002', async () => {
+    it('no two inputs claim one environment variable — COMP-ENVVAR-002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkEnvKeys(context)), []);
     });
@@ -103,14 +96,9 @@ for (const item of items) {
       assert.deepEqual(report(checkHealthProbes(context)), []);
     });
 
-    it('every output origin names something its own component declares — COMP-OUT-002, COMP-REF-001, COMP-EP-004', async () => {
+    it('every output origin names something its own component declares — COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkOutputOrigins(context)), []);
-    });
-
-    it('every connection requirement names inputs that can carry one — COMP-CONNECTION-001', async () => {
-      const { context } = await contextFor(item);
-      assert.deepEqual(report(checkConnectionRequirements(context)), []);
     });
 
     it('a node names compute exactly when its component runs — BP-NODE-001, BP-NODE-002', async () => {
@@ -138,7 +126,7 @@ for (const item of items) {
       assert.deepEqual(report(checkValueCycles(context)), []);
     });
 
-    it('every connection requirement is bound to a connection parameter — BP-CONNECTION-001', async () => {
+    it('a connection input takes a connection parameter, and a connection parameter takes one — BP-CONNECTION-001', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkConnectionBindings(context)), []);
     });

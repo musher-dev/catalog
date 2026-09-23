@@ -3,7 +3,7 @@
  * its own words: "each implementation writes its own thin adapter over this
  * data" (docs/conformance.md).
  *
- * The corpus is read from the release archives of `SPEC_RELEASE`, fetched on
+ * The corpus is read from each family's release archive, fetched on
  * every run and checked against the SHA-256 digests GitHub records for those
  * immutable release assets, for the same reason the schemas are: a copy held
  * here would be a second authority that drifts. The blueprint archive carries
@@ -17,23 +17,30 @@ import path from 'node:path';
 
 import { readItem } from './catalog.ts';
 import { contextForItem, runSemanticChecks } from './semantic.ts';
-import { SPEC_RELEASE, validatorFor, type Family } from './spec-schemas.ts';
+import { RELEASES, releaseOf, validatorFor, type Family } from './spec-schemas.ts';
 import { parseDocument } from './yaml-profile.ts';
 
 const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
 
 /**
- * The release archives, by the family whose release attaches them, with the
- * asset digests GitHub records for them. Copied from the releases, never
- * computed here, and bumped together with `SPEC_RELEASE`.
+ * The families whose release archives carry a conformance corpus. The blueprint
+ * archive carries the component and core corpora of the releases it was built
+ * against, so these two cover all four. Their versions and asset digests live
+ * in `RELEASES` with the bundle digests, so adopting a release is one edit.
  */
-const ARCHIVES = {
-  blueprint: 'ccf19641becdb9564f15964c888fffc503f6471587004400b7e0cbeb35839d26',
-  listing: '0243c55999947de392d61468ff076bd82bf3234124bdd980ba3ed6538ddea27e',
-} as const;
+const ARCHIVE_FAMILIES = ['blueprint', 'listing'] as const;
+type ArchiveFamily = (typeof ARCHIVE_FAMILIES)[number];
 
-const archiveUrl = (family: keyof typeof ARCHIVES): string =>
-  `https://github.com/musher-dev/specifications/releases/download/${family}/v${SPEC_RELEASE}/${family}-v${SPEC_RELEASE}.tar.gz`;
+const archiveSha256 = (family: ArchiveFamily): string => {
+  const digest = RELEASES[family].archiveSha256;
+  if (digest === undefined) throw new Error(`RELEASES.${family} carries no archiveSha256`);
+  return digest;
+};
+
+const archiveUrl = (family: ArchiveFamily): string => {
+  const version = releaseOf(family);
+  return `https://github.com/musher-dev/specifications/releases/download/${family}/v${version}/${family}-v${version}.tar.gz`;
+};
 
 export type CorpusFamily = 'core' | Family;
 
@@ -111,7 +118,7 @@ async function download(url: string): Promise<Buffer> {
 /** Fetch, verify and unpack both archives into `into`. */
 export async function fetchCorpus(into: string): Promise<void> {
   await Promise.all(
-    (Object.keys(ARCHIVES) as (keyof typeof ARCHIVES)[]).map(async (family) => {
+    ARCHIVE_FAMILIES.map(async (family) => {
       const url = archiveUrl(family);
       let bytes: Buffer;
       try {
@@ -124,8 +131,10 @@ export async function fetchCorpus(into: string): Promise<void> {
       }
 
       const sha256 = createHash('sha256').update(bytes).digest('hex');
-      if (sha256 !== ARCHIVES[family]) {
-        throw new Error(`${url} has sha256 ${sha256}, but the ${family}/v${SPEC_RELEASE} release asset is ${ARCHIVES[family]}`);
+      if (sha256 !== archiveSha256(family)) {
+        throw new Error(
+          `${url} has sha256 ${sha256}, but the ${family}/v${releaseOf(family)} release asset is ${archiveSha256(family)}`,
+        );
       }
 
       const archive = path.join(into, `${family}.tar.gz`);

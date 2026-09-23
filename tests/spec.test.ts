@@ -8,10 +8,10 @@
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
 
-import { BUNDLE_SHA256, FAMILIES, KIND_OF, SPEC_RELEASE, externalRefs, loadSchema, schemaUrl } from './lib/spec-schemas.ts';
+import { FAMILIES, KIND_OF, RELEASES, externalRefs, loadSchema, releaseOf, schemaUrl } from './lib/spec-schemas.ts';
 
 describe('musher-dev/specifications', () => {
-  it(`resolves all three v${SPEC_RELEASE} bundles from the published origin`, async () => {
+  it('resolves every pinned family bundle from the published origin', async () => {
     const bundles = await Promise.all(FAMILIES.map(loadSchema));
     for (const bundle of bundles) {
       console.log(`  ${bundle.family.padEnd(10)} sha256:${bundle.sha256.slice(0, 12)}  ${bundle.origin}`);
@@ -21,11 +21,11 @@ describe('musher-dev/specifications', () => {
 
   for (const family of FAMILIES) {
     describe(family, () => {
-      it(`is the ${family}/v${SPEC_RELEASE} release, byte for byte`, async () => {
+      it(`is the ${family}/v${releaseOf(family)} release, byte for byte`, async () => {
         // The ledger's digest, not one computed here: the exact release URL
         // serves the same bytes for as long as the site exists.
         const { sha256, schema } = await loadSchema(family);
-        assert.equal(sha256, BUNDLE_SHA256[family]);
+        assert.equal(sha256, RELEASES[family].bundleSha256);
         assert.equal(schema['$id'], schemaUrl(family));
       });
 

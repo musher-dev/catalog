@@ -19,7 +19,7 @@ import YAML from 'yaml';
 
 import { loadItemDocuments, readItem } from './lib/catalog.ts';
 import { KIND_OF, formatAjvErrors, validatorFor, type Family } from './lib/spec-schemas.ts';
-import { contextForItem, runSemanticChecks, tagOf, type Diagnostic } from './lib/semantic.ts';
+import { contextForItem, runSemanticChecks, type Diagnostic } from './lib/semantic.ts';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-rules-'));
 after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -123,11 +123,39 @@ const externalDatabase = (over: Doc = {}): Doc => ({
 });
 
 /**
- * A component taking a language model as one atomic connection — component
- * spec §6.4. The three roles name three inputs that are required, string and
- * default-less, which is what COMP-CONNECTION-001 asks of them.
+ * The EXTERNAL node a language model enters through — component spec §6.4,
+ * after ADR 0033. One connection input, and three outputs handing its members
+ * to whatever wires to them. `apiKey` is sensitive because the member is.
  */
-const connectionWorker = (requirement: Doc = {}, inputs: Doc = {}): Doc => ({
+const llmProvider = (over: Doc = {}): Doc => ({
+  specVersion: 'v1',
+  kind: 'COMPONENT',
+  metadata: { revision: 1, description: 'Synthetic rules fixture connection provider.' },
+  spec: {
+    type: 'EXTERNAL',
+    contract: {
+      inputs: {
+        llm: {
+          description: 'Language-model connection this node stands for.',
+          connection: { protocol: 'OPENAI_CHAT_COMPLETIONS', capabilities: ['STREAMING'] },
+        },
+      },
+      outputs: {
+        baseURL: { description: 'Base URL of the API.', schema: { type: 'string' }, from: { input: 'llm', member: 'baseURL' } },
+        apiKey: { description: 'Credential for the API.', schema: { type: 'string' }, sensitive: true, from: { input: 'llm', member: 'apiKey' } },
+        model: { description: 'Model the API answers with.', schema: { type: 'string' }, from: { input: 'llm', member: 'model' } },
+      },
+      ...(over['contract'] as Doc),
+    },
+  },
+});
+
+/**
+ * The workload that calls the model. After ADR 0033 it holds three ordinary
+ * value inputs and cannot demand a protocol: the external node declares that,
+ * and the blueprint wires the two together.
+ */
+const llmConsumer = (inputs: Doc = {}): Doc => ({
   specVersion: 'v1',
   kind: 'COMPONENT',
   metadata: { revision: 1, description: 'Synthetic rules fixture connection consumer.' },
@@ -142,13 +170,6 @@ const connectionWorker = (requirement: Doc = {}, inputs: Doc = {}): Doc => ({
         ...inputs,
       },
       outputs: {},
-      connectionRequirements: {
-        llm: {
-          protocol: 'OPENAI_CHAT_COMPLETIONS',
-          inputs: { baseURL: 'llmBaseURL', apiKey: 'llmAPIKey', model: 'llmModel' },
-          ...requirement,
-        },
-      },
     },
   },
 });
@@ -198,6 +219,20 @@ async function assertReports(fixture: Fixture, code: string): Promise<void> {
   assert.ok(
     diagnostics.some((diagnostic) => diagnostic.code === code),
     `expected ${code}, got ${diagnostics.map((d) => `${d.code} (${d.where})`).join('; ') || 'no diagnostics'}`,
+  );
+}
+
+/**
+ * Every code the item reports, and no other. `assertReports` tolerates extras,
+ * which is right for a case proving one rule fires — but a rule whose content
+ * is "this code, and nothing else" needs the stronger assertion.
+ */
+async function assertReportsExactly(fixture: Fixture, codes: string[]): Promise<void> {
+  const diagnostics = await diagnose(build(fixture));
+  assert.deepEqual(
+    [...new Set(diagnostics.map((d) => d.code))].sort(),
+    [...codes].sort(),
+    diagnostics.map((d) => `${d.code} (${d.where})`).join('; ') || 'no diagnostics',
   );
 }
 
@@ -381,21 +416,6 @@ describe('workload contract — component §5.3, §5.5, §5.7', () => {
       },
     });
 
-  it('ERR_CONFLICTING_ENV_KEY when an input targets a name envVars fixes — COMP-ENVVAR-002', async () => {
-    await assertReports(
-      {
-        blueprint: blueprint({ spec: { components: { web: node({ bindings: { databaseURL: { value: 'postgres://db/app' } } }) } } }),
-        components: {
-          'components/web.yaml': withWorkload(
-            { envVars: { DATABASE_URL: 'postgres://localhost/app' } },
-            { databaseURL: input({ target: { envVarKey: 'DATABASE_URL' } }) },
-          ),
-        },
-      },
-      'ERR_CONFLICTING_ENV_KEY',
-    );
-  });
-
   it('ERR_CONFLICTING_ENV_KEY when two inputs target one name — COMP-ENVVAR-002', async () => {
     await assertReports(
       {
@@ -501,28 +521,17 @@ describe('the description Markdown profile — listing §4.1', () => {
   });
 });
 
-describe('image pinning — COMP-SRC-003', () => {
-  for (const tag of ['latest', 'main', 'LATEST', 'edge', 'nightly', 'rolling']) {
-    it(`ERR_UNPINNED_IMAGE for :${tag}`, async () => {
-      await assertReports(
-        { components: { 'components/web.yaml': withImage(`ghcr.io/acme/web:${tag}`) } },
-        'ERR_UNPINNED_IMAGE',
-      );
+describe('image references — COMP-SRC-002', () => {
+  // ADR 0033 §3 retired the floating-tag blocklist: an image reference follows
+  // Docker, so a bare name means `latest` and every tag is accepted. This is the
+  // inverse of the rule this suite used to hold, and it is here so the rule
+  // cannot quietly come back — a tag was never a pin, and only a digest
+  // identifies content.
+  for (const ref of ['ghcr.io/acme/web:latest', 'ghcr.io/acme/web:main', 'nginx', 'localhost:5000/nginx']) {
+    it(`accepts ${ref}`, async () => {
+      await assertClean({ components: { 'components/web.yaml': withImage(ref) } });
     });
   }
-
-  it('reads the tag as the colon after the final slash', () => {
-    // A registry port must not read as a tag.
-    assert.equal(tagOf('localhost:5000/nginx'), null);
-    assert.equal(tagOf('localhost:5000/nginx:1.27'), '1.27');
-    assert.equal(tagOf('redis:8.8.1-alpine'), '8.8.1-alpine');
-  });
-
-  it('accepts a floating tag accompanied by a digest', () => {
-    // A digest pin satisfies the rule whatever tag accompanies it, because the
-    // digest is what resolves.
-    assert.equal(tagOf(`ghcr.io/acme/web:latest@sha256:${'a'.repeat(64)}`), null);
-  });
 });
 
 describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
@@ -1106,115 +1115,161 @@ describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
 });
 
 describe('connections — component §6.4, blueprint §5.3', () => {
-  const composed = (over: { requirement?: Doc; inputs?: Doc; blueprintSpec?: Doc } = {}): Fixture => ({
+  /**
+   * The shape ADR 0033 settles on: an EXTERNAL node holding the connection,
+   * and the workload wired to its three outputs. The external node carries no
+   * `compute` — it runs nothing — and both component files are referenced, so
+   * neither is unreferenced.
+   */
+  const composed = (over: { consumerInputs?: Doc; blueprintSpec?: Doc; provider?: Doc } = {}): Fixture => ({
     blueprint: blueprint({
       spec: over.blueprintSpec ?? {
         parameters: { llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } } },
         components: {
-          worker: { componentRef: './components/web.yaml', compute: { profile: 'general.standard.small' }, connectionBindings: { llm: { parameter: 'llm' } } },
+          llm: { componentRef: './components/llm.yaml', bindings: { llm: { parameter: 'llm' } } },
+          worker: {
+            componentRef: './components/web.yaml',
+            compute: { profile: 'general.standard.small' },
+            bindings: {
+              llmBaseURL: { node: 'llm', output: 'baseURL' },
+              llmAPIKey: { node: 'llm', output: 'apiKey' },
+              llmModel: { node: 'llm', output: 'model' },
+            },
+          },
         },
       },
     }),
-    components: { 'components/web.yaml': connectionWorker(over.requirement, over.inputs) },
+    components: {
+      'components/web.yaml': llmConsumer(over.consumerInputs),
+      'components/llm.yaml': llmProvider(over.provider),
+    },
   });
 
-  it('accepts a component taking a language model as one connection', async () => {
+  it('accepts a language model reached through an external node', async () => {
     await assertClean(composed());
   });
 
-  it('the accepted connection is a real item', async () => {
+  it('the accepted composition is a real item', async () => {
     await assertStructurallyValid(build(composed()));
   });
 
-  it('ERR_INVALID_CONNECTION_REQUIREMENT when a role names no input — COMP-CONNECTION-001', async () => {
-    await assertReports(
-      composed({ requirement: { inputs: { baseURL: 'llmEndpoint', apiKey: 'llmAPIKey', model: 'llmModel' } } }),
-      'ERR_INVALID_CONNECTION_REQUIREMENT',
-    );
-  });
+  /* --- COMP-OUT-004: a connection publishes members, a value input does not - */
 
-  it('ERR_INVALID_CONNECTION_REQUIREMENT when the credential input is not sensitive', async () => {
-    await assertReports(
-      composed({ inputs: { llmAPIKey: input({ description: 'A credential.', target: { envVarKey: 'OPENAI_API_KEY' } }) } }),
-      'ERR_INVALID_CONNECTION_REQUIREMENT',
-    );
-  });
-
-  it('ERR_INVALID_CONNECTION_REQUIREMENT when a role names an optional input', async () => {
-    await assertReports(
-      composed({ inputs: { llmModel: input({ required: false, target: { envVarKey: 'OPENAI_MODEL' } }) } }),
-      'ERR_INVALID_CONNECTION_REQUIREMENT',
-    );
-  });
-
-  it('ERR_INVALID_CONNECTION_REQUIREMENT when a role names an input carrying a default', async () => {
-    await assertReports(
-      composed({ inputs: { llmModel: input({ default: 'gpt-4o-mini', target: { envVarKey: 'OPENAI_MODEL' } }) } }),
-      'ERR_INVALID_CONNECTION_REQUIREMENT',
-    );
-  });
-
-  it('ERR_INVALID_CONNECTION_REQUIREMENT when one input fills two roles', async () => {
-    await assertReports(
-      composed({ requirement: { inputs: { baseURL: 'llmBaseURL', apiKey: 'llmAPIKey', model: 'llmBaseURL' } } }),
-      'ERR_INVALID_CONNECTION_REQUIREMENT',
-    );
-  });
-
-  it('ERR_INVALID_CONNECTION_BINDING when a requirement is bound to nothing', async () => {
+  it('ERR_UNKNOWN_INPUT_REFERENCE when an output forwards a connection and names no member', async () => {
     await assertReports(
       composed({
-        blueprintSpec: {
-          parameters: {},
-          components: { worker: { componentRef: './components/web.yaml', compute: { profile: 'general.standard.small' } } },
+        provider: {
+          contract: {
+            inputs: { llm: { description: 'Connection.', connection: { protocol: 'OPENAI_CHAT_COMPLETIONS' } } },
+            outputs: { baseURL: { description: 'Base URL.', schema: { type: 'string' }, from: { input: 'llm' } } },
+          },
         },
       }),
+      'ERR_UNKNOWN_INPUT_REFERENCE',
+    );
+  });
+
+  it('ERR_UNKNOWN_INPUT_REFERENCE when an output names a member of a value input', async () => {
+    await assertReports(
+      {
+        components: {
+          'components/web.yaml': externalDatabase({
+            contract: {
+              inputs: { host: { description: 'Hostname.', schema: { type: 'string' } } },
+              outputs: { host: { description: 'Hostname.', schema: { type: 'string' }, from: { input: 'host', member: 'baseURL' } } },
+            },
+          }),
+        },
+      },
+      'ERR_UNKNOWN_INPUT_REFERENCE',
+    );
+  });
+
+  /* --- COMP-OUT-003: every declared output must be producible -------------- */
+
+  it('ERR_OUTPUT_NOT_PRODUCIBLE when an output forwards an optional input with no default', async () => {
+    await assertReports(
+      {
+        components: {
+          'components/web.yaml': externalDatabase({
+            contract: {
+              inputs: { host: { description: 'Hostname.', schema: { type: 'string' }, required: false } },
+              outputs: { host: { description: 'Hostname.', schema: { type: 'string' }, from: { input: 'host' } } },
+            },
+          }),
+        },
+      },
+      'ERR_OUTPUT_NOT_PRODUCIBLE',
+    );
+  });
+
+  it('accepts an optional input carrying a default as an output origin', async () => {
+    await assertClean({
+      blueprint: blueprint({
+        spec: { components: { web: { componentRef: './components/web.yaml', bindings: {} } }, parameters: {} },
+      }),
+      components: {
+        'components/web.yaml': externalDatabase({
+          contract: {
+            inputs: { host: { description: 'Hostname.', schema: { type: 'string' }, required: false, default: 'db.internal' } },
+            outputs: { host: { description: 'Hostname.', schema: { type: 'string' }, from: { input: 'host' } } },
+          },
+        }),
+      },
+    });
+  });
+
+  /* --- BP-CONNECTION-001, read from both sides ----------------------------- */
+
+  const boundBy = (binding: Doc, parameters?: Doc): Fixture =>
+    composed({
+      blueprintSpec: {
+        parameters: parameters ?? { llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } } },
+        components: {
+          llm: { componentRef: './components/llm.yaml', bindings: { llm: binding } },
+          worker: {
+            componentRef: './components/web.yaml',
+            compute: { profile: 'general.standard.small' },
+            bindings: {
+              llmBaseURL: { node: 'llm', output: 'baseURL' },
+              llmAPIKey: { node: 'llm', output: 'apiKey' },
+              llmModel: { node: 'llm', output: 'model' },
+            },
+          },
+        },
+      },
+    });
+
+  it('ERR_INVALID_CONNECTION_BINDING for a literal value bound to a connection input', async () => {
+    await assertReports(boundBy({ value: 'https://api.example.com/v1' }), 'ERR_INVALID_CONNECTION_BINDING');
+  });
+
+  it('ERR_INVALID_CONNECTION_BINDING for a node output bound to a connection input', async () => {
+    await assertReports(boundBy({ node: 'worker', output: 'anything' }), 'ERR_INVALID_CONNECTION_BINDING');
+  });
+
+  it('ERR_INVALID_CONNECTION_BINDING when a connection input names a variables parameter', async () => {
+    await assertReports(
+      boundBy({ parameter: 'llm' }, { llm: { from: '${{ variables.llm.default }}', ui: { label: 'Language model' } } }),
       'ERR_INVALID_CONNECTION_BINDING',
     );
   });
 
-  it('ERR_INVALID_CONNECTION_BINDING when a connection binding names no requirement', async () => {
+  it('ERR_INVALID_CONNECTION_BINDING when a connection parameter is bound to a value input', async () => {
     await assertReports(
       composed({
         blueprintSpec: {
           parameters: { llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } } },
           components: {
-            worker: { componentRef: './components/web.yaml', compute: { profile: 'general.standard.small' }, connectionBindings: { llm: { parameter: 'llm' }, chat: { parameter: 'llm' } } },
-          },
-        },
-      }),
-      'ERR_INVALID_CONNECTION_BINDING',
-    );
-  });
-
-  it('ERR_INVALID_CONNECTION_BINDING when a connection binding names an ordinary parameter', async () => {
-    await assertReports(
-      composed({
-        blueprintSpec: {
-          parameters: { llm: { ui: { label: 'Language model' } } },
-          components: {
-            worker: { componentRef: './components/web.yaml', compute: { profile: 'general.standard.small' }, connectionBindings: { llm: { parameter: 'llm' } } },
-          },
-        },
-      }),
-      'ERR_INVALID_CONNECTION_BINDING',
-    );
-  });
-
-  it('ERR_INVALID_CONNECTION_BINDING when an ordinary binding fills an input a connection owns', async () => {
-    await assertReports(
-      composed({
-        blueprintSpec: {
-          parameters: {
-            llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } },
-            key: { ui: { label: 'Key' } },
-          },
-          components: {
+            llm: { componentRef: './components/llm.yaml', bindings: { llm: { parameter: 'llm' } } },
             worker: {
               componentRef: './components/web.yaml',
               compute: { profile: 'general.standard.small' },
-              connectionBindings: { llm: { parameter: 'llm' } },
-              bindings: { llmAPIKey: { parameter: 'key' } },
+              bindings: {
+                llmBaseURL: { parameter: 'llm' },
+                llmAPIKey: { node: 'llm', output: 'apiKey' },
+                llmModel: { node: 'llm', output: 'model' },
+              },
             },
           },
         },
@@ -1223,18 +1278,59 @@ describe('connections — component §6.4, blueprint §5.3', () => {
     );
   });
 
-  it('ERR_UNKNOWN_PARAMETER when a connection binding names no declared parameter', async () => {
+  it('ERR_UNSATISFIED_REQUIRED_INPUT when a connection input is bound to nothing', async () => {
     await assertReports(
       composed({
         blueprintSpec: {
           parameters: {},
           components: {
-            worker: { componentRef: './components/web.yaml', compute: { profile: 'general.standard.small' }, connectionBindings: { llm: { parameter: 'model' } } },
+            llm: { componentRef: './components/llm.yaml', bindings: {} },
+            worker: {
+              componentRef: './components/web.yaml',
+              compute: { profile: 'general.standard.small' },
+              bindings: {
+                llmBaseURL: { node: 'llm', output: 'baseURL' },
+                llmAPIKey: { node: 'llm', output: 'apiKey' },
+                llmModel: { node: 'llm', output: 'model' },
+              },
+            },
           },
         },
       }),
-      'ERR_UNKNOWN_PARAMETER',
+      'ERR_UNSATISFIED_REQUIRED_INPUT',
     );
+  });
+
+  it('ERR_UNBOUND_PARAMETER when nothing binds a connection parameter', async () => {
+    await assertReports(
+      composed({
+        blueprintSpec: {
+          parameters: {
+            llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } },
+            spare: { from: '${{ connections.llm.spare }}', ui: { label: 'Spare model' } },
+          },
+          components: {
+            llm: { componentRef: './components/llm.yaml', bindings: { llm: { parameter: 'llm' } } },
+            worker: {
+              componentRef: './components/web.yaml',
+              compute: { profile: 'general.standard.small' },
+              bindings: {
+                llmBaseURL: { node: 'llm', output: 'baseURL' },
+                llmAPIKey: { node: 'llm', output: 'apiKey' },
+                llmModel: { node: 'llm', output: 'model' },
+              },
+            },
+          },
+        },
+      }),
+      'ERR_UNBOUND_PARAMETER',
+    );
+  });
+
+  it('ERR_UNKNOWN_PARAMETER, and nothing else, when a binding to a connection input names no parameter', async () => {
+    // BP-CONNECTION-001 defers here rather than adding a second code: a
+    // binding naming no parameter is one mistake, reported once.
+    await assertReportsExactly(boundBy({ parameter: 'missing' }, {}), ['ERR_UNKNOWN_PARAMETER']);
   });
 });
 
