@@ -1,0 +1,69 @@
+# The language model Open WebUI talks to, as a node this platform does not run
+# (component spec §5.6). A copy of the `llm-endpoint` item's building block: a
+# repo-local componentRef cannot leave its item directory, so a blueprint that
+# needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
+# node declares three ordinary string inputs and the blueprint wires them to the
+# three outputs below, so the endpoint, the credential and the model always come
+# from one acquired connection rather than three independently supplied values.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The language-model API Open WebUI sends chat requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection this deployment's chat interface runs on:
+          endpoint, credential and model, acquired together.
+        connection:
+          # Streaming and tool calls, and both are load-bearing. Open WebUI
+          # streams chat completions by default. v0.10.2 also defaults to
+          # native function calling: every UI chat is sent with its built-in
+          # tools (time, knowledge-base retrieval, chat search) as OpenAI
+          # `tools`, unless an admin sets a model's function calling to
+          # `legacy` (utils/middleware.py:2518-2522, 2763-2767). An endpoint
+          # without tool calls would be accepted here and then fail on ordinary
+          # chats. Everything else Open WebUI asks of the model is plain chat:
+          # title, tag and follow-up generation reuse the chat model, and RAG
+          # embeds locally with sentence-transformers.
+          #
+          # This is declared on the supplying node rather than on `web`: after
+          # ADR 0033 a workload sees three strings and cannot demand a protocol.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the OpenAI-compatible API, from the connection this node
+          was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the API answers with by default, from the same connection.
+        from:
+          input: llm
+          member: model

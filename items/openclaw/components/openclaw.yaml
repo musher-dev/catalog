@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: OpenClaw agent gateway and Control UI, with its config, sessions and auth secrets on two volumes.
 spec:
   type: SERVICE
@@ -150,18 +150,6 @@ spec:
         periodSeconds: 30
         timeoutSeconds: 5
         failureThreshold: 3
-    envVars:
-      # The image's own default bind is loopback (Dockerfile:344, v2026.7.1).
-      # The gateway is routable only because the boot command sets
-      # `gateway.bind=lan`. OPENCLAW_GATEWAY_BIND is not set here because it is
-      # a compose-file variable that the gateway runtime does not read. A
-      # loopback bind would make targetPort 18789 unreachable, since the
-      # platform edge is a separate hop, not a proxy sharing this container's
-      # network namespace.
-      #
-      # No mDNS advertising inside a container network (also auto-disabled when
-      # the runtime detects a container; kept explicit for intent).
-      OPENCLAW_DISABLE_BONJOUR: "1"
     volumes:
       # Core state: openclaw.json, SQLite session DBs, installed plugins, .env, and
       # the agent workspace (default /home/node/.openclaw/workspace lives inside
@@ -177,6 +165,29 @@ spec:
         mountPath: /home/node/.config/openclaw
   contract:
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constant below. It carries a default, so no
+      # blueprint has to wire it and the install form gains no field.
+      #
+      # The image's own default bind is loopback (Dockerfile:344, v2026.7.1).
+      # The gateway is routable only because the boot command sets
+      # `gateway.bind=lan`. OPENCLAW_GATEWAY_BIND is not set here because it is
+      # a compose-file variable that the gateway runtime does not read. A
+      # loopback bind would make targetPort 18789 unreachable, since the
+      # platform edge is a separate hop, not a proxy sharing this container's
+      # network namespace.
+      #
+      # No mDNS advertising inside a container network (also auto-disabled when
+      # the runtime detects a container; kept explicit for intent).
+      disableBonjour:
+        schema:
+          type: string
+        default: "1"
+        target:
+          envVarKey: OPENCLAW_DISABLE_BONJOUR
+        description: >-
+          Whether mDNS advertising is off, as the literal string the gateway
+          runtime parses.
       gatewayToken:
         schema:
           type: string
@@ -209,11 +220,11 @@ spec:
         target:
           envVarKey: TZ
         description: IANA timezone for the agent's scheduled tasks and temporal reasoning.
-      # The three inputs below are the roles of the `llm` connection declared at
-      # the foot of this file. They are never bound one at a time: the platform
-      # supplies the address, the credential and the model together. The env var
-      # names belong to this item. The boot command reads them into OpenClaw's
-      # documented config (see the block above `command`).
+      # The three inputs below carry one language-model connection. They are not
+      # supplied independently: the blueprint wires all three to the outputs of
+      # the `llm` node, which takes the connection whole (components/llm.yaml).
+      # The env var names belong to this item. The boot command reads them into
+      # OpenClaw's documented config (see the block above `command`).
       llmBaseURL:
         schema:
           type: string
@@ -248,26 +259,3 @@ spec:
         from:
           endpoint: primary
           property: publicURL
-    connectionRequirements:
-      # Streaming and tool calls, both unconditionally. Observed against the
-      # 2026.7.1 CLI (`agent --local`, with this file's boot command applied)
-      # and a mock server logging what it received. A plain "say ping" turn
-      # sent POST {baseURL}/chat/completions with `stream: true`, 34 tool
-      # definitions, the model id as given, the key resolved from LLM_API_KEY,
-      # and no reasoning field. Memory search does not need embeddings: with no
-      # embedding provider configured it falls back to keyword search
-      # (docs/concepts/memory-search.md).
-      #
-      # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES, though both
-      # work at this tag. It accepts the widest range of compatible defaults and
-      # replacement connections, and it keeps OpenClaw off its Claude-specific
-      # beta and thinking paths on a host that is not api.anthropic.com.
-      llm:
-        protocol: OPENAI_CHAT_COMPLETIONS
-        capabilities:
-          - STREAMING
-          - TOOL_CALLS
-        inputs:
-          baseURL: llmBaseURL
-          apiKey: llmAPIKey
-          model: llmModel

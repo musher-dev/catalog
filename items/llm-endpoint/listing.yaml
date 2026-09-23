@@ -6,16 +6,28 @@ spec:
   itemType: COMPONENT
   displayName: LLM Endpoint
   summary: >-
-    A language-model API you already have, as a building block other items can
-    wire into — an address, a key and a model name, asked for once, together.
+    The language model, as a building block other items wire into — an address,
+    a key and a model name, chosen once and arriving together.
   description: |
     **LLM Endpoint** stands for a language-model service that runs somewhere
-    other than your deployment. It holds the three values an application needs
-    to reach one — an API base URL, an API key and a model name —
-    and hands them to whatever it is wired into as one set.
+    other than your deployment. It holds one **connection** — an API base URL,
+    an API key and a model name, acquired together — and hands those three
+    values to whatever is wired into it.
 
     It runs nothing. There is no container, no compute and no charge for the
-    node itself: it is a declaration of where your model lives.
+    node itself: it is the point in a composition where the model enters.
+
+    ## How it is used
+
+    An application that calls a language model declares three ordinary inputs —
+    a base URL, a credential and a model name — and the blueprint wires them to
+    this node's three outputs. The install form asks for a language model
+    **once**, and defaults to the one your organization already configured, so
+    a fresh deployment works without pasting a key into it.
+
+    Because all three values come from one node, and that node takes the
+    connection whole, they can never disagree. Replacing the model later
+    replaces the endpoint and the credential with it.
 
     ## When to use it
 
@@ -31,22 +43,14 @@ spec:
 
     **Nothing checks the address.** The platform never connects to it, probes
     it, or confirms that anything answers there — not at install time and not
-    afterwards. If the URL or key is wrong, the application consuming them is
-    the first thing to find out. That is deliberate: a platform that fetched an
-    address a user typed would be one that could be pointed at anything.
+    afterwards. If the endpoint or key is wrong, the application consuming them
+    is the first thing to find out. That is deliberate: a platform that fetched
+    an address a user supplied would be one that could be pointed at anything.
 
     Any service speaking the chat-completions wire protocol works, including an
     inference engine you host yourself.
-
-    ## Superseded
-
-    Musher now treats a model endpoint, its credential and its model name as a
-    single **connection**, chosen once when you install and replaced as a whole.
-    An item that needs a language model asks for that connection directly, so it
-    no longer needs this building block standing in for one. Items already
-    composed against it keep working; new ones should take a connection.
   category: AI_ML
-  lifecycleStage: SUNSET
+  lifecycleStage: BETA
   tags:
     - ai
     - llm
