@@ -331,8 +331,14 @@ describe('component references — blueprint §4.1', () => {
   });
 
   it('ERR_INVALID_DEPENDENCY when the referenced document is not a valid component — blueprint §10', async () => {
-    const broken = component();
-    delete (broken['spec'] as Doc)['workload'];
+    // Broken with an unknown field rather than a missing one. This case cares
+    // only that a referenced document failing its own schema is reported here,
+    // so it wants a violation that stays structural: component v1.3.0 turned
+    // eight missing-field rules into publication obligations, and this fixture
+    // used to delete a SERVICE's `workload`, which that release made valid.
+    // Envelope closure cannot move the same way — an unknown field is one the
+    // schema has no meaning for, whoever validates it.
+    const broken = component({ notAField: true });
     await assertReports({ components: { 'components/web.yaml': broken } }, 'ERR_INVALID_DEPENDENCY');
   });
 
