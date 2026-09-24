@@ -35,7 +35,9 @@ The directory name **is** the slug, so slug uniqueness is structural.
 ## Item contracts
 
 These are hard requirements. A violation is rejected when the platform syncs
-this repo:
+this repo — though not all of them are caught before that: the ones marked
+**(sync only)** are `capability`-phase obligations that `npm test` cannot see,
+because an offline validator is forbidden to report them.
 
 - the directory name equals both `listing.yaml`'s and `blueprint.yaml`'s
   `metadata.slug`;
@@ -56,9 +58,13 @@ this repo:
 - volume mount paths are canonical, and no two are the same or nested;
 - a `JOB`'s `schedule.cron` is five numeric fields, each within its range;
 - no value depends on itself through `{node, output}` bindings;
-- component shape follows `spec.type`: a `SERVICE` declares at least one
-  endpoint, a `WORKER` may declare private ones but is never exposed, and a
-  `JOB` declares none. A `PUBLIC` HTTP endpoint needs a readiness probe.
+- component shape follows `spec.type`: a `WORKER` may declare private endpoints
+  but is never exposed, and a `JOB` declares none. A `PUBLIC` HTTP endpoint
+  needs a readiness probe;
+- **(sync only)** a runnable component carries a `workload`, a workload carries
+  a `source`, a `SERVICE` declares at least one endpoint, a `JOB` carries a
+  `command`, an `EXTERNAL` component publishes at least one output, and every
+  input and output is described.
 
 Per the spec, a `BLUEPRINT` item deploys exactly one blueprint, and compute is a
 per-node concern on the blueprint node rather than on the component. The
@@ -304,7 +310,7 @@ npm test
 
 Every item is validated against an **exact release of each family** of
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications):
-`core/v1.0.0`, `listing/v1.0.0`, `component/v1.2.0` and `blueprint/v1.3.0`.
+`core/v1.0.0`, `listing/v1.0.0`, `component/v1.3.0` and `blueprint/v1.3.0`.
 Families release independently, so they sit at different numbers — component and
 blueprint are past `1.0.0` because
 [ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
@@ -329,7 +335,9 @@ The Musher platform remains the **sole authority**. These tests are the same
 contracts applied early, not a second one: they run the phases that need no
 network, and they cannot see the `capability` phase at all — whether a Compute
 Profile is actually offered, whether a published component exists, whether a
-version is monotonic. An item that passes here can still be rejected at sync.
+version is monotonic, and, since component `v1.3.0`, the runtime minimums listed
+as **(sync only)** above. An item that passes here can still be rejected at
+sync.
 
 Keep changes to one item per pull request, so a rejection that only the platform
 can raise is easy to attribute. Adopting a new specification release is the

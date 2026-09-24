@@ -61,7 +61,7 @@ const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
  * `bundleSha256` is the family's entry in the release ledger,
  * https://specifications.musher.dev/published.json. `archiveSha256` is the
  * digest GitHub records for the release's `.tar.gz` asset, and is present only
- * for the two families whose archives carry the conformance corpus
+ * for the families whose archives carry a conformance corpus this suite reads
  * (lib/conformance.ts). Both are copied, never computed: a digest taken from
  * the bytes it is meant to check would check nothing.
  *
@@ -80,8 +80,9 @@ export const RELEASES: Record<Family, { version: string; bundleSha256: string; a
     archiveSha256: '9a9f6d95f754f63233a0c12bad9ae8116c977f61d2949fb7974be5681929475c',
   },
   component: {
-    version: '1.2.0',
-    bundleSha256: '8e1ace8bdbea68cfb697672545b2f24937cf84fdee633ac7baf58382fff063d5',
+    version: '1.3.0',
+    bundleSha256: '84005042113eb7632d96415ca224b89336c543543df8e623d0c80463e6de7a4d',
+    archiveSha256: 'c98b4cd2a83179bb39d6c9d3e1bfe166f457e086c2bab7c769e5770f25cb1d5c',
   },
 };
 

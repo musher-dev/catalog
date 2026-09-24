@@ -5,7 +5,7 @@ These tests hold every item under `items/` to the contracts published in
 
 The suite is held to **one exact, released version per family**: the `RELEASES`
 table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.0`,
-component `v1.2.0` and blueprint `v1.3.0`. Nothing is vendored. The schemas are
+component `v1.3.0` and blueprint `v1.3.0`. Nothing is vendored. The schemas are
 fetched on every run from each release's exact URL:
 
 ```
@@ -29,11 +29,20 @@ because the alias changes its bytes whenever a release ships. A suite whose
 verdict can change without a commit here reports on a contract nobody chose.
 
 The **conformance corpus** is fetched the same way, from the
-`blueprint-v1.3.0.tar.gz` and `listing-v1.0.0.tar.gz` release assets, each
-checked against the digest GitHub records for it. Those two archives cover all
-four corpora: the blueprint archive carries the component and core corpora it
-was released against — so the component and core corpora are pinned by the
-**blueprint** release, not by one of their own.
+`component-v1.3.0.tar.gz`, `blueprint-v1.3.0.tar.gz` and `listing-v1.0.0.tar.gz`
+release assets, each checked against the digest GitHub records for it.
+
+Every archive ships its whole dependency closure, so more than one carries a
+given corpus — and **which copy is read is not arbitrary**. A corpus has to come
+from the same release as the schema it is replayed against. Component `v1.3.0`
+is the worked example: it turned eight structural obligations into publication
+ones, flipping those cases from `fail` to `pass`, while the blueprint `v1.3.0`
+archive still carries component `v1.2.0`'s copy of them, because that is what it
+was built against (`requires`, in the ledger). Reading the component corpus from
+the blueprint archive would fail all eight — correctly, since the two would
+disagree about the contract. So each corpus is read from its own family's
+archive, and `core`, which publishes none, from the component release that
+directly requires it.
 
 The origins are **public**, so this is fetched with **no credential**. Nothing in
 the suite reads a token and none should be configured: a token attached to a
@@ -60,7 +69,10 @@ It is one pull request, and it changes nothing else:
 Families move independently, so this is usually one entry, not three. A release
 that narrows what validates — as component `v1.2.0` and blueprint `v1.3.0` did —
 migrates the items in the same pull request, because the pins and the documents
-cannot disagree even briefly.
+cannot disagree even briefly. Check `requires` in the ledger while you are
+there: if the new release is one another family's archive carries a copy of,
+`CORPUS_DIRS` in [`lib/conformance.ts`](lib/conformance.ts) has to read the
+corpus from the release you just pinned.
 
 ```sh
 npm install
@@ -92,6 +104,16 @@ whether a published component exists, whether a connection can be acquired, and
 whether a version is monotonic are all decided against the platform catalog over
 the network, and an implementation MUST NOT report a rule it has not been given
 the means to check.
+
+Component `v1.3.0` moved six more rules there, and they are worth knowing by
+name because they are things this suite used to catch and no longer does: a
+runnable component carrying a `workload` (`ERR_WORKLOAD_REQUIRED`), a workload
+carrying a `source` (`ERR_SOURCE_REQUIRED`), a `SERVICE` declaring an endpoint
+(`ERR_ENDPOINT_REQUIRED`), a `JOB` carrying a `command` (`ERR_COMMAND_REQUIRED`),
+an `EXTERNAL` component publishing an output (`ERR_OUTPUT_REQUIRED`), and every
+input and output being described (`ERR_DESCRIPTION_REQUIRED`). The specification
+is explicit that an offline validator MUST NOT report any of them, so a document
+missing one passes here and is rejected at sync.
 
 Two further groups are absent by decision rather than by phase, and both would
 need machinery this suite does not have. **Logical value validation** —
@@ -151,7 +173,9 @@ an output names exactly one origin, that a parameter carries at most one of
 required off `EXTERNAL` and forbidden on it are all structural now. Component
 `v1.2.0` took back more: which fields a connection input excludes, that only an
 `EXTERNAL` component declares one, that `member` requires `input`, and the image
-reference grammar itself. That last one retired a rule outright rather than
+reference grammar itself. Component `v1.3.0` went the other way with six rules,
+moving them out of `structural` into `capability` rather than into the schema —
+see above. That last one retired a rule outright rather than
 moving it — a bare name means `latest` and every tag is accepted, as in Docker,
 so `ERR_UNPINNED_IMAGE` has no implementation here any more and
 `rules.test.ts` holds the inverse case so it cannot quietly return. None of

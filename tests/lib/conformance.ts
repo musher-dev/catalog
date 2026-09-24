@@ -23,12 +23,24 @@ import { parseDocument } from './yaml-profile.ts';
 const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
 
 /**
- * The families whose release archives carry a conformance corpus. The blueprint
- * archive carries the component and core corpora of the releases it was built
- * against, so these two cover all four. Their versions and asset digests live
- * in `RELEASES` with the bundle digests, so adopting a release is one edit.
+ * The families whose release archives are fetched, and which corpus each one
+ * supplies. Every archive carries its own dependency closure, so more than one
+ * offers a given corpus — and which copy is read is not arbitrary: a corpus
+ * must come from the same release as the schema it is replayed against.
+ *
+ * Component `v1.3.0` is why this is spelled out rather than assumed. It turned
+ * eight structural obligations into publication ones, flipping those cases from
+ * `fail` to `pass`. The blueprint `v1.3.0` archive still carries component
+ * `v1.2.0`'s copy of them, because that is the release it was built against
+ * (`requires` in the ledger), so reading the component corpus from there while
+ * validating with the `v1.3.0` schema would fail all eight — correctly, since
+ * the two would disagree about the contract.
+ *
+ * So each corpus is read from its own family's archive where that family
+ * publishes one, and `core` — which ships no archive of its own — from the
+ * component release that directly requires it.
  */
-const ARCHIVE_FAMILIES = ['blueprint', 'listing'] as const;
+const ARCHIVE_FAMILIES = ['component', 'blueprint', 'listing'] as const;
 type ArchiveFamily = (typeof ARCHIVE_FAMILIES)[number];
 
 const archiveSha256 = (family: ArchiveFamily): string => {
@@ -46,8 +58,8 @@ export type CorpusFamily = 'core' | Family;
 
 /** Where each family's corpus sits once both archives are unpacked under one directory. */
 const CORPUS_DIRS: Record<CorpusFamily, string> = {
-  core: 'blueprint-v1/core/conformance',
-  component: 'blueprint-v1/component/conformance',
+  core: 'component-v1/core/conformance',
+  component: 'component-v1/conformance',
   blueprint: 'blueprint-v1/conformance',
   listing: 'listing-v1/conformance',
 };
