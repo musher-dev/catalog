@@ -55,8 +55,9 @@ because an offline validator is forbidden to report them.
   above the component's own `minSizeGiB`;
 - no two inputs claim one `envVarKey`: a workload's environment is exactly its
   inputs' targets, and nothing else writes it;
-- no authored literal supplies a sensitive contract: a `sensitive` input carries
-  no `default`, and nothing binds a literal `value` to one. Such a value is
+- no authored literal supplies a sensitive contract, from anywhere: a
+  `sensitive` input carries no `default`, no node binds a literal `value` to
+  one, and no parameter bound to one carries a `default` either. Such a value is
   supplied at installation, or generated;
 - volume mount paths are canonical, and no two are the same or nested;
 - a `JOB`'s `schedule.cron` is five numeric fields, each within its range;
@@ -166,7 +167,9 @@ bound to declares all three, and the form field reads them from there. An
 absent or empty `parameters` is a form with no fields, which is right only when
 every required input is bound to something else or already carries a `default`.
 
-A parameter `default` is a literal — it interpolates nothing. A value from
+A parameter `default` is a literal — it interpolates nothing, and being one it
+can never supply a `sensitive` input; that field is filled at installation or by
+a `generator`. A value from
 outside the documents arrives through `from`, which is exactly one whole
 reference in one of two namespaces: `${{ variables.cloud.region }}` names one
 organization variable, and `${{ connections.llm.default }}` names an atomic

@@ -125,7 +125,7 @@ documents.
 `ERR_SECRET_LITERAL` used to be listed here and did not belong. It is the other
 half of `COMP-VAL-005`, and deciding it needs two fields read side by side, not
 a value validator — a sensitive input carrying a `default`, a sensitive output
-publishing a literal, a node binding one. Grouping it with its neighbours
+publishing a literal, a node binding one, a parameter default behind one. Grouping it with its neighbours
 skipped the corpus case that would have caught an authored secret in `mlflow`,
 which a downstream consumer found instead
 ([#39](https://github.com/musher-dev/catalog/issues/39)). It is implemented in

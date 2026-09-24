@@ -1010,19 +1010,27 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
  * validator for the bounded 2020-12 value profile, and this one needs only two
  * fields read side by side. Nothing about it was ever out of reach.
  *
- * Three positions can author a value into a sensitive contract:
+ * Four positions can author a value into a sensitive contract:
  *
  * - an input's own `default`, which is the corpus case (`semantic-021`);
  * - an output declared `sensitive` whose origin is a literal `value`, or a
  *   `template` carrying no reference — COMP-VAL-005 makes a reference-free
  *   template a statically known string that follows the same rule;
  * - a node binding a literal `value` to a sensitive input, since blueprint
- *   §4.2 defines that binding as "a non-secret logical JSON value".
+ *   §4.2 defines that binding as "a non-secret logical JSON value";
+ * - a parameter `default` on a parameter some node binds to a sensitive input.
  *
- * A generator is not an authored literal: it produces a sensitive string that
- * never appears in a document (BP-PARAM-004). Neither is a parameter `default`,
- * which pre-fills a form field the installer sees and replaces, rather than
- * baking a value into the published component.
+ * That last one was exempted when this check was written, on the reasoning that
+ * a parameter default pre-fills a form field rather than baking a value into a
+ * published component. The specification's reference validator does not agree
+ * (`tools/src/validation/semantic.ts`), and it is the authority: a default is a
+ * value written in a document that ships, whoever reads it next. The exemption
+ * let an authored secret through a second time (#43), which is the whole
+ * argument against reasoning from purpose where a reference implementation can
+ * be consulted instead.
+ *
+ * A generator is still not an authored literal: it produces a sensitive string
+ * that never appears in a document (BP-PARAM-004).
  */
 export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
   const found: Diagnostic[] = [];
@@ -1078,6 +1086,10 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
 
   const blueprint = context.documents.blueprint;
   if (blueprint?.value) {
+    const parameters = record(specOf(blueprint)['parameters']);
+    // One diagnostic per offending parameter, however many nodes bind it.
+    const reported = new Set<string>();
+
     for (const binding of context.nodes) {
       if (binding.unreadable) continue;
       const inputs = inputsOf(binding.component);
@@ -1085,13 +1097,30 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
       for (const [inputKey, rawBinding] of Object.entries(record(binding.node['bindings']))) {
         const input = inputs[inputKey];
         if (!isRecord(input) || input['sensitive'] !== true) continue;
-        if (!('value' in record(rawBinding))) continue;
+        const supplier = record(rawBinding);
 
+        if ('value' in supplier) {
+          found.push(
+            diag(
+              'ERR_SECRET_LITERAL',
+              `${blueprint.label} /spec/components/${binding.name}/bindings/${inputKey}/value`,
+              `input ${JSON.stringify(inputKey)} is sensitive, and a \`value\` binding carries a non-secret literal`,
+            ),
+          );
+          continue;
+        }
+
+        const named = supplier['parameter'];
+        if (typeof named !== 'string' || reported.has(named)) continue;
+        const parameter = parameters[named];
+        if (!isRecord(parameter) || !('default' in parameter)) continue;
+
+        reported.add(named);
         found.push(
           diag(
             'ERR_SECRET_LITERAL',
-            `${blueprint.label} /spec/components/${binding.name}/bindings/${inputKey}/value`,
-            `input ${JSON.stringify(inputKey)} is sensitive, and a \`value\` binding carries a non-secret literal`,
+            `${blueprint.label} /spec/parameters/${named}/default`,
+            `parameter ${JSON.stringify(named)} supplies the sensitive input ${JSON.stringify(inputKey)}, so it offers no default of its own`,
           ),
         );
       }

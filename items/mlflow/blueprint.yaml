@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 7
+  revision: 8
   description: MLflow tracking server on local SQLite and volume-backed artifacts, both overridable at install.
 spec:
   components:
@@ -29,16 +29,21 @@ spec:
           output: publicURL
   parameters:
     # A bound parameter never falls back to its input's default (BP-PARAM-003),
-    # so every default the form offers is stated here. For `backendStoreURI` it
-    # is stated *only* here: the input is sensitive, and a sensitive contract
-    # takes no authored literal (COMP-VAL-005). A parameter default is a form
-    # field the installer sees and replaces, not a value published in the
-    # component, and this one is a local SQLite path rather than a credential.
+    # so every default the form offers is stated here as well as on the input.
+    #
+    # Neither of these parameters may feed a sensitive input: a parameter
+    # default is an authored literal wherever it is written, and a sensitive
+    # contract takes none (COMP-VAL-005, §11). `backendStoreURI` is not
+    # sensitive for exactly that reason, and its component says what that
+    # costs.
     backendStoreURI:
       default: sqlite:////mlflow/mlflow.db
       ui:
         label: Backend store URI
         order: 1
+        # The Postgres example spells the password `password` rather than
+        # looking like a real one, and the description says the field is not
+        # concealed, so nobody learns that from a log.
         examples:
           - sqlite:////mlflow/mlflow.db
           - postgresql://mlflow:password@postgres.internal:5432/mlflow
