@@ -1114,6 +1114,101 @@ describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
   });
 });
 
+describe('authored secrets — component §11, COMP-VAL-005', () => {
+  // This rule shipped in component v1.0.0 and this suite did not implement it
+  // until #39, when a downstream consumer found `mlflow` violating it. These
+  // cases exist so that cannot happen silently twice.
+  const sensitiveInput = (over: Doc = {}): Doc =>
+    input({ description: 'A credential.', sensitive: true, target: { envVarKey: 'SECRET' }, ...over });
+
+  const withInputs = (inputs: Doc): Doc =>
+    component({
+      spec: {
+        type: 'WORKER',
+        workload: { source: { image: 'ghcr.io/acme/worker:1.2.3' } },
+        contract: { inputs, outputs: {} },
+      },
+    });
+
+  /** A node for that worker: it declares no endpoint, so it exposes none. */
+  const worker = (bindings: Doc = {}): Doc => ({
+    componentRef: './components/web.yaml',
+    compute: { profile: 'general.standard.small' },
+    bindings,
+  });
+
+  it('ERR_SECRET_LITERAL when a sensitive input carries a default', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({
+          spec: {
+            parameters: { secret: { generator: { byteLength: 32, encoding: 'HEX' } } },
+            components: { web: worker({ secret: { parameter: 'secret' } }) },
+          },
+        }),
+        components: { 'components/web.yaml': withInputs({ secret: sensitiveInput({ default: 'hunter2' }) }) },
+      },
+      'ERR_SECRET_LITERAL',
+    );
+  });
+
+  it('accepts a sensitive input supplied by a generator', async () => {
+    await assertClean({
+      blueprint: blueprint({
+        spec: {
+          parameters: { secret: { generator: { byteLength: 32, encoding: 'HEX' } } },
+          components: { web: worker({ secret: { parameter: 'secret' } }) },
+        },
+      }),
+      components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
+    });
+  });
+
+  it('accepts a default on an input that is not sensitive', async () => {
+    await assertClean({
+      blueprint: blueprint({ spec: { components: { web: worker() }, parameters: {} } }),
+      components: {
+        'components/web.yaml': withInputs({
+          ordinary: input({ description: 'Not a secret.', default: 'plain', target: { envVarKey: 'PLAIN' } }),
+        }),
+      },
+    });
+  });
+
+  it('ERR_SECRET_LITERAL when a node binds a literal value to a sensitive input', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({
+          spec: {
+            parameters: {},
+            components: { web: worker({ secret: { value: 'hunter2' } }) },
+          },
+        }),
+        components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
+      },
+      'ERR_SECRET_LITERAL',
+    );
+  });
+
+  it('ERR_SECRET_LITERAL when a sensitive output publishes a literal', async () => {
+    await assertReports(
+      {
+        components: {
+          'components/web.yaml': externalDatabase({
+            contract: {
+              inputs: { host: { description: 'Hostname.', schema: { type: 'string' } } },
+              outputs: {
+                token: { description: 'A credential.', schema: { type: 'string' }, sensitive: true, from: { value: 'hunter2' } },
+              },
+            },
+          }),
+        },
+      },
+      'ERR_SECRET_LITERAL',
+    );
+  });
+});
+
 describe('connections — component §6.4, blueprint §5.3', () => {
   /**
    * The shape ADR 0033 settles on: an EXTERNAL node holding the connection,
@@ -1373,9 +1468,14 @@ describe('parameters — blueprint §5', () => {
   });
 
   it('accepts a required input that declares its own default', async () => {
+    // Not sensitive. This case is about BP-PARAM-003 — a required input with a
+    // default needs no binding — and the fixture used to carry `sensitive: true`
+    // from `withInput` alongside the default, which is the pairing
+    // COMP-VAL-005 forbids. The rule was unimplemented here until #39, so the
+    // invalid fixture went unnoticed; sensitivity was never what it tested.
     await assertClean({
       blueprint: blueprint({ spec: { parameters: {}, components: { web: node() } } }),
-      components: { 'components/web.yaml': withInput({ default: 'hunter2' }) },
+      components: { 'components/web.yaml': withInput({ sensitive: false, default: 'hunter2' }) },
     });
   });
 

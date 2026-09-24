@@ -32,6 +32,7 @@ import {
   checkOutputOrigins,
   checkParameters,
   checkSchedule,
+  checkSecretLiterals,
   checkValueCycles,
   checkVolumeAllocations,
   contextForItem,
@@ -99,6 +100,11 @@ for (const item of items) {
     it('every output origin names something its own component declares — COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkOutputOrigins(context)), []);
+    });
+
+    it('no authored literal supplies a sensitive contract — COMP-VAL-005, §11', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkSecretLiterals(context)), []);
     });
 
     it('a node names compute exactly when its component runs — BP-NODE-001, BP-NODE-002', async () => {

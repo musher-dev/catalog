@@ -82,7 +82,7 @@ phases pass.
 | `spec.test.ts` | — | The bundles resolve, are byte for byte the pinned release, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
 | `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (core §6.1): UTF-8, one document per file, string keys, no anchors, aliases, merge keys or explicit tags, finite numbers and safe integers, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
-| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution and dependency validity (§10), path containment, media, the description Markdown profile, environment keys — no two inputs claim one `envVarKey` (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), binding resolution and type agreement (BP-PARAM-006/007/008), value cycles (BP-CONN-002), connection bindings — a connection input takes a connection parameter and a connection parameter takes one (BP-CONNECTION-001), and the parameters — reachability, schema agreement, sources and enum labels (BP-PARAM-001..003, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
+| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution and dependency validity (§10), path containment, media, the description Markdown profile, environment keys — no two inputs claim one `envVarKey` (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004), authored secrets (COMP-VAL-005, §11), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), binding resolution and type agreement (BP-PARAM-006/007/008), value cycles (BP-CONN-002), connection bindings — a connection input takes a connection parameter and a connection parameter takes one (BP-CONNECTION-001), and the parameters — reachability, schema agreement, sources and enum labels (BP-PARAM-001..003, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
 | `rules.test.ts` | — | The rules themselves, against deliberately broken synthetic items. |
 | `conformance.test.ts` | all three | The pinned release's conformance corpus, run through the same three phases. Each case is a test named by its id. |
@@ -95,9 +95,22 @@ the means to check.
 
 Two further groups are absent by decision rather than by phase, and both would
 need machinery this suite does not have. **Logical value validation** —
-`COMP-VAL-003` and `COMP-VAL-005`, and with them `ERR_INVALID_VALUE_SCHEMA`,
-`ERR_VALUE_CONSTRAINT` and `ERR_SECRET_LITERAL` — needs a validator for the
-bounded 2020-12 profile, which is a different project from reading documents.
+`COMP-VAL-003` and the value half of `COMP-VAL-005`, and with them
+`ERR_INVALID_VALUE_SCHEMA` and `ERR_VALUE_CONSTRAINT` — needs a validator for
+the bounded 2020-12 profile, which is a different project from reading
+documents.
+
+`ERR_SECRET_LITERAL` used to be listed here and did not belong. It is the other
+half of `COMP-VAL-005`, and deciding it needs two fields read side by side, not
+a value validator — a sensitive input carrying a `default`, a sensitive output
+publishing a literal, a node binding one. Grouping it with its neighbours
+skipped the corpus case that would have caught an authored secret in `mlflow`,
+which a downstream consumer found instead
+([#39](https://github.com/musher-dev/catalog/issues/39)). It is implemented in
+[`lib/semantic.ts`](lib/semantic.ts) and no longer skipped. The lesson is worth
+more than the rule: a code in `OUT_OF_SCOPE` is a rule nothing here enforces, so
+each one earns its place by what it would take to decide, not by which sentence
+of the spec it sits in.
 **The `resolution` phase** needs installation context: submitted values,
 organization variables, an acquired connection. Neither omission is a gap in
 what is here; each is a thing this repository has not been given the means to

@@ -53,6 +53,9 @@ this repo:
   above the component's own `minSizeGiB`;
 - no two inputs claim one `envVarKey`: a workload's environment is exactly its
   inputs' targets, and nothing else writes it;
+- no authored literal supplies a sensitive contract: a `sensitive` input carries
+  no `default`, and nothing binds a literal `value` to one. Such a value is
+  supplied at installation, or generated;
 - volume mount paths are canonical, and no two are the same or nested;
 - a `JOB`'s `schedule.cron` is five numeric fields, each within its range;
 - no value depends on itself through `{node, output}` bindings;
