@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: Flowise low-code LLM flow builder, storing flows and credentials on one volume.
 spec:
   type: SERVICE
@@ -26,17 +26,47 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
-    envVars:
-      DATABASE_PATH: /root/.flowise
-      SECRETKEY_PATH: /root/.flowise
-      BLOB_STORAGE_PATH: /root/.flowise/storage
-      LOG_PATH: /root/.flowise/logs
     volumes:
       data:
         minSizeGiB: 5
         mountPath: /root/.flowise
   contract:
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # All four sit under the volume mounted below, which is what makes the
+      # database, the encryption key, uploaded blobs and the logs survive a
+      # container recreation.
+      databasePath:
+        schema:
+          type: string
+        default: /root/.flowise
+        target:
+          envVarKey: DATABASE_PATH
+        description: Directory Flowise keeps its SQLite database in.
+      secretKeyPath:
+        schema:
+          type: string
+        default: /root/.flowise
+        target:
+          envVarKey: SECRETKEY_PATH
+        description: Directory Flowise keeps its credential encryption key in.
+      blobStoragePath:
+        schema:
+          type: string
+        default: /root/.flowise/storage
+        target:
+          envVarKey: BLOB_STORAGE_PATH
+        description: Directory Flowise stores uploaded files in.
+      logPath:
+        schema:
+          type: string
+        default: /root/.flowise/logs
+        target:
+          envVarKey: LOG_PATH
+        description: Directory Flowise writes its logs to.
       flowiseSecretKey:
         schema:
           type: string

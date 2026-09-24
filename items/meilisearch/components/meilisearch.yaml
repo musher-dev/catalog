@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: Meilisearch search engine serving its HTTP API from one data volume.
 spec:
   type: SERVICE
@@ -21,9 +21,33 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 3
-    envVars:
-      MEILI_ENV: production
-      MEILI_NO_ANALYTICS: 'true'
+    volumes:
+      data:
+        minSizeGiB: 8
+        mountPath: /meili_data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      env:
+        schema:
+          type: string
+        default: production
+        target:
+          envVarKey: MEILI_ENV
+        description: >-
+          Which operating mode Meilisearch runs in; production requires a
+          master key and serves no web interface.
+      noAnalytics:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: MEILI_NO_ANALYTICS
+        description: >-
+          Whether anonymous usage analytics are off, as the literal string the
+          image parses.
       # IN-PLACE UPGRADES, the self-hosted path upstream documents
       # (documentation: resources/migration/updating.mdx). A database only
       # opens under the exact version that wrote it. check_version
@@ -34,7 +58,7 @@ spec:
       # It is set permanently rather than for one release, because it does
       # nothing unless there is something to upgrade. It is skipped for an
       # empty data dir and when the VERSION file already matches the binary.
-      # So it takes effect only on the first start after the tag below
+      # So it takes effect only on the first start after the image tag above
       # changes.
       #
       # What it costs, both upstream's words:
@@ -53,13 +77,15 @@ spec:
       #
       # Stable since v1.51, which renamed it from
       # MEILI_EXPERIMENTAL_DUMPLESS_UPGRADE (option.rs).
-      MEILI_UPGRADE_DB: 'true'
-    volumes:
-      data:
-        minSizeGiB: 8
-        mountPath: /meili_data
-  contract:
-    inputs:
+      upgradeDB:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: MEILI_UPGRADE_DB
+        description: >-
+          Whether an existing database is upgraded in place on first start
+          after a version change, as the literal string the image parses.
       masterKey:
         schema:
           type: string

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: MLflow tracking server with its metadata store and proxied artifacts on one volume.
 spec:
   type: SERVICE
@@ -42,9 +42,31 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
-    envVars:
-      MLFLOW_HOST: 0.0.0.0
-      MLFLOW_PORT: '5000'
+    volumes:
+      data:
+        minSizeGiB: 20
+        mountPath: /mlflow
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVarKey: MLFLOW_HOST
+        description: Address the MLflow server binds inside the container.
+      # A string, not an integer: the literal is what the image reads, and the
+      # endpoint below names the port this has to agree with.
+      port:
+        schema:
+          type: string
+        default: '5000'
+        target:
+          envVarKey: MLFLOW_PORT
+        description: Port the MLflow server listens on inside the container.
       # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
       # protection) whose default allowlist rejects gateway traffic on the
       # public hostname. The health probe is not affected: /health and /version
@@ -53,13 +75,13 @@ spec:
       # reachable solely through the platform edge, so Host validation adds
       # nothing here — disable it rather than chase every proxied hostname
       # (https://mlflow.org/docs/latest/self-hosting/security/).
-      MLFLOW_SERVER_ALLOWED_HOSTS: '*'
-    volumes:
-      data:
-        minSizeGiB: 20
-        mountPath: /mlflow
-  contract:
-    inputs:
+      serverAllowedHosts:
+        schema:
+          type: string
+        default: '*'
+        target:
+          envVarKey: MLFLOW_SERVER_ALLOWED_HOSTS
+        description: Host headers the MLflow server accepts.
       # Sensitive, because a Postgres or MySQL URI carries its password inline.
       backendStoreURI:
         schema:
