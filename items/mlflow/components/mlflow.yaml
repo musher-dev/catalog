@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 8
   description: MLflow tracking server with its metadata store and proxied artifacts on one volume.
 spec:
   type: SERVICE
@@ -83,17 +83,34 @@ spec:
           envVarKey: MLFLOW_SERVER_ALLOWED_HOSTS
         description: Host headers the MLflow server accepts.
       # Sensitive, because a Postgres or MySQL URI carries its password inline.
+      # NO `default`, and the omission is the rule rather than an oversight: a
+      # sensitive contract cannot be supplied by an authored literal
+      # (COMP-VAL-005, §11), because a published component is an artifact that
+      # must not carry secret plaintext. The SQLite path this deployment starts
+      # on is offered by the blueprint's parameter instead, where it is a form
+      # field the installer sees and replaces rather than a value baked into
+      # the component.
+      #
+      # Nothing about the deployment changes: the blueprint binds this input to
+      # that parameter on every install, and a bound parameter never falls back
+      # to its input's default (BP-PARAM-003), so the default removed here was
+      # already unreachable.
+      #
+      # `sensitive` stays. This is not merely a file path — the install form's
+      # own second example is
+      # `postgresql://mlflow:password@postgres.internal:5432/mlflow`, so the
+      # field is built to carry a credential, and an unmarked one would reach
+      # resolution records, previews and logs in the clear.
       backendStoreURI:
         schema:
           type: string
         sensitive: true
         presentationHint: CONNECTION_STRING
-        default: sqlite:////mlflow/mlflow.db
         required: true
         target:
           envVarKey: MLFLOW_BACKEND_STORE_URI
-        description: SQLAlchemy URI for the tracking metadata store. Default uses
-          local SQLite; production should use Postgres.
+        description: SQLAlchemy URI for the tracking metadata store. The install
+          form offers local SQLite; production should use Postgres.
       artifactsDestination:
         schema:
           type: string

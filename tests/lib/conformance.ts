@@ -69,8 +69,13 @@ const CORPUS_DIRS: Record<CorpusFamily, string> = {
  * needs a validator for the bounded 2020-12 value profile, which is a different
  * project from reading documents (tests/README.md). A case expecting only these
  * is skipped by name, never passed.
+ *
+ * `ERR_SECRET_LITERAL` used to sit here and does not belong: deciding it needs
+ * two fields read side by side, not a value validator. Skipping it let an
+ * authored secret reach a downstream consumer (#39). It is implemented in
+ * `lib/semantic.ts` and this corpus now holds the suite to it.
  */
-export const OUT_OF_SCOPE = new Set(['ERR_VALUE_CONSTRAINT', 'ERR_SECRET_LITERAL', 'ERR_INVALID_VALUE_SCHEMA']);
+export const OUT_OF_SCOPE = new Set(['ERR_VALUE_CONSTRAINT', 'ERR_INVALID_VALUE_SCHEMA']);
 
 /**
  * Rules measured against an item root. A `case.yaml` asserts it has none, and an

@@ -197,6 +197,7 @@ export const SEMANTIC_CHECKS: readonly ((context: SemanticContext) => Diagnostic
   checkSchedule,
   checkHealthProbes,
   checkOutputOrigins,
+  checkSecretLiterals,
   checkNodeCompute,
   checkVolumeAllocations,
   checkExposure,
@@ -985,6 +986,112 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
             'ERR_ENDPOINT_NOT_PUBLIC',
             `${blueprint.label} /spec/components/${binding.name}/componentRef`,
             `output ${JSON.stringify(outputName)} reads ${pair.property} of endpoint ${JSON.stringify(pair.endpoint)}, which this node keeps PRIVATE`,
+          ),
+        );
+      }
+    }
+  }
+
+  return found;
+}
+
+/* ------------------------------------------------------- authored secrets */
+
+/**
+ * Component spec §11 and COMP-VAL-005 — `ERR_SECRET_LITERAL`. A sensitive
+ * contract cannot be supplied by an authored literal: "Published artifacts MUST
+ * NOT contain secret plaintext, including defaults."
+ *
+ * This is a `semantic` rule the specification has carried since v1.0.0, and
+ * this suite did not implement it until a downstream consumer found an item
+ * that violated it (musher-dev/catalog#39). It had been filed under logical
+ * value validation, beside `ERR_VALUE_CONSTRAINT` and
+ * `ERR_INVALID_VALUE_SCHEMA`, and skipped with them — but those two need a
+ * validator for the bounded 2020-12 value profile, and this one needs only two
+ * fields read side by side. Nothing about it was ever out of reach.
+ *
+ * Three positions can author a value into a sensitive contract:
+ *
+ * - an input's own `default`, which is the corpus case (`semantic-021`);
+ * - an output declared `sensitive` whose origin is a literal `value`, or a
+ *   `template` carrying no reference — COMP-VAL-005 makes a reference-free
+ *   template a statically known string that follows the same rule;
+ * - a node binding a literal `value` to a sensitive input, since blueprint
+ *   §4.2 defines that binding as "a non-secret logical JSON value".
+ *
+ * A generator is not an authored literal: it produces a sensitive string that
+ * never appears in a document (BP-PARAM-004). Neither is a parameter `default`,
+ * which pre-fills a form field the installer sees and replaces, rather than
+ * baking a value into the published component.
+ */
+export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const component = record(doc.value);
+    const at = `${rel(componentPath)} /spec/contract`;
+
+    for (const [name, rawInput] of Object.entries(inputsOf(component))) {
+      const input = record(rawInput);
+      if (input['sensitive'] === true && 'default' in input) {
+        found.push(
+          diag(
+            'ERR_SECRET_LITERAL',
+            `${at}/inputs/${name}/default`,
+            `input ${JSON.stringify(name)} is sensitive, so it is supplied at installation and never by a value written here`,
+          ),
+        );
+      }
+    }
+
+    for (const [name, rawOutput] of Object.entries(outputsOf(component))) {
+      const output = record(rawOutput);
+      if (output['sensitive'] !== true) continue;
+      const from = record(output['from']);
+
+      if ('value' in from) {
+        found.push(
+          diag(
+            'ERR_SECRET_LITERAL',
+            `${at}/outputs/${name}/from/value`,
+            `output ${JSON.stringify(name)} is sensitive, so it cannot publish a literal written here`,
+          ),
+        );
+        continue;
+      }
+
+      // COMP-VAL-005: a template naming no reference is a statically known
+      // string, so it is an authored literal by another spelling.
+      const template = from['template'];
+      if (typeof template === 'string' && scanReferences(template).references.length === 0) {
+        found.push(
+          diag(
+            'ERR_SECRET_LITERAL',
+            `${at}/outputs/${name}/from/template`,
+            `output ${JSON.stringify(name)} is sensitive, and a template naming no reference is a literal`,
+          ),
+        );
+      }
+    }
+  }
+
+  const blueprint = context.documents.blueprint;
+  if (blueprint?.value) {
+    for (const binding of context.nodes) {
+      if (binding.unreadable) continue;
+      const inputs = inputsOf(binding.component);
+
+      for (const [inputKey, rawBinding] of Object.entries(record(binding.node['bindings']))) {
+        const input = inputs[inputKey];
+        if (!isRecord(input) || input['sensitive'] !== true) continue;
+        if (!('value' in record(rawBinding))) continue;
+
+        found.push(
+          diag(
+            'ERR_SECRET_LITERAL',
+            `${blueprint.label} /spec/components/${binding.name}/bindings/${inputKey}/value`,
+            `input ${JSON.stringify(inputKey)} is sensitive, and a \`value\` binding carries a non-secret literal`,
           ),
         );
       }
