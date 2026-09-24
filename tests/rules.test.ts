@@ -1196,6 +1196,52 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
     );
   });
 
+  it('ERR_SECRET_LITERAL when a parameter default supplies a sensitive input', async () => {
+    // The position this check exempted when it was written (#43). The
+    // specification's reference validator reports it at the parameter's own
+    // `default`, and so does this.
+    await assertReports(
+      {
+        blueprint: blueprint({
+          spec: {
+            parameters: { secret: { default: 'hunter2', ui: { label: 'Secret' } } },
+            components: { web: worker({ secret: { parameter: 'secret' } }) },
+          },
+        }),
+        components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
+      },
+      'ERR_SECRET_LITERAL',
+    );
+  });
+
+  it('accepts a parameter with no default supplying a sensitive input', async () => {
+    await assertClean({
+      blueprint: blueprint({
+        spec: {
+          parameters: { secret: { ui: { label: 'Secret' } } },
+          components: { web: worker({ secret: { parameter: 'secret' } }) },
+        },
+      }),
+      components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
+    });
+  });
+
+  it('accepts a parameter default supplying an input that is not sensitive', async () => {
+    await assertClean({
+      blueprint: blueprint({
+        spec: {
+          parameters: { plain: { default: 'fine', ui: { label: 'Plain' } } },
+          components: { web: worker({ plain: { parameter: 'plain' } }) },
+        },
+      }),
+      components: {
+        'components/web.yaml': withInputs({
+          plain: input({ description: 'Not a secret.', target: { envVarKey: 'PLAIN' } }),
+        }),
+      },
+    });
+  });
+
   it('ERR_SECRET_LITERAL when a sensitive output publishes a literal', async () => {
     await assertReports(
       {

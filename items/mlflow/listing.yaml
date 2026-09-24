@@ -37,6 +37,13 @@ spec:
     can read, create and delete experiments, runs and registered models, from
     the browser or the MLflow client. Keep the URL private, and don't store
     anything in it you wouldn't share with everyone who might have it.
+
+    **The backend store URI is not treated as a secret.** It defaults to a
+    SQLite path, which is not one. If you point it at Postgres or MySQL, the
+    URI you enter embeds a password, and it is handled like any other
+    deployment setting — it appears in the deployment's configuration, and in
+    the records and logs of the installation. Give MLflow a database role
+    scoped to it, and rotate that role's password rather than a shared one.
   category: AI_ML
   lifecycleStage: STABLE
   tags:
