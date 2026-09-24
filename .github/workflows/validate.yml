@@ -1,9 +1,9 @@
 # Validates the catalog corpus against musher-dev/specifications.
 #
-# The suite is pinned to one exact release (SPEC_RELEASE in
-# tests/lib/spec-schemas.ts). It fetches that release's schemas from
-# specifications.musher.dev and its conformance corpus from the GitHub release
-# assets, and checks every byte against a recorded SHA-256. Pinned bytes never
+# The suite is pinned to one exact release per family (RELEASES in
+# tests/lib/spec-schemas.ts). It fetches those releases' schemas from
+# specifications.musher.dev and their conformance corpora from the GitHub
+# release assets, and checks every byte against a recorded SHA-256. Pinned bytes never
 # change, so nothing here runs on a schedule: a verdict changes only with a
 # commit to this repository, including the one that adopts a new release.
 #

@@ -3,14 +3,22 @@
 These tests hold every item under `items/` to the contracts published in
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications).
 
-The suite is held to **one exact, released version** of the specification: the
-`SPEC_RELEASE` constant in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today
-`1.0.0`. Nothing is vendored. The schemas are fetched on every run from that
-release's exact URL:
+The suite is held to **one exact, released version per family**: the `RELEASES`
+table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.0`,
+component `v1.2.0` and blueprint `v1.3.0`. Nothing is vendored. The schemas are
+fetched on every run from each release's exact URL:
 
 ```
-https://specifications.musher.dev/<family>/v1.0.0/<family>.schema.json
+https://specifications.musher.dev/<family>/v<release>/<family>.schema.json
 ```
+
+Families release independently, so they sit at different numbers. Component and
+blueprint are past `1.0.0` because
+[ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
+made inputs the only way into a component, which was breaking for both; listing
+did not change, and a family that did not change does not get a new number. The
+version therefore lives beside the digest it belongs to, never above all three —
+a digest that outlives the version it was copied for checks nothing.
 
 Each bundle's SHA-256 must equal the `bundleSha256` the specification's release
 ledger ([`published.json`](https://specifications.musher.dev/published.json))
@@ -20,11 +28,12 @@ the moving `/v1/` alias
 because the alias changes its bytes whenever a release ships. A suite whose
 verdict can change without a commit here reports on a contract nobody chose.
 
-The release's **conformance corpus** is fetched the same way, from the
-`blueprint-v1.0.0.tar.gz` and `listing-v1.0.0.tar.gz` release assets, each
+The **conformance corpus** is fetched the same way, from the
+`blueprint-v1.3.0.tar.gz` and `listing-v1.0.0.tar.gz` release assets, each
 checked against the digest GitHub records for it. Those two archives cover all
 four corpora: the blueprint archive carries the component and core corpora it
-was released against.
+was released against — so the component and core corpora are pinned by the
+**blueprint** release, not by one of their own.
 
 The origins are **public**, so this is fetched with **no credential**. Nothing in
 the suite reads a token and none should be configured: a token attached to a
@@ -40,12 +49,18 @@ a digest disagrees, the suite fails loudly and names the URL.
 
 It is one pull request, and it changes nothing else:
 
-1. Set `SPEC_RELEASE` and each family's `BUNDLE_SHA256` in `lib/spec-schemas.ts`
-   from the new entries in `published.json`.
-2. Set the two archive digests in `lib/conformance.ts` from the releases'
-   assets: `gh release view <family>/v<X.Y.Z> -R musher-dev/specifications --json assets`.
+1. Edit that family's entry in `RELEASES` in `lib/spec-schemas.ts` — `version`
+   and `bundleSha256` together, from the new entry in `published.json`.
+2. If the family attaches a conformance archive (blueprint or listing), set its
+   `archiveSha256` in the same entry, from the release's assets:
+   `gh release view <family>/v<X.Y.Z> -R musher-dev/specifications --json assets`.
 3. Run `npm test`. Any item or rule the new release disagrees with fails by
    name. Fix it in the same pull request.
+
+Families move independently, so this is usually one entry, not three. A release
+that narrows what validates — as component `v1.2.0` and blueprint `v1.3.0` did —
+migrates the items in the same pull request, because the pins and the documents
+cannot disagree even briefly.
 
 ```sh
 npm install
@@ -67,7 +82,7 @@ phases pass.
 | `spec.test.ts` | — | The bundles resolve, are byte for byte the pinned release, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
 | `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (core §6.1): UTF-8, one document per file, string keys, no anchors, aliases, merge keys or explicit tags, finite numbers and safe integers, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
-| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution and dependency validity (§10), path containment, media, the description Markdown profile, image pinning (COMP-SRC-003), environment keys (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002, COMP-REF-001, COMP-EP-004), connection requirements (COMP-CONNECTION-001), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), binding resolution and type agreement (BP-PARAM-006/007/008), value cycles (BP-CONN-002), connection bindings (BP-CONNECTION-001), and the parameters — reachability, schema agreement, sources and enum labels (BP-PARAM-001..003, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
+| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution and dependency validity (§10), path containment, media, the description Markdown profile, environment keys — no two inputs claim one `envVarKey` (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), binding resolution and type agreement (BP-PARAM-006/007/008), value cycles (BP-CONN-002), connection bindings — a connection input takes a connection parameter and a connection parameter takes one (BP-CONNECTION-001), and the parameters — reachability, schema agreement, sources and enum labels (BP-PARAM-001..003, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
 | `rules.test.ts` | — | The rules themselves, against deliberately broken synthetic items. |
 | `conformance.test.ts` | all three | The pinned release's conformance corpus, run through the same three phases. Each case is a test named by its id. |
@@ -124,18 +139,24 @@ fetched bundles at run time rather than copied, so the two places the semantic
 phase needs them cannot drift.
 
 What is written down here is what JSON Schema cannot express, and each rule
-carries the clause it implements: `CORE-ITEM-001`, `LIST-MEDIA-003`, `COMP-SRC-003`
-and the rest. A rule whose spelling has to live in this repository — the
-floating-tag blocklist, for instance, which is `semantic` precisely so it can
-grow in a minor release — says so at the definition.
+carries the clause it implements: `CORE-ITEM-001`, `LIST-MEDIA-003`,
+`COMP-ENVVAR-002` and the rest. A rule whose spelling has to live in this
+repository — `COMP-JOB-002`'s cron ranges, for instance, whose five fields and
+their bounds no `pattern` states usefully — says so at the definition.
 
 The reverse also applies, and the v1 bundles took several rules back: that a
 binding names exactly one supplier, that `node` and `output` go together, that
 an output names exactly one origin, that a parameter carries at most one of
 `default`, `generator` and `from` and no `schema` at all, and that `workload` is
-required off `EXTERNAL` and forbidden on it are all structural now. None of them
-is restated here, because a second copy of a rule is a second thing to keep
-true.
+required off `EXTERNAL` and forbidden on it are all structural now. Component
+`v1.2.0` took back more: which fields a connection input excludes, that only an
+`EXTERNAL` component declares one, that `member` requires `input`, and the image
+reference grammar itself. That last one retired a rule outright rather than
+moving it — a bare name means `latest` and every tag is accepted, as in Docker,
+so `ERR_UNPINNED_IMAGE` has no implementation here any more and
+`rules.test.ts` holds the inverse case so it cannot quietly return. None of
+these is restated here, because a second copy of a rule is a second thing to
+keep true.
 
 ## Configuration
 

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: Langflow visual flow builder for LLM applications, with its database on one volume.
 spec:
   type: SERVICE
@@ -26,19 +26,43 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 5
-    envVars:
-      LANGFLOW_AUTO_LOGIN: 'false'
-      LANGFLOW_CONFIG_DIR: /app/langflow
-      # Without this the SQLite DB lands in the package install dir and is
-      # LOST on container recreation — the volume only persisted config
-      # files (docs.langflow.org/memory).
-      LANGFLOW_SAVE_DB_IN_CONFIG_DIR: 'true'
     volumes:
       data:
         minSizeGiB: 5
         mountPath: /app/langflow
   contract:
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      autoLogin:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVarKey: LANGFLOW_AUTO_LOGIN
+        description: >-
+          Whether Langflow signs every visitor in without credentials, as the
+          literal string the image parses.
+      configDir:
+        schema:
+          type: string
+        default: /app/langflow
+        target:
+          envVarKey: LANGFLOW_CONFIG_DIR
+        description: Directory Langflow keeps its configuration and database in.
+      # Without this the SQLite DB lands in the package install dir and is
+      # LOST on container recreation — the volume only persisted config
+      # files (docs.langflow.org/memory).
+      saveDBInConfigDir:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: LANGFLOW_SAVE_DB_IN_CONFIG_DIR
+        description: >-
+          Whether the database is written into the configuration directory
+          above, as the literal string the image parses.
       # Both superuser inputs take effect ONCE, when the account is created.
       # With AUTO_LOGIN off, 1.11.0's setup_superuser calls
       # get_or_create_super_user (services/utils.py), which returns early for

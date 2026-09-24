@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 8
   description: Open WebUI chat interface for any OpenAI-compatible language-model API.
 spec:
   type: SERVICE
@@ -31,37 +31,54 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
-    envVars:
-      # The language model arrives as one atomic connection — endpoint,
-      # credential and model acquired together — over the connection requirement
-      # declared at the foot of this file. ENABLE_OPENAI_API already defaults to
-      # True in v0.10.2 (config.py); it is pinned so the item does not depend on
-      # an upstream default it cannot see change.
-      ENABLE_OPENAI_API: 'true'
-      # The native Ollama integration is off, and no longer a user choice. It
-      # used to be an input whose default named a sibling `ollama` service this
-      # deployment never contained. An Ollama server is reachable through the
-      # connection like any other engine, via its OpenAI-compatible /v1.
-      ENABLE_OLLAMA_API: 'false'
     volumes:
       data:
         minSizeGiB: 8
         mountPath: /app/backend/data
   contract:
     inputs:
-      # The three inputs below are the roles of one atomic connection, declared
-      # under connectionRequirements at the foot of this file. They are never
-      # bound one at a time and never reach the install form separately: the
-      # deploying user picks a language model once, and the platform supplies the
-      # address, the credential and the model name together. An address from one
-      # provider beside a key from another is unreachable by construction.
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the two constants below. They carry defaults, so no
+      # blueprint has to wire them and no install form gains a field — but they
+      # are pins like any other, and a composition may override one.
+      enableOpenAIAPI:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: ENABLE_OPENAI_API
+        # Already True by default in v0.10.2 (config.py); pinned so the item
+        # does not depend on an upstream default it cannot see change.
+        description: >-
+          Whether the OpenAI-compatible API client is enabled, as the literal
+          string the image parses.
+      enableOllamaAPI:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVarKey: ENABLE_OLLAMA_API
+        # The native Ollama integration is off, and is not a user choice. It
+        # used to be an input whose default named a sibling `ollama` service
+        # this deployment never contained. An Ollama server is reachable
+        # through the `llm` node like any other engine, via its
+        # OpenAI-compatible /v1.
+        description: >-
+          Whether the native Ollama client is enabled, as the literal string the
+          image parses.
+      # The three inputs below carry one language-model connection. They are not
+      # supplied independently: the blueprint wires all three to the outputs of
+      # the `llm` node, which takes the connection whole (components/llm.yaml).
+      # An address from one provider beside a key from another would be a
+      # visible authoring mistake in blueprint.yaml rather than a silent one
+      # here.
       openaiApiBaseURL:
         schema:
           type: string
         presentationHint: ENDPOINT_URL
         target:
           envVarKey: OPENAI_API_BASE_URL
-        # CAPTURED AT FIRST BOOT, for all three connection roles. v0.10.2 reads
+        # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.10.2 reads
         # these env vars into DEFAULT_CONFIG (config.py), and on every start
         # main.py:317 calls seed_registered_defaults(). That runs
         # Config.seed_defaults (models/config.py:237), which writes a row for
@@ -91,10 +108,9 @@ spec:
         target:
           envVarKey: OPENAI_API_KEY
         description: Bearer credential for the API above.
-      # Required, because a connection role names a required input with no
-      # default (COMP-CONNECTION-001) — and an acquired connection always
-      # carries a model, so there is nothing left for the old optional case to
-      # cover. Users can still pick any other model the API lists.
+      # Required and default-less: an acquired connection always carries a
+      # model, so there is nothing for an optional case to cover. Users can
+      # still pick any other model the API lists.
       defaultModels:
         schema:
           type: string
@@ -110,22 +126,3 @@ spec:
           envVarKey: WEBUI_SECRET_KEY
         description: Secret key used to sign session tokens
     outputs: {}
-    connectionRequirements:
-      # Streaming and tool calls. Open WebUI streams chat completions by
-      # default. v0.10.2 also defaults to native function calling: every UI
-      # chat is sent with its built-in tools (time, knowledge-base retrieval,
-      # chat search) as OpenAI `tools`, unless an admin sets a model's function
-      # calling to `legacy` (utils/middleware.py:2518-2522, 2763-2767). An
-      # endpoint without tool calls would be accepted and then fail on ordinary
-      # chats. Everything else it asks of the model is plain chat: title, tag
-      # and follow-up generation reuse the chat model, and RAG embeds locally
-      # with sentence-transformers.
-      llm:
-        protocol: OPENAI_CHAT_COMPLETIONS
-        capabilities:
-          - STREAMING
-          - TOOL_CALLS
-        inputs:
-          baseURL: openaiApiBaseURL
-          apiKey: openaiApiKey
-          model: defaultModels

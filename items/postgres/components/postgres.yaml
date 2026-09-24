@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
@@ -12,18 +12,32 @@ spec:
       primary:
         targetPort: 5432
         protocol: TCP
-    envVars:
-      PGDATA: /var/lib/postgresql/data/pgdata
     volumes:
       data:
         minSizeGiB: 10
         mountPath: /var/lib/postgresql/data
   contract:
-    # All three inputs are read by the image's docker-entrypoint.sh only while
-    # it initialises an EMPTY data directory. Once PGDATA holds a cluster they
-    # are ignored, so changing any of them later does not change the
-    # database: use ALTER ROLE / CREATE DATABASE instead.
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including this one. It carries a default, so no blueprint has to
+      # wire it and the install form gains no field.
+      #
+      # Unlike the three below, PGDATA is read on every boot: it is where the
+      # entrypoint looks for the cluster, not just where it would create one.
+      # A subdirectory of the mount, not the mount itself, because initdb
+      # refuses a directory it does not own and the volume root may carry
+      # lost+found.
+      pgdata:
+        schema:
+          type: string
+        default: /var/lib/postgresql/data/pgdata
+        target:
+          envVarKey: PGDATA
+        description: Directory PostgreSQL keeps its data files in.
+      # The three inputs below are read by the image's docker-entrypoint.sh
+      # only while it initialises an EMPTY data directory. Once PGDATA holds a
+      # cluster they are ignored, so changing any of them later does not change
+      # the database: use ALTER ROLE / CREATE DATABASE instead.
       postgresPassword:
         schema:
           type: string

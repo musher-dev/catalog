@@ -1,78 +1,80 @@
 # A node this platform does not run (component spec §5.6): no image, no compute
-# and no address of its own. The values an application needs to reach the
-# service arrive as inputs the blueprint supplies, and leave as outputs
-# republishing those same inputs. Publishing them from one node is the point: an
-# address from one provider beside a credential from another reaches nothing.
+# and no address of its own. It stands in a composition for the language-model
+# API, and the nodes that call the model wire their inputs to its outputs — as
+# they would to a managed database's.
 #
-# SUPERSEDED. ADR 0030 makes a model endpoint, its credential and its model one
-# atomic connection, acquired together and overridden whole — which is what this
-# component was approximating with three separate values and a convention. A
-# blueprint that needs a language model should declare a `connections` parameter
-# and bind it through `connectionBindings`, as `open-webui` now does. This item
-# is kept, and its listing marked SUNSET, for compositions that still reference
-# it; it is not the pattern to copy.
+# The connection enters here and nowhere else (COMP-CONNECTION-002). A workload
+# never declares a connection input: it receives the three members as ordinary
+# values. That is what makes atomicity structural rather than conventional —
+# one connection parameter fills one external node, so its endpoint, credential
+# and model always come from one selection, and an address from one provider
+# can never sit beside a key from another.
 #
-# Deliberately vendor-neutral. The address may be a Musher inference endpoint, a
-# third-party service, or an engine the customer runs themselves; this document
-# cannot tell the difference and must not pretend to. Nothing resolves the
-# address, connects to it, or checks that anything answers there (component
-# spec §11) — a reachability check against a user-supplied address would be a
-# server-side request forgery primitive.
+# The three outputs forward the members by name (COMP-OUT-004). `apiKey` is
+# sensitive because the member is, and sensitivity propagates to anything that
+# forwards it.
+#
+# Deliberately vendor-neutral. The connection may resolve to a Musher inference
+# endpoint, a third-party service, or an engine the customer runs themselves;
+# this document cannot tell the difference and must not pretend to. Nothing
+# resolves the address, connects to it, or checks that anything answers there
+# (component spec §11) — a reachability check against a supplied address would
+# be a server-side request forgery primitive.
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
-  description: A language-model API addressed outside this deployment, holding its base URL, credential and model name.
+  revision: 5
+  description: A language-model API addressed outside this deployment, taken whole as one connection — endpoint, credential and model together.
 spec:
   type: EXTERNAL
   contract:
     inputs:
-      baseURL:
-        schema:
-          type: string
-        presentationHint: ENDPOINT_URL
+      llm:
         description: >-
-          Base URL of the chat-completions API this node addresses. Anything
-          speaking the same wire will do; nothing here resolves it or connects
-          to it.
-      apiKey:
-        schema:
-          type: string
-        sensitive: true
-        description: Bearer credential presented to the service above.
-      # Required, because the `model` output below forwards it. Every declared
-      # output must be produced, so an absent optional input cannot supply an
-      # `input` origin (COMP-OUT-002). A connection always carries a model too,
-      # so the old optional case matches nothing this component stands in for.
-      model:
-        schema:
-          type: string
-        description: Name the service uses to select which model answers.
+          Language-model connection this node stands for. The platform acquires
+          the endpoint, the credential and the model together, once per
+          installation, and replaces them as a whole.
+        connection:
+          # STREAMING and TOOL_CALLS. Declared by the node that supplies the
+          # model rather than by the workload that calls it: after ADR 0033 a
+          # worker sees three strings and cannot demand a protocol, so what the
+          # composition requires of a connection is stated here, where the
+          # blueprint author chooses it.
+          #
+          # Both are asked for because both consumers in this catalog need
+          # them, and a building block that under-declares would be accepted
+          # against an endpoint that then fails on an ordinary chat. An item
+          # needing less drops them from its own copy.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
     outputs:
       baseURL:
         schema:
           type: string
         presentationHint: ENDPOINT_URL
         description: >-
-          Base URL a consuming workload sends chat-completion requests to. It is
-          the value this node was given, republished so a sibling can be pointed
-          at the same service.
+          Base URL a consuming workload sends chat-completion requests to, from
+          the connection this node was given.
         from:
-          input: baseURL
+          input: llm
+          member: baseURL
       apiKey:
         schema:
           type: string
         sensitive: true
         description: >-
-          Bearer credential a consuming workload presents to the service above,
-          republished from this node's own input.
+          Bearer credential a consuming workload presents to the API above,
+          from the same connection.
         from:
-          input: apiKey
+          input: llm
+          member: apiKey
       model:
         schema:
           type: string
         description: >-
-          Model name a consuming workload selects by default, republished from
-          this node's own input.
+          Model the API answers with by default, from the same connection.
         from:
-          input: model
+          input: llm
+          member: model

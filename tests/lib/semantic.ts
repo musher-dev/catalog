@@ -83,22 +83,6 @@ const RESERVED_NAMESPACES = new Set([
 /** The namespaces a blueprint parameter's `from` may name — BP-REF-001. */
 const PARAMETER_SOURCE_NAMESPACES = new Set(['variables', 'connections']);
 
-/**
- * COMP-SRC-003. Held here rather than in the schema so it can grow in a minor
- * release: growing a `pattern` makes a previously valid document invalid.
- */
-const FLOATING_TAGS = new Set([
-  'latest',
-  'main',
-  'main-stable',
-  'master',
-  'stable',
-  'edge',
-  'nightly',
-  'dev',
-  'rolling',
-]);
-
 const record = (value: unknown): Record<string, unknown> => (isRecord(value) ? value : {});
 const specOf = (doc: LoadedDocument | null | undefined): Record<string, unknown> => record(doc?.value?.['spec']);
 const metadataOf = (doc: LoadedDocument | null | undefined): Record<string, unknown> => record(doc?.value?.['metadata']);
@@ -208,13 +192,11 @@ export const SEMANTIC_CHECKS: readonly ((context: SemanticContext) => Diagnostic
   checkComponentReferences,
   checkMedia,
   checkDescription,
-  checkImagePinning,
   checkEnvKeys,
   checkMounts,
   checkSchedule,
   checkHealthProbes,
   checkOutputOrigins,
-  checkConnectionRequirements,
   checkNodeCompute,
   checkVolumeAllocations,
   checkExposure,
@@ -432,49 +414,6 @@ export function checkDescription(context: SemanticContext): Diagnostic[] {
   return found;
 }
 
-/* ------------------------------------------------------------------ source */
-
-/** COMP-SRC-001 — the floating-tag blocklist. */
-export function checkImagePinning(context: SemanticContext): Diagnostic[] {
-  const found: Diagnostic[] = [];
-
-  for (const [componentPath, doc] of context.documents.components) {
-    if (!doc.value) continue;
-    const source = record(record(specOf(doc)['workload'])['source']);
-
-    // `image` and `git` are the two sources; only an image carries a tag.
-    const ref = source['image'];
-    if (typeof ref !== 'string') continue;
-
-    const tag = tagOf(ref);
-    if (tag !== null && FLOATING_TAGS.has(tag.toLowerCase())) {
-      found.push(
-        diag(
-          'ERR_UNPINNED_IMAGE',
-          `${rel(componentPath)} /spec/workload/source/image`,
-          `tag ${JSON.stringify(tag)} floats; it mutates under whoever curates the registry, shifting the deployment with no change to any document in the item`,
-        ),
-      );
-    }
-  }
-
-  return found;
-}
-
-/**
- * The tag of an image reference, or null where it carries a digest or none.
- *
- * The tag colon is the one after the final slash, which is what keeps a registry
- * port (`localhost:5000/nginx`) from reading as a tag. A digest pin satisfies the
- * rule whatever tag accompanies it, because the digest is what resolves.
- */
-export function tagOf(ref: string): string | null {
-  const lastSegment = ref.slice(ref.lastIndexOf('/') + 1);
-  if (lastSegment.includes('@')) return null;
-  const colon = lastSegment.indexOf(':');
-  return colon === -1 ? null : lastSegment.slice(colon + 1);
-}
-
 /* --------------------------------------------------------------- endpoints */
 
 /**
@@ -541,10 +480,22 @@ const inputsOf = (component: Record<string, unknown> | null): Record<string, unk
 const outputsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
   record(contractOf(component)['outputs']);
 
-const connectionRequirementsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(contractOf(component)['connectionRequirements']);
+/**
+ * Component spec §6.1 — the key that is present says which kind of input this
+ * is. A connection input declares `connection` and no `schema`; a value input
+ * declares `schema`. The schema makes them exclusive, so one test decides it.
+ */
+const isConnectionInput = (input: Record<string, unknown>): boolean => isRecord(input['connection']);
 
-const isRequired = (input: Record<string, unknown>): boolean => input['required'] !== false;
+/** The three members a connection publishes, whatever its protocol — COMP-CONNECTION-002. */
+const CONNECTION_MEMBERS = new Set(['baseURL', 'apiKey', 'model']);
+
+/**
+ * COMP-CONNECTION-002 — a connection input is always required, and declares no
+ * `required` of its own to say so.
+ */
+const isRequired = (input: Record<string, unknown>): boolean =>
+  isConnectionInput(input) || input['required'] !== false;
 
 /** Component spec §5 — the category, which ADR 0031 made a tag rather than a shape. */
 const categoryOf = (component: Record<string, unknown> | null): string => {
@@ -566,20 +517,6 @@ const volumesOf = (component: Record<string, unknown> | null): Record<string, un
 /** The exposure a node selects for one endpoint; an endpoint left out is PRIVATE. */
 const exposureOf = (node: Record<string, unknown>, endpoint: string): string =>
   record(node['exposure'])[endpoint] === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE';
-
-/**
- * The input names a connection requirement owns. Those inputs take no ordinary
- * binding of their own: the connection supplies all three at once.
- */
-const connectionOwnedInputs = (component: Record<string, unknown> | null): Set<string> => {
-  const owned = new Set<string>();
-  for (const requirement of Object.values(connectionRequirementsOf(component))) {
-    for (const named of Object.values(record(record(requirement)['inputs']))) {
-      if (typeof named === 'string') owned.add(named);
-    }
-  }
-  return owned;
-};
 
 /* -------------------------------------------------------- output origins */
 
@@ -609,8 +546,51 @@ export function checkOutputOrigins(context: SemanticContext): Diagnostic[] {
 
       if ('input' in from) {
         const named = from['input'];
-        if (!isRecord(typeof named === 'string' ? inputs[named] : undefined)) {
+        const input = typeof named === 'string' ? inputs[named] : undefined;
+        if (!isRecord(input)) {
           found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', `${at}/input`, `${JSON.stringify(named)} names no input this component declares`));
+          continue;
+        }
+
+        // COMP-OUT-004. A connection is three values, not one, so an output
+        // forwarding one says which. A value input has no members to choose
+        // between, so naming one there is the same mistake read the other way.
+        const member = from['member'];
+        if (isConnectionInput(input)) {
+          if (typeof member !== 'string' || !CONNECTION_MEMBERS.has(member)) {
+            found.push(
+              diag(
+                'ERR_UNKNOWN_INPUT_REFERENCE',
+                `${at}/input`,
+                `${JSON.stringify(named)} is a connection, which publishes baseURL, apiKey and model rather than one value, so the output names which of them it forwards`,
+              ),
+            );
+          }
+          // A connection input is always required and never carries a default,
+          // so COMP-OUT-003 below cannot bite on one.
+          continue;
+        }
+        if (member !== undefined) {
+          found.push(
+            diag(
+              'ERR_UNKNOWN_INPUT_REFERENCE',
+              `${at}/member`,
+              `${JSON.stringify(named)} is a value input, and only a connection input has members`,
+            ),
+          );
+          continue;
+        }
+
+        // COMP-OUT-003. Every declared output must be produced, and an optional
+        // input with no default has no value when nothing binds it.
+        if (!isRequired(input) && !('default' in input)) {
+          found.push(
+            diag(
+              'ERR_OUTPUT_NOT_PRODUCIBLE',
+              `${at}/input`,
+              `${JSON.stringify(named)} is optional and declares no default, so this output has no value to publish when nothing binds it`,
+            ),
+          );
         }
         continue;
       }
@@ -707,19 +687,20 @@ function checkOutputTemplate(component: Record<string, unknown>, template: strin
 const utf8Order = (a: string, b: string): number => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 
 /**
- * Component spec §5.3 — COMP-ENVVAR-002. One environment variable has one
- * writer: an input target claims neither a name `envVars` fixes nor a name
- * another input already claims. The later input, in UTF-8 order, is the one
- * reported.
+ * Component spec §5.3 — COMP-ENVVAR-002. A workload's environment is exactly its
+ * inputs' targets, so the only way to claim one name twice is with two inputs.
+ * The later input, in UTF-8 order, is the one reported.
+ *
+ * ADR 0033 removed `workload.envVars`, which used to be the other writer. An
+ * input carrying no `target` is skipped, which is also what silently excludes a
+ * connection input: it has no target because nothing runs to receive one.
  */
 export function checkEnvKeys(context: SemanticContext): Diagnostic[] {
   const found: Diagnostic[] = [];
 
   for (const [componentPath, doc] of context.documents.components) {
     if (!doc.value) continue;
-    const claimed = new Map<string, string>(
-      Object.keys(record(record(specOf(doc)['workload'])['envVars'])).map((key) => [key, 'envVars']),
-    );
+    const claimed = new Map<string, string>();
 
     const inputs = inputsOf(doc.value);
     for (const name of Object.keys(inputs).sort(utf8Order)) {
@@ -727,9 +708,12 @@ export function checkEnvKeys(context: SemanticContext): Diagnostic[] {
       if (typeof key !== 'string') continue;
       const owner = claimed.get(key);
       if (owner !== undefined) {
-        const by = owner === 'envVars' ? 'workload.envVars' : `input ${JSON.stringify(owner)}`;
         found.push(
-          diag('ERR_CONFLICTING_ENV_KEY', `${rel(componentPath)} /spec/contract/inputs/${name}/target/envVarKey`, `${key} is already claimed by ${by}`),
+          diag(
+            'ERR_CONFLICTING_ENV_KEY',
+            `${rel(componentPath)} /spec/contract/inputs/${name}/target/envVarKey`,
+            `${key} is already claimed by input ${JSON.stringify(owner)}`,
+          ),
         );
         continue;
       }
@@ -1033,7 +1017,6 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
 
   for (const consumer of context.nodes) {
     const consumerInputs = inputsOf(consumer.component);
-    const owned = connectionOwnedInputs(consumer.component);
 
     for (const [inputKey, rawBinding] of Object.entries(record(consumer.node['bindings']))) {
       const binding = record(rawBinding);
@@ -1045,16 +1028,6 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
         continue;
       }
 
-      // BP-CONNECTION-001. A connection supplies its three roles together, so an
-      // ordinary binding onto one of them would put two suppliers behind one
-      // value and let a key from one provider sit beside an address from another.
-      if (owned.has(inputKey)) {
-        found.push(
-          diag('ERR_INVALID_CONNECTION_BINDING', where, `${JSON.stringify(inputKey)} is owned by a connection requirement and takes no binding of its own`),
-        );
-        continue;
-      }
-
       if (typeof binding['parameter'] === 'string') {
         const named = binding['parameter'];
         const parameter = parameters[named];
@@ -1062,13 +1035,8 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
           found.push(diag('ERR_UNKNOWN_PARAMETER', `${where}/parameter`, `${JSON.stringify(named)} names no parameter this blueprint declares`));
           continue;
         }
-        // A connection is a bundle, not a value; it reaches its consumer through
-        // connectionBindings and never through an ordinary one.
-        if (namespaceOfSource(parameter['from']) === 'connections') {
-          found.push(
-            diag('ERR_INVALID_CONNECTION_BINDING', `${where}/parameter`, `parameter ${JSON.stringify(named)} names a connection, which binds only through connectionBindings`),
-          );
-        }
+        // Whether a connection parameter belongs on this input is a kind
+        // question, and `checkConnectionBindings` asks it from both sides.
         continue;
       }
 
@@ -1090,7 +1058,9 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
         continue;
       }
 
-      if (!isRecord(consumerInput)) continue;
+      // A connection input declares no schema, so there is nothing to compare;
+      // BP-CONNECTION-001 has already rejected a node binding onto one.
+      if (!isRecord(consumerInput) || isConnectionInput(consumerInput)) continue;
       found.push(...checkTypeAgreement(record(output['schema']), record(consumerInput['schema']), `${where}/output`));
     }
   }
@@ -1175,67 +1145,21 @@ function checkTypeAgreement(producer: Record<string, unknown>, consumer: Record<
 
 /* ------------------------------------------------------------- connections */
 
+
 /**
- * Component spec §6.4 — COMP-CONNECTION-001.
+ * Blueprint spec §5.3 — BP-CONNECTION-001, as ADR 0033 restated it: a kind rule
+ * over ordinary bindings rather than a second binding map.
  *
- * A connection is acquired as one thing, so each of its three roles has to name
- * an input that is genuinely waiting for it: required, a string, and with no
- * default that could stand in when acquisition is what supplies the value. The
- * credential's input is sensitive, because a connection credential is secret
- * material whatever the component calls it.
- */
-export function checkConnectionRequirements(context: SemanticContext): Diagnostic[] {
-  const found: Diagnostic[] = [];
-
-  for (const [componentPath, doc] of context.documents.components) {
-    if (!doc.value) continue;
-
-    const inputs = inputsOf(record(doc.value));
-    const claimed = new Map<string, string>();
-
-    for (const [name, rawRequirement] of Object.entries(connectionRequirementsOf(record(doc.value)))) {
-      const at = `${rel(componentPath)} /spec/contract/connectionRequirements/${name}`;
-
-      for (const [role, named] of Object.entries(record(record(rawRequirement)['inputs']))) {
-        const where = `${at}/inputs/${role}`;
-        if (typeof named !== 'string') continue;
-
-        const input = inputs[named];
-        if (!isRecord(input)) {
-          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `${JSON.stringify(named)} names no input this component declares`));
-          continue;
-        }
-
-        const owner = claimed.get(named);
-        if (owner !== undefined) {
-          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `input ${JSON.stringify(named)} is already claimed by ${owner}`));
-          continue;
-        }
-        claimed.set(named, `${name}.${role}`);
-
-        if (record(input['schema'])['type'] !== 'string') {
-          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `a connection role names a string input, and ${JSON.stringify(named)} is not one`));
-        }
-        if (!isRequired(input)) {
-          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `a connection role names a required input, and ${JSON.stringify(named)} is optional`));
-        }
-        if ('default' in input) {
-          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `a connection supplies ${JSON.stringify(named)}, so a default could never apply`));
-        }
-        if (role === 'apiKey' && input['sensitive'] !== true) {
-          found.push(diag('ERR_INVALID_CONNECTION_REQUIREMENT', where, `the credential input ${JSON.stringify(named)} is not marked sensitive`));
-        }
-      }
-    }
-  }
-
-  return found;
-}
-
-/**
- * Blueprint spec §5.3 — BP-CONNECTION-001. Every requirement the node's
- * component declares gets exactly one binding, each binding names a declared
- * parameter, and that parameter names a connection.
+ * A connection input is bound only by a `parameter` binding naming a connection
+ * parameter, and a connection parameter binds only connection inputs. One rule
+ * read from both sides. A value in a connection's place is an address from one
+ * provider beside a key from another; a connection in a value's place is a
+ * bundle where one string was promised.
+ *
+ * What this rule leaves to others: a binding naming no parameter at all is
+ * `ERR_UNKNOWN_PARAMETER` and nothing else (BP-PARAM-007), and a connection
+ * input left unbound is `ERR_UNSATISFIED_REQUIRED_INPUT` (BP-PARAM-003),
+ * because a connection input is always required.
  */
 export function checkConnectionBindings(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
@@ -1245,42 +1169,53 @@ export function checkConnectionBindings(context: SemanticContext): Diagnostic[] 
   const found: Diagnostic[] = [];
 
   for (const binding of context.nodes) {
-    const bound = record(binding.node['connectionBindings']);
-    const at = `${blueprint.label} /spec/components/${binding.name}/connectionBindings`;
-    const required = connectionRequirementsOf(binding.component);
+    // Which inputs are connections is exactly what an unreadable component
+    // hides, and guessing "not a connection" would reject a valid document.
+    if (binding.unreadable) continue;
+    const inputs = inputsOf(binding.component);
 
-    if (!binding.unreadable) {
-      for (const name of Object.keys(required)) {
-        if (!isRecord(bound[name])) {
-          found.push(diag('ERR_INVALID_CONNECTION_BINDING', at, `the component requires connection ${JSON.stringify(name)} and the node binds nothing to it`));
-        }
-      }
-    }
-
-    for (const [name, rawBinding] of Object.entries(bound)) {
-      const where = `${at}/${name}`;
-      if (!binding.unreadable && !isRecord(required[name])) {
-        found.push(diag('ERR_INVALID_CONNECTION_BINDING', where, `${JSON.stringify(name)} names no connection requirement the component declares`));
-        continue;
-      }
+    for (const [inputKey, rawBinding] of Object.entries(record(binding.node['bindings']))) {
+      const input = inputs[inputKey];
+      if (!isRecord(input)) continue; // ERR_UNKNOWN_INPUT — checkBindings reports it
+      const where = `${blueprint.label} /spec/components/${binding.name}/bindings/${inputKey}`;
+      const wantsConnection = isConnectionInput(input);
 
       const named = record(rawBinding)['parameter'];
-      const parameter = typeof named === 'string' ? parameters[named] : undefined;
-      if (!isRecord(parameter)) {
-        found.push(diag('ERR_UNKNOWN_PARAMETER', `${where}/parameter`, `${JSON.stringify(named)} names no parameter this blueprint declares`));
+      if (typeof named !== 'string') {
+        // A `value` or `node` binding. Only a connection parameter carries a
+        // connection, so either of those onto a connection input is the error.
+        if (wantsConnection) {
+          found.push(
+            diag(
+              'ERR_INVALID_CONNECTION_BINDING',
+              where,
+              `input ${JSON.stringify(inputKey)} takes a connection, and only a connection parameter supplies one`,
+            ),
+          );
+        }
         continue;
       }
 
-      if (namespaceOfSource(parameter['from']) !== 'connections') {
-        found.push(
-          diag('ERR_INVALID_CONNECTION_BINDING', `${where}/parameter`, `parameter ${JSON.stringify(named)} names no connection, so it cannot satisfy a connection requirement`),
-        );
-      }
+      const parameter = parameters[named];
+      if (!isRecord(parameter)) continue; // ERR_UNKNOWN_PARAMETER, and nothing else
+      if (wantsConnection === (namespaceOfSource(parameter['from']) === 'connections')) continue;
+
+      found.push(
+        diag(
+          'ERR_INVALID_CONNECTION_BINDING',
+          `${where}/parameter`,
+          wantsConnection
+            ? `parameter ${JSON.stringify(named)} names no connection, and input ${JSON.stringify(inputKey)} takes one`
+            : `parameter ${JSON.stringify(named)} names a connection, and input ${JSON.stringify(inputKey)} takes a value`,
+        ),
+      );
     }
   }
 
   return found;
 }
+
+
 
 /* -------------------------------------------------------------- parameters */
 
@@ -1336,16 +1271,6 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
   const bound = boundByParameter(context);
   const found: Diagnostic[] = [];
 
-  // A connection parameter is reached through connectionBindings, which names it
-  // the same way an ordinary binding does but from a different map.
-  const connectionBound = new Set<string>();
-  for (const binding of context.nodes) {
-    for (const rawBinding of Object.values(record(binding.node['connectionBindings']))) {
-      const named = record(rawBinding)['parameter'];
-      if (typeof named === 'string') connectionBound.add(named);
-    }
-  }
-
   for (const [key, rawParameter] of Object.entries(parameters)) {
     const parameter = record(rawParameter);
     const at = `${blueprint.label} /spec/parameters/${key}`;
@@ -1353,7 +1278,7 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
 
     // BP-PARAM-001. Asking a deploying user for a value nothing reads is a field
     // that cannot do anything, and it is silent — which is why it is an error.
-    if (supplies.length === 0 && !connectionBound.has(key)) {
+    if (supplies.length === 0) {
       const everyNodeReadable = context.nodes.every((binding) => !binding.unreadable);
       if (everyNodeReadable) {
         found.push(diag('ERR_UNBOUND_PARAMETER', at, 'no node binds this parameter, so nothing ever reads the value it asks for'));
@@ -1364,9 +1289,12 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
     // BP-PARAM-002. Two inputs sharing one parameter share one value, so they
     // have to agree on what the value is. Description, target and requiredness
     // say what each component does with it, not what it is.
-    const first = supplies[0];
+    // A connection input declares no schema, so BP-PARAM-002 does not compare it
+    // and an enum label can never name one of its members.
+    const values = supplies.filter((one) => !isConnectionInput(one.input));
+    const first = values[0];
     if (first) {
-      const conflict = supplies.find((one) => !deepEqual(record(one.input['schema']), record(first.input['schema'])));
+      const conflict = values.find((one) => !deepEqual(record(one.input['schema']), record(first.input['schema'])));
       if (conflict) {
         found.push(
           diag(
@@ -1384,7 +1312,7 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
     // marked sensitive is not an error here.
 
     found.push(...checkParameterSource(parameter, at));
-    found.push(...checkEnumLabels(parameter, supplies, at));
+    found.push(...checkEnumLabels(parameter, values, at));
   }
 
   // BP-PARAM-003. A required input with no binding and no default has no value
@@ -1392,14 +1320,14 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
   for (const binding of context.nodes) {
     if (binding.unreadable) continue;
     const declared = record(binding.node['bindings']);
-    const owned = connectionOwnedInputs(binding.component);
 
     for (const [inputKey, rawInput] of Object.entries(inputsOf(binding.component))) {
       const input = record(rawInput);
       if (!isRequired(input)) continue;
       if ('default' in input) continue;
       if (isRecord(declared[inputKey])) continue;
-      if (owned.has(inputKey)) continue; // a connection supplies it
+      // A connection input reaches here as required-with-no-default, which is
+      // the rule: it is always required, so one left unbound is this code.
 
       found.push(
         diag(

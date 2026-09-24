@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: n8n workflow automation, with its database and credentials on one volume.
 spec:
   type: SERVICE
@@ -28,20 +28,37 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
-    envVars:
-      # n8n builds webhook URLs from N8N_PROTOCOL + N8N_HOST; the platform
-      # fronts every public endpoint with HTTPS, so pin the protocol.
-      N8N_PROTOCOL: https
-      # One TLS-terminating proxy hop (the gateway) sits in front of n8n; this
-      # makes n8n trust X-Forwarded-* from it (docs.n8n.io
-      # configure-webhook-urls-with-reverse-proxy).
-      N8N_PROXY_HOPS: '1'
     volumes:
       data:
         minSizeGiB: 4
         mountPath: /home/node/.n8n
   contract:
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # n8n builds webhook URLs from N8N_PROTOCOL + N8N_HOST; the platform
+      # fronts every public endpoint with HTTPS, so pin the protocol.
+      protocol:
+        schema:
+          type: string
+        default: https
+        target:
+          envVarKey: N8N_PROTOCOL
+        description: Scheme n8n builds its webhook URLs with.
+      # One TLS-terminating proxy hop (the gateway) sits in front of n8n; this
+      # makes n8n trust X-Forwarded-* from it (docs.n8n.io
+      # configure-webhook-urls-with-reverse-proxy).
+      proxyHops:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVarKey: N8N_PROXY_HOPS
+        description: >-
+          How many reverse-proxy hops n8n trusts X-Forwarded-* from, as the
+          literal string the image parses.
       n8nHost:
         schema:
           type: string

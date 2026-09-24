@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 5
+  revision: 6
   description: MLflow tracking server on local SQLite and volume-backed artifacts, both overridable at install.
 spec:
   components:

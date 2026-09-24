@@ -20,7 +20,7 @@ import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
 import { OUT_OF_SCOPE, casesOf, fetchCorpus, runCase, type Case, type CorpusFamily } from './lib/conformance.ts';
-import { SPEC_RELEASE } from './lib/spec-schemas.ts';
+import { releaseOf } from './lib/spec-schemas.ts';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-conformance-'));
 after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -41,7 +41,10 @@ function skipReason({ metadata, expectedCodes }: Case): string | null {
 }
 
 for (const family of FAMILIES) {
-  describe(`conformance ${family}/v${SPEC_RELEASE}`, () => {
+  // `core` has no bundle of its own here: its corpus rides inside the blueprint
+  // archive, so it is named without a version rather than with a guessed one.
+  const label = family === 'core' ? 'conformance core' : `conformance ${family}/v${releaseOf(family)}`;
+  describe(label, () => {
     for (const testCase of casesOf(corpus, family)) {
       const { metadata, expectedCodes } = testCase;
       const reason = skipReason(testCase);

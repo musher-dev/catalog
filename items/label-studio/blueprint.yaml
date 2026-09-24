@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: label-studio
-  revision: 5
+  revision: 6
   description: Label Studio with a generated admin account and its own public URL wired into Django's CSRF trust list.
 spec:
   components:

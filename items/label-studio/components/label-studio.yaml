@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
@@ -26,24 +26,51 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
-    envVars:
-      LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK: 'true'
-      # Browsers only ever reach this deployment over https at the platform
-      # edge, so the session cookie can be Secure. The value is '1', not
-      # 'true': base.py:470 parses it with int() before label_studio.py:27
-      # re-reads it as a bool, and int('true') would fail at settings import.
-      # CSRF_COOKIE_SECURE follows it (base.py:473), which is wanted.
-      # CSRF_COOKIE_HTTPONLY would follow it too (base.py:474), and it is
-      # pinned at its current '0' so the frontend reads the CSRF cookie
-      # exactly as before.
-      LABEL_STUDIO_SESSION_COOKIE_SECURE: '1'
-      LABEL_STUDIO_CSRF_COOKIE_HTTPONLY: '0'
     volumes:
       data:
         minSizeGiB: 10
         mountPath: /label-studio/data
   contract:
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      disableSignupWithoutLink:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK
+        description: >-
+          Whether signup is restricted to holders of an invite link, as the
+          literal string the image parses.
+      # Browsers only ever reach this deployment over https at the platform
+      # edge, so the session cookie can be Secure. The value is '1', not
+      # 'true': base.py:470 parses it with int() before label_studio.py:27
+      # re-reads it as a bool, and int('true') would fail at settings import.
+      # That is also why these stay string inputs: the literal matters.
+      # CSRF_COOKIE_SECURE follows it (base.py:473), which is wanted.
+      sessionCookieSecure:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVarKey: LABEL_STUDIO_SESSION_COOKIE_SECURE
+        description: >-
+          Whether the session cookie is marked Secure, as the integer-parsed
+          literal the image expects.
+      # CSRF_COOKIE_HTTPONLY would follow SESSION_COOKIE_SECURE too
+      # (base.py:474), and it is pinned at its current '0' so the frontend
+      # reads the CSRF cookie exactly as before.
+      csrfCookieHTTPOnly:
+        schema:
+          type: string
+        default: '0'
+        target:
+          envVarKey: LABEL_STUDIO_CSRF_COOKIE_HTTPONLY
+        description: >-
+          Whether the CSRF cookie is marked HttpOnly, as the integer-parsed
+          literal the image expects.
       # Both admin inputs take effect ONCE, when the account is created. With
       # a username set, 1.23.0's _create_user (label_studio/server.py) calls
       # create_user, and for an existing email the IntegrityError is only

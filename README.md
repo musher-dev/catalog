@@ -51,9 +51,8 @@ this repo:
   which runs nothing, carries no `compute` at all;
 - every volume a component declares is allocated a `sizeGiB` on the node, at or
   above the component's own `minSizeGiB`;
-- image refs are **pinned** — `:latest`, `:main` and `:edge` are rejected;
-- one environment variable has one writer: an input's `target.envVarKey`
-  matches neither a `workload.envVars` key nor another input's key;
+- no two inputs claim one `envVarKey`: a workload's environment is exactly its
+  inputs' targets, and nothing else writes it;
 - volume mount paths are canonical, and no two are the same or nested;
 - a `JOB`'s `schedule.cron` is five numeric fields, each within its range;
 - no value depends on itself through `{node, output}` bindings;
@@ -84,7 +83,7 @@ spec:
   type: SERVICE                 # SERVICE | WORKER | JOB | EXTERNAL
   workload:                     # required unless EXTERNAL; forbidden on it
     source:
-      image: ghcr.io/example/my-app:1.2.3   # pinned — no :latest
+      image: ghcr.io/example/my-app:1.2.3   # a bare name means :latest, as in Docker
     endpoints:
       primary:
         targetPort: 8080        # the port the process listens on
@@ -105,6 +104,11 @@ spec:
         sensitive: true                 # beside the schema, not inside it
         required: true
         target: { envVarKey: ADMIN_PASSWORD }
+      dataDir:                          # a constant is an input with a default
+        description: Directory my-app keeps its data files in.
+        schema: { type: string }
+        default: /var/lib/my-app
+        target: { envVarKey: DATA_DIR }
     outputs: {}
 ```
 
@@ -213,18 +217,42 @@ acronym keeps its conventional case (`baseURL`, `publicURL`, `homepageURL`) —
 the environment-variable key is what `target.envVarKey` carries, not the input's
 name.
 
-A language model is **one connection**, never three values. The component groups
-the inputs that carry it under a connection requirement, and the blueprint
-declares a `connections` parameter and binds it through `connectionBindings`:
+A node the platform does not run — a service addressed elsewhere, such as a
+managed database — is a component declaring `spec.type: EXTERNAL`. It has no
+`workload`, its inputs carry no `target`, its `outputs` are non-empty, and its
+blueprint node carries no `compute`.
+
+A language model is **one connection**, never three values — and the connection
+enters through a node, not a field. A component declaring `spec.type: EXTERNAL`
+takes the connection whole on a **connection input**, and publishes its three
+members as outputs; the workload that calls the model declares three ordinary
+string inputs, and the blueprint wires them together:
 
 ```yaml
-# components/my-app.yaml
+# components/llm.yaml — the node that supplies the model
+spec:
+  type: EXTERNAL
   contract:
-    connectionRequirements:
+    inputs:
       llm:
-        protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES
-        capabilities: [STREAMING]
-        inputs: { baseURL: llmBaseURL, apiKey: llmAPIKey, model: llmModel }
+        description: Language-model connection this node stands for.
+        connection:
+          protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES
+          capabilities: [STREAMING]
+    outputs:
+      baseURL:
+        description: Base URL of the API.
+        schema: { type: string }
+        from: { input: llm, member: baseURL }
+      apiKey:
+        description: Credential for the API above.
+        schema: { type: string }
+        sensitive: true                       # the member is secret, so this is
+        from: { input: llm, member: apiKey }
+      model:
+        description: Model the API answers with.
+        schema: { type: string }
+        from: { input: llm, member: model }
 
 # blueprint.yaml
   parameters:
@@ -232,25 +260,36 @@ declares a `connections` parameter and binds it through `connectionBindings`:
       from: "${{ connections.llm.default }}"
       ui: { label: Language model }
   components:
-    web:
-      connectionBindings:
+    llm:
+      componentRef: ./components/llm.yaml     # EXTERNAL, so no compute
+      bindings:
         llm: { parameter: llm }
+    web:
+      componentRef: ./components/my-app.yaml
+      compute: { profile: general.standard.small }
+      bindings:
+        llmBaseURL: { node: llm, output: baseURL }
+        llmAPIKey:  { node: llm, output: apiKey }
+        llmModel:   { node: llm, output: model }
 ```
 
-Each role names a required, `type: string` input with no default, the credential's
-input is `sensitive: true`, and those three inputs take no ordinary binding of
-their own — the connection supplies all three at once, so an address from one
-provider can never sit beside a key from another.
+A connection input declares only `description` and `connection`, is always
+required, and is the one kind of input **only** an `EXTERNAL` component may
+declare. A connection parameter binds to a connection input and to nothing else,
+and a connection input takes no other kind of binding. So one connection
+parameter fills one external node, and its endpoint, credential and model always
+come from one selection — wiring `apiKey` from one node and `baseURL` from
+another is possible, but it has to be written down.
 
-A node the platform does not run — a service addressed elsewhere, such as a
-managed database — is a component declaring `spec.type: EXTERNAL`. It has no
-`workload`, its inputs carry no `target`, its `outputs` are non-empty, and its
-blueprint node carries no `compute`.
+A workload never asks for a protocol. It sees three strings, and the node that
+supplies them declares what it requires, which is the same shape a node already
+uses to read a managed database's host and port.
 
 An item holding **no** `blueprint.yaml` is an `itemType: COMPONENT` item: a
 single building block rather than a composition — `postgres` and `redis`, which
-wrap a workload, and `llm-endpoint`, which runs nothing. Listing spec §3 binds
-the two together, so a `COMPONENT` item cannot carry a blueprint and a
+wrap a workload, and `llm-endpoint`, the `EXTERNAL` component a language model
+enters through. Listing spec §3 binds the two together, so a `COMPONENT` item
+cannot carry a blueprint and a
 `BLUEPRINT` item cannot omit one. Such an item has no item revision; its
 component documents carry their own. A blueprint that needs one of these
 building blocks carries its own copy under `components/`, because a repo-local
@@ -263,10 +302,13 @@ npm install
 npm test
 ```
 
-Every item is validated against **release v1.0.0** of
-[`musher-dev/specifications`](https://github.com/musher-dev/specifications),
-the first stable release of the `core`, `component`, `listing` and `blueprint`
-families. Nothing is vendored. The schemas are fetched from their exact release
+Every item is validated against an **exact release of each family** of
+[`musher-dev/specifications`](https://github.com/musher-dev/specifications):
+`core/v1.0.0`, `listing/v1.0.0`, `component/v1.2.0` and `blueprint/v1.3.0`.
+Families release independently, so they sit at different numbers — component and
+blueprint are past `1.0.0` because
+[ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
+made inputs the only way into a component, which was breaking for both. Nothing is vendored. The schemas are fetched from their exact release
 URLs at `specifications.musher.dev`, and the release's conformance corpus from
 its GitHub release assets. Every byte is checked against the digest the release
 records, so the corpus is judged against exactly the contract it names, and
@@ -290,7 +332,9 @@ Profile is actually offered, whether a published component exists, whether a
 version is monotonic. An item that passes here can still be rejected at sync.
 
 Keep changes to one item per pull request, so a rejection that only the platform
-can raise is easy to attribute.
+can raise is easy to attribute. Adopting a new specification release is the
+standing exception: a release that narrows what validates makes every
+unmigrated item fail at once, so the pins and the documents move together.
 
 ## Contributing
 

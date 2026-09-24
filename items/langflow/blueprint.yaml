@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: langflow
-  revision: 4
+  revision: 5
   description: Langflow with a generated admin password and flow-secret key, behind a public web UI.
 spec:
   components:

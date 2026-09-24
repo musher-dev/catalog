@@ -1,0 +1,73 @@
+# The language model the OpenClaw agent runs on, as a node this platform does
+# not run (component spec §5.6). A copy of the `llm-endpoint` item's building
+# block: a repo-local componentRef cannot leave its item directory, so a
+# blueprint that needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
+# node declares three ordinary string inputs and the blueprint wires them to the
+# three outputs below, so the endpoint, the credential and the model always come
+# from one acquired connection rather than three independently supplied values.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The language-model API the OpenClaw agent sends model requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection the agent runs on: endpoint, credential and
+          model, acquired together.
+        connection:
+          # Streaming and tool calls, both unconditionally. Observed against the
+          # 2026.7.1 CLI (`agent --local`, with the boot command in
+          # openclaw.yaml applied) and a mock server logging what it received. A
+          # plain "say ping" turn sent POST {baseURL}/chat/completions with
+          # `stream: true`, 34 tool definitions, the model id as given, the key
+          # resolved from LLM_API_KEY, and no reasoning field. Memory search
+          # does not need embeddings: with no embedding provider configured it
+          # falls back to keyword search (docs/concepts/memory-search.md).
+          #
+          # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES, though both
+          # work at this tag. It accepts the widest range of compatible defaults
+          # and replacement connections, and it keeps OpenClaw off its
+          # Claude-specific beta and thinking paths on a host that is not
+          # api.anthropic.com.
+          #
+          # This is declared on the supplying node rather than on `web`: after
+          # ADR 0033 a workload sees three strings and cannot demand a protocol.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, from the
+          connection this node was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the agent uses by default, from the same connection.
+        from:
+          input: llm
+          member: model

@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: Qdrant vector database serving its HTTP API from one storage volume.
 spec:
   type: SERVICE
@@ -26,22 +26,39 @@ spec:
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 3
-    envVars:
-      # Snapshots onto the volume. The image's config.yaml sets
-      # `snapshots_path: ./snapshots` from WORKDIR /qdrant, which is outside
-      # the mount below, so every snapshot was lost on restart. Qdrant scans
-      # only storage/collections at startup (lib/storage/src/content_manager/
-      # toc/mod.rs), so a sibling directory inside the storage path is safe.
-      QDRANT__STORAGE__SNAPSHOTS_PATH: /qdrant/storage/snapshots
-      # Anonymous usage telemetry is on by default (config.yaml:
-      # `telemetry_disabled: false`). It is off here, as meilisearch's analytics are.
-      QDRANT__TELEMETRY_DISABLED: 'true'
     volumes:
       data:
         minSizeGiB: 8
         mountPath: /qdrant/storage
   contract:
     inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # Snapshots onto the volume. The image's config.yaml sets
+      # `snapshots_path: ./snapshots` from WORKDIR /qdrant, which is outside
+      # the mount below, so every snapshot was lost on restart. Qdrant scans
+      # only storage/collections at startup (lib/storage/src/content_manager/
+      # toc/mod.rs), so a sibling directory inside the storage path is safe.
+      storageSnapshotsPath:
+        schema:
+          type: string
+        default: /qdrant/storage/snapshots
+        target:
+          envVarKey: QDRANT__STORAGE__SNAPSHOTS_PATH
+        description: Directory Qdrant writes collection snapshots to.
+      # Anonymous usage telemetry is on by default (config.yaml:
+      # `telemetry_disabled: false`). It is off here, as meilisearch's analytics are.
+      telemetryDisabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: QDRANT__TELEMETRY_DISABLED
+        description: >-
+          Whether anonymous usage telemetry is off, as the literal string the
+          image parses.
       apiKey:
         schema:
           type: string
