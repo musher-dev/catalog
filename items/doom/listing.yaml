@@ -1,0 +1,42 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: doom
+spec:
+  itemType: BLUEPRINT
+  displayName: Doom
+  summary: Play classic Doom in your browser, no install and no login
+  description: |
+    ## What it is
+    Chocolate Doom, a faithful source port of the original 1993 Doom,
+    running in a streamed Linux desktop that you play from a browser tab.
+    Kasm's KasmVNC image renders the game on the server and streams it
+    over HTTPS, so keyboard, mouse and audio all work with no plugin.
+
+    ## When to use
+    - You want a quick round of Doom from any machine with a browser.
+    - You want a lightweight, shareable demo of a streamed desktop app.
+
+    ## Defaults
+    Single-container deployment of `kasmweb/doom:1.18.0` with the KasmVNC
+    web client published on port 6901 behind the platform's HTTPS edge.
+    **There is no login:** the web login prompt is disabled, so anyone
+    with the deployment's URL can open the session and play. Share the
+    URL only with people you want to let in. An internal VNC password is
+    generated automatically; you never need to enter it. Nothing is
+    persisted, so save games are lost when the deployment restarts.
+
+    The image bundles the shareware Doom episode and Freedoom alongside
+    the Chocolate Doom and PrBoom+ engines.
+  category: GAMING
+  lifecycleStage: BETA
+  tags:
+    - doom
+    - retro
+    - game
+    - kasmvnc
+  homepageURL: https://www.chocolate-doom.org
+  sourceRepoURL: https://github.com/chocolate-doom/chocolate-doom
+  supportURL: https://kasmweb.com/docs
+  license: GPL-2.0-or-later AND LicenseRef-Doom-Shareware
+  icon: media/icon.png

@@ -1,0 +1,24 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: doom
+  revision: 1
+  description: Web-playable Doom via a browser-accessible KasmVNC/Chocolate Doom container, with no login.
+spec:
+  components:
+    doom:
+      componentRef: ./components/doom.yaml
+      compute:
+        profile: general.standard.small
+      exposure:
+        web: PUBLIC
+      bindings:
+        vncPassword:
+          parameter: sessionPassword
+  parameters:
+    sessionPassword:
+      generator:
+        byteLength: 16
+        encoding: HEX
+      ui:
+        label: Internal VNC password (auto-generated)
