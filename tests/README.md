@@ -5,7 +5,7 @@ These tests hold every item under `items/` to the contracts published in
 
 The suite is held to **one exact, released version per family**: the `RELEASES`
 table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.0`,
-component `v1.3.0` and blueprint `v1.3.0`. Nothing is vendored. The schemas are
+component `v1.4.0` and blueprint `v1.5.0`. Nothing is vendored. The schemas are
 fetched on every run from each release's exact URL:
 
 ```
@@ -29,7 +29,7 @@ because the alias changes its bytes whenever a release ships. A suite whose
 verdict can change without a commit here reports on a contract nobody chose.
 
 The **conformance corpus** is fetched the same way, from the
-`component-v1.3.0.tar.gz`, `blueprint-v1.3.0.tar.gz` and `listing-v1.0.0.tar.gz`
+`component-v1.4.0.tar.gz`, `blueprint-v1.5.0.tar.gz` and `listing-v1.0.0.tar.gz`
 release assets, each checked against the digest GitHub records for it.
 
 Every archive ships its whole dependency closure, so more than one carries a
@@ -114,6 +114,12 @@ an `EXTERNAL` component publishing an output (`ERR_OUTPUT_REQUIRED`), and every
 input and output being described (`ERR_DESCRIPTION_REQUIRED`). The specification
 is explicit that an offline validator MUST NOT report any of them, so a document
 missing one passes here and is rejected at sync.
+
+Blueprint `v1.5.0` brought them back for one reader. A component may be stored
+unfinished, but a node deploys it as it will run, so a node deploying one that
+misses an obligation is `ERR_INVALID_DEPENDENCY` at its `componentRef`, semantic
+(`BP-REF-003`). Every item with a blueprint is checked for all six again; only a
+`COMPONENT` item, which no node deploys, still waits for sync.
 
 Two further groups are absent by decision rather than by phase, and both would
 need machinery this suite does not have. **Logical value validation** —

@@ -196,6 +196,7 @@ export const SEMANTIC_CHECKS: readonly ((context: SemanticContext) => Diagnostic
   checkMounts,
   checkSchedule,
   checkHealthProbes,
+  checkInputOrigins,
   checkOutputOrigins,
   checkSecretLiterals,
   checkNodeCompute,
@@ -309,6 +310,16 @@ export function checkComponentReferences(context: SemanticContext): Diagnostic[]
       found.push(
         diag('ERR_INVALID_DEPENDENCY', where, `${JSON.stringify(binding.reference)} is not a valid component document (${rel(componentPath)})`),
       );
+    } else if (binding.component) {
+      // BP-REF-003, blueprint v1.5.0. A component may be stored unfinished, but
+      // a node deploys it as it will run, so the publication obligations the
+      // component phase may not report offline are this node's to report.
+      const gap = publicationGap(binding.component);
+      if (gap) {
+        found.push(
+          diag('ERR_INVALID_DEPENDENCY', where, `${JSON.stringify(binding.reference)} is not finished: ${gap} (${rel(componentPath)})`),
+        );
+      }
     }
   }
 
@@ -328,6 +339,40 @@ export function checkComponentReferences(context: SemanticContext): Diagnostic[]
   }
 
   return found;
+}
+
+const isDescribed = (entry: unknown): boolean => {
+  const description = record(entry)['description'];
+  return typeof description === 'string' && description.length > 0;
+};
+
+/**
+ * Component spec §5, "What publication requires" — the first obligation a
+ * component misses, or null when it meets them all. Each is `capability` for
+ * the component alone; blueprint BP-REF-003 makes it semantic for a node
+ * deploying one. The component's own `metadata.description` is exempt.
+ */
+function publicationGap(component: Record<string, unknown>): string | null {
+  const spec = record(component['spec']);
+  const type = categoryOf(component);
+
+  if (type === 'EXTERNAL') {
+    if (Object.keys(outputsOf(component)).length === 0) return 'an EXTERNAL component publishes no output';
+  } else {
+    if (!isRecord(spec['workload'])) return `a ${type} carries no workload`;
+    const workload = workloadOf(component);
+    if (!isRecord(workload['source'])) return 'its workload carries no source';
+    if (type === 'SERVICE' && Object.keys(endpointsOf(component)).length === 0) return 'a SERVICE declares no endpoint';
+    if (type === 'JOB' && !('command' in workload)) return 'a JOB carries no command';
+  }
+
+  for (const [name, input] of Object.entries(inputsOf(component))) {
+    if (!isDescribed(input)) return `input ${JSON.stringify(name)} has no description`;
+  }
+  for (const [name, output] of Object.entries(outputsOf(component))) {
+    if (!isDescribed(output)) return `output ${JSON.stringify(name)} has no description`;
+  }
+  return null;
 }
 
 /* ------------------------------------------------------------------- media */
@@ -462,6 +507,73 @@ export function checkHealthProbes(context: SemanticContext): Diagnostic[] {
       if (typeof protocol === 'string' && !PROBE_FAMILY.has(protocol)) {
         found.push(
           diag('ERR_ENDPOINT_NOT_HTTP', where, `the probe names endpoint ${JSON.stringify(named)}, whose protocol is ${protocol}`),
+        );
+      }
+    }
+  }
+
+  return found;
+}
+
+/** A probe's `auth` credentials that are secrets, by the pointer beneath the probe's `http`. */
+const SECRET_CREDENTIALS = ['basic/password', 'bearer/token'] as const;
+
+/** Every credential a probe's `auth` names, with its pointer beneath `http` and whether it is a secret. */
+function probeCredentials(http: Record<string, unknown>): { pointer: string; origin: Record<string, unknown>; secret: boolean }[] {
+  const auth = record(http['auth']);
+  return ['basic/username', ...SECRET_CREDENTIALS].flatMap((pointer) => {
+    const [mechanism, field] = pointer.split('/') as [string, string];
+    const origin = record(auth[mechanism])[field];
+    if (!isRecord(origin)) return [];
+    return [{ pointer: `auth/${pointer}`, origin, secret: (SECRET_CREDENTIALS as readonly string[]).includes(pointer) }];
+  });
+}
+
+/**
+ * Component spec §5.2 and §5.4 — COMP-EP-006 and COMP-EP-010, component
+ * v1.4.0. An endpoint's `tls.trustBundle` and a probe credential's `input` each
+ * name one of the component's own inputs, and one that is always supplied —
+ * required, or carrying a `default` — because neither can fall back when the
+ * value is absent: a trust policy would have no roots, and a probe would test
+ * something other than what it declares.
+ *
+ * The input's schema being a string, and a secret credential's input being
+ * `sensitive`, are `ERR_VALUE_CONSTRAINT`: logical value validation, out of
+ * scope beside the rest of it. A secret credential given as a literal `value`
+ * is `checkSecretLiterals`'s.
+ */
+export function checkInputOrigins(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const component = record(doc.value);
+    const inputs = inputsOf(component);
+
+    const origins: { where: string; origin: Record<string, unknown> }[] = [];
+    for (const [name, endpoint] of Object.entries(endpointsOf(component))) {
+      const bundle = record(record(endpoint)['tls'])['trustBundle'];
+      if (isRecord(bundle)) origins.push({ where: `/spec/workload/endpoints/${name}/tls/trustBundle`, origin: bundle });
+    }
+    const health = record(workloadOf(component)['health']);
+    for (const probe of ['startup', 'readiness', 'liveness']) {
+      const http = record(record(health[probe])['http']);
+      for (const { pointer, origin } of probeCredentials(http)) {
+        origins.push({ where: `/spec/workload/health/${probe}/http/${pointer}`, origin });
+      }
+    }
+
+    for (const { where, origin } of origins) {
+      if (!('input' in origin)) continue;
+      const named = origin['input'];
+      const at = `${rel(componentPath)} ${where}/input`;
+      const input = typeof named === 'string' ? inputs[named] : undefined;
+
+      if (!isRecord(input)) {
+        found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', at, `${JSON.stringify(named)} names no input this component declares`));
+      } else if (!isRequired(input) && !('default' in input)) {
+        found.push(
+          diag('ERR_INPUT_NOT_GUARANTEED', at, `input ${JSON.stringify(named)} is optional with no default, so it may never be supplied`),
         );
       }
     }
@@ -1010,7 +1122,7 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
  * validator for the bounded 2020-12 value profile, and this one needs only two
  * fields read side by side. Nothing about it was ever out of reach.
  *
- * Four positions can author a value into a sensitive contract:
+ * Five positions can author a value into a sensitive contract:
  *
  * - an input's own `default`, which is the corpus case (`semantic-021`);
  * - an output declared `sensitive` whose origin is a literal `value`, or a
@@ -1018,7 +1130,9 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
  *   template a statically known string that follows the same rule;
  * - a node binding a literal `value` to a sensitive input, since blueprint
  *   §4.2 defines that binding as "a non-secret logical JSON value";
- * - a parameter `default` on a parameter some node binds to a sensitive input.
+ * - a parameter `default` on a parameter some node binds to a sensitive input;
+ * - a probe `auth` password or token given as a literal `value`, which component
+ *   v1.4.0 made a secret wherever it is written (COMP-EP-010).
  *
  * That last one was exempted when this check was written, on the reasoning that
  * a parameter default pre-fills a form field rather than baking a value into a
@@ -1078,6 +1192,22 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
             'ERR_SECRET_LITERAL',
             `${at}/outputs/${name}/from/template`,
             `output ${JSON.stringify(name)} is sensitive, and a template naming no reference is a literal`,
+          ),
+        );
+      }
+    }
+
+    // COMP-EP-010: a probe's password or token is a secret wherever it is
+    // written, so a literal `value` supplying one is authored plaintext.
+    const health = record(workloadOf(component)['health']);
+    for (const probe of ['startup', 'readiness', 'liveness']) {
+      for (const { pointer, origin, secret } of probeCredentials(record(record(health[probe])['http']))) {
+        if (!secret || !('value' in origin)) continue;
+        found.push(
+          diag(
+            'ERR_SECRET_LITERAL',
+            `${rel(componentPath)} /spec/workload/health/${probe}/http/${pointer}/value`,
+            `a probe's ${pointer.split('/').pop()} is a secret, so it is read from a sensitive input and never written here`,
           ),
         );
       }
