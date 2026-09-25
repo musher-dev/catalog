@@ -65,10 +65,14 @@ because an offline validator is forbidden to report them.
 - component shape follows `spec.type`: a `WORKER` may declare private endpoints
   but is never exposed, and a `JOB` declares none. A `PUBLIC` HTTP endpoint
   needs a readiness probe;
-- **(sync only)** a runnable component carries a `workload`, a workload carries
-  a `source`, a `SERVICE` declares at least one endpoint, a `JOB` carries a
-  `command`, an `EXTERNAL` component publishes at least one output, and every
-  input and output is described.
+- an `HTTPS` endpoint whose certificate nothing can verify says so with
+  `tls: { verify: NONE }`, and a trust bundle or probe credential reads an input
+  that is always supplied. A probe password or token is never a literal;
+- a runnable component carries a `workload`, a workload carries a `source`, a
+  `SERVICE` declares at least one endpoint, a `JOB` carries a `command`, an
+  `EXTERNAL` component publishes at least one output, and every input and output
+  is described. A blueprint node deploying a component checks these offline;
+  for a `COMPONENT` item, which no node deploys, they are **(sync only)**.
 
 Per the spec, a `BLUEPRINT` item deploys exactly one blueprint, and compute is a
 per-node concern on the blueprint node rather than on the component. The
@@ -316,7 +320,7 @@ npm test
 
 Every item is validated against an **exact release of each family** of
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications):
-`core/v1.0.0`, `listing/v1.0.0`, `component/v1.3.0` and `blueprint/v1.3.0`.
+`core/v1.0.0`, `listing/v1.0.0`, `component/v1.4.0` and `blueprint/v1.5.0`.
 Families release independently, so they sit at different numbers — component and
 blueprint are past `1.0.0` because
 [ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
@@ -341,7 +345,7 @@ The Musher platform remains the **sole authority**. These tests are the same
 contracts applied early, not a second one: they run the phases that need no
 network, and they cannot see the `capability` phase at all — whether a Compute
 Profile is actually offered, whether a published component exists, whether a
-version is monotonic, and, since component `v1.3.0`, the runtime minimums listed
+version is monotonic, and, for a `COMPONENT` item, the runtime minimums listed
 as **(sync only)** above. An item that passes here can still be rejected at
 sync.
 

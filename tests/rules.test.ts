@@ -342,6 +342,32 @@ describe('component references — blueprint §4.1', () => {
     await assertReports({ components: { 'components/web.yaml': broken } }, 'ERR_INVALID_DEPENDENCY');
   });
 
+  // BP-REF-003, blueprint v1.5.0. A component may be stored unfinished and still
+  // validate, but a node deploys it as it will run, so the publication
+  // obligations component v1.3.0 made `capability` come back as this code.
+  it('ERR_INVALID_DEPENDENCY when a node deploys a component with no workload — BP-REF-003', async () => {
+    const unfinished = component();
+    delete (unfinished['spec'] as Doc)['workload'];
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        components: { 'components/web.yaml': unfinished },
+      },
+      'ERR_INVALID_DEPENDENCY',
+    );
+  });
+
+  it('ERR_INVALID_DEPENDENCY when a node deploys a component with an undescribed input — BP-REF-003', async () => {
+    const undescribed = component({
+      spec: {
+        type: 'SERVICE',
+        workload: (component()['spec'] as Doc)['workload'],
+        contract: { inputs: { title: { schema: { type: 'string' }, default: 'Wiki', target: { envVarKey: 'TITLE' } } }, outputs: {} },
+      },
+    });
+    await assertReports({ components: { 'components/web.yaml': undescribed } }, 'ERR_INVALID_DEPENDENCY');
+  });
+
   it('finds a component document outside components/, which the spec permits', async () => {
     // The local form imposes no directory layout: ./component-web.yaml and
     // ./components/web.yaml are equally valid.
@@ -1257,6 +1283,79 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
         },
       },
       'ERR_SECRET_LITERAL',
+    );
+  });
+
+  it('ERR_SECRET_LITERAL when a probe password is a literal — COMP-EP-010', async () => {
+    const probed = component();
+    const readiness = ((probed['spec'] as Doc)['workload'] as Doc)['health'] as Doc;
+    readiness['readiness'] = {
+      http: { endpoint: 'primary', path: '/', auth: { basic: { username: { value: 'admin' }, password: { value: 'hunter2' } } } },
+    };
+    await assertReports({ components: { 'components/web.yaml': probed } }, 'ERR_SECRET_LITERAL');
+  });
+});
+
+describe('endpoint trust and probe credentials — COMP-EP-006, COMP-EP-010', () => {
+  /** A PUBLIC HTTPS endpoint whose probe logs in, after the spec's Kasm example. */
+  const loginGated = (inputs: Doc, tls: Doc = { verify: 'NONE' }, password: Doc = { input: 'vncPassword' }): Doc =>
+    component({
+      spec: {
+        type: 'SERVICE',
+        workload: {
+          source: { image: 'ghcr.io/acme/desktop:1.2.3' },
+          endpoints: { primary: { targetPort: 6901, protocol: 'HTTPS', tls } },
+          health: {
+            readiness: {
+              http: { endpoint: 'primary', path: '/', auth: { basic: { username: { value: 'kasm_user' }, password } } },
+            },
+          },
+        },
+        contract: { inputs, outputs: {} },
+      },
+    });
+
+  const vncPassword = (over: Doc = {}): Doc =>
+    input({ description: 'Session password.', sensitive: true, target: { envVarKey: 'VNC_PW' }, ...over });
+
+  const bound = blueprint({
+    spec: {
+      parameters: { vncPassword: { generator: { byteLength: 16, encoding: 'HEX' } } },
+      components: { web: node({ bindings: { vncPassword: { parameter: 'vncPassword' } } }) },
+    },
+  });
+
+  it('accepts an unverified HTTPS endpoint probed with a credential from a required sensitive input', async () => {
+    const fixture = { blueprint: bound, components: { 'components/web.yaml': loginGated({ vncPassword: vncPassword() }) } };
+    await assertStructurallyValid(build(fixture));
+    await assertClean(fixture);
+  });
+
+  it('ERR_UNKNOWN_INPUT_REFERENCE when a probe credential names no input', async () => {
+    await assertReports({ components: { 'components/web.yaml': loginGated({}) } }, 'ERR_UNKNOWN_INPUT_REFERENCE');
+  });
+
+  it('ERR_INPUT_NOT_GUARANTEED when a probe credential reads an optional input with no default', async () => {
+    await assertReports(
+      { blueprint: bound, components: { 'components/web.yaml': loginGated({ vncPassword: vncPassword({ required: false }) }) } },
+      'ERR_INPUT_NOT_GUARANTEED',
+    );
+  });
+
+  it('ERR_UNKNOWN_INPUT_REFERENCE when a trust bundle names no input', async () => {
+    const tls = { verify: 'BUNDLE', serverName: 'desktop.example.internal', trustBundle: { input: 'caBundle' } };
+    await assertReports(
+      { blueprint: bound, components: { 'components/web.yaml': loginGated({ vncPassword: vncPassword() }, tls) } },
+      'ERR_UNKNOWN_INPUT_REFERENCE',
+    );
+  });
+
+  it('ERR_INPUT_NOT_GUARANTEED when a trust bundle reads an optional input with no default', async () => {
+    const tls = { verify: 'BUNDLE', serverName: 'desktop.example.internal', trustBundle: { input: 'caBundle' } };
+    const caBundle = input({ description: 'CA roots.', required: false, target: { envVarKey: 'CA_BUNDLE' } });
+    await assertReports(
+      { blueprint: bound, components: { 'components/web.yaml': loginGated({ vncPassword: vncPassword(), caBundle }, tls) } },
+      'ERR_INPUT_NOT_GUARANTEED',
     );
   });
 });
