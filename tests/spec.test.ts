@@ -6,8 +6,13 @@
  * against it. A corpus validated against a 404 page passes everything.
  */
 import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
 import { describe, it } from 'node:test';
 
+import ts from 'typescript';
+
+import { REPO_ROOT } from './lib/paths.ts';
 import { FAMILIES, KIND_OF, RELEASES, externalRefs, loadSchema, releaseOf, schemaUrl } from './lib/spec-schemas.ts';
 
 describe('musher-dev/specifications', () => {
@@ -56,4 +61,30 @@ describe('musher-dev/specifications', () => {
       });
     });
   }
+});
+
+/**
+ * The editor's schemas are the suite's. The dev container points the YAML
+ * extension at a schema for each family, and it has to be the release pinned
+ * above: an alias or an older pin lets the editor accept, or flag, a document
+ * that `npm test` judges the other way. This is what makes adopting a release
+ * update both places, in the same pull request.
+ */
+describe('dev container', () => {
+  const GLOBS: Record<string, string> = {
+    listing: 'items/*/listing.yaml',
+    blueprint: 'items/*/blueprint.yaml',
+    component: 'items/*/components/*.yaml',
+  };
+
+  it('points the editor at the pinned release of every family', () => {
+    // JSON with comments, which JSON.parse refuses. TypeScript's tsconfig
+    // reader is the JSONC parser already in this repository's toolchain.
+    const file = path.join(REPO_ROOT, '.devcontainer', 'devcontainer.json');
+    const { config, error } = ts.parseConfigFileTextToJson(file, fs.readFileSync(file, 'utf8'));
+    assert.equal(error, undefined, 'devcontainer.json does not parse');
+
+    const schemas = config?.customizations?.vscode?.settings?.['yaml.schemas'];
+    assert.deepEqual(schemas, Object.fromEntries(FAMILIES.map((family) => [schemaUrl(family), GLOBS[family]])));
+  });
 });
