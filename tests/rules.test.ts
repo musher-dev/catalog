@@ -970,6 +970,136 @@ describe('exposure — blueprint §4.3, COMP-EP-003', () => {
   });
 });
 
+describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-012', () => {
+  const signedIn = { visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'HEADER' };
+
+  /** The default component, reading one endpoint property of `primary` into an output. */
+  const reading = (property: string, protocol = 'HTTP'): Doc =>
+    component({
+      spec: {
+        type: 'SERVICE',
+        workload: {
+          source: { image: 'ghcr.io/acme/web:1.2.3' },
+          endpoints: { primary: { targetPort: 8080, protocol } },
+          health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+        },
+        contract: {
+          inputs: {},
+          outputs: {
+            read: {
+              description: 'The property.',
+              schema: property === 'trustedProxyCIDRs' ? { type: 'array', items: { type: 'string' } } : { type: 'string' },
+              from: { endpoint: 'primary', property },
+            },
+          },
+        },
+      },
+    });
+
+  /**
+   * Every blueprint diagnostic with `code`, as the location it anchors at,
+   * relative to the item root. A gRPC fixture's readiness probe also reports
+   * ERR_ENDPOINT_NOT_HTTP in the component, which is COMP-EP-002's and not the
+   * rule under test.
+   */
+  const anchorsOf = async (fixture: Fixture, code: string): Promise<string[]> =>
+    (await diagnose(build(fixture)))
+      .filter((d) => d.code === code)
+      .map((d) => d.where.slice(d.where.lastIndexOf('/acme-wiki/') + '/acme-wiki/'.length))
+      .filter((where) => where.startsWith('blueprint.yaml '));
+
+  it('accepts a signed-in endpoint whose component reads both viewer identity properties', async () => {
+    await assertClean({
+      blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: signedIn } }) } } }),
+      components: { 'components/web.yaml': reading('viewerIdentityHeader') },
+    });
+    await assertClean({
+      blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: signedIn } }) } } }),
+      components: { 'components/web.yaml': reading('trustedProxyCIDRs') },
+    });
+  });
+
+  it('ERR_VIEWER_IDENTITY_NOT_FORWARDED at the exposure when a bare PUBLIC endpoint forwards no identity', async () => {
+    const anchors = await anchorsOf({ components: { 'components/web.yaml': reading('viewerIdentityHeader') } }, 'ERR_VIEWER_IDENTITY_NOT_FORWARDED');
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary']);
+  });
+
+  it('ERR_VIEWER_IDENTITY_NOT_FORWARDED when the endpoint is signed in but forwards no identity', async () => {
+    await assertReportsExactly(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PUBLIC', access: 'AUTHENTICATED' } } }) } } }),
+        components: { 'components/web.yaml': reading('trustedProxyCIDRs') },
+      },
+      ['ERR_VIEWER_IDENTITY_NOT_FORWARDED'],
+    );
+  });
+
+  it('ERR_VIEWER_IDENTITY_NOT_FORWARDED at the componentRef for an endpoint left out of exposure', async () => {
+    const anchors = await anchorsOf(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        components: { 'components/web.yaml': reading('viewerIdentityHeader') },
+      },
+      'ERR_VIEWER_IDENTITY_NOT_FORWARDED',
+    );
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/componentRef']);
+  });
+
+  it('ERR_ENDPOINT_NOT_PUBLIC at the exposure when the object form keeps the endpoint PRIVATE', async () => {
+    const anchors = await anchorsOf(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PRIVATE' } } }) } } }),
+        components: { 'components/web.yaml': reading('publicURL') },
+      },
+      'ERR_ENDPOINT_NOT_PUBLIC',
+    );
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary']);
+  });
+
+  it('ERR_ENDPOINT_NOT_HTTP at access when a gRPC endpoint is signed in', async () => {
+    const anchors = await anchorsOf(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PUBLIC', access: 'AUTHENTICATED' } } }) } } }),
+        components: { 'components/web.yaml': reading('publicURL', 'GRPC') },
+      },
+      'ERR_ENDPOINT_NOT_HTTP',
+    );
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary/access']);
+  });
+
+  it('ERR_ENDPOINT_NOT_HTTP when a component reads a viewer identity property of a gRPC endpoint', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        components: { 'components/web.yaml': reading('viewerIdentityHeader', 'GRPC') },
+      },
+      'ERR_ENDPOINT_NOT_HTTP',
+    );
+  });
+
+  it('judges the object form like the bare one: a PUBLIC WORKER endpoint is ERR_ENDPOINT_NOT_EXPOSABLE', async () => {
+    await assertReports(
+      {
+        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PUBLIC' } } }) } } }),
+        components: {
+          'components/web.yaml': component({
+            spec: {
+              type: 'WORKER',
+              workload: {
+                source: { image: 'ghcr.io/acme/web:1.2.3' },
+                endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
+                health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+              },
+              contract: { inputs: {}, outputs: {} },
+            },
+          }),
+        },
+      },
+      'ERR_ENDPOINT_NOT_EXPOSABLE',
+    );
+  });
+});
+
 describe('bindings — blueprint §4.2', () => {
   const producer = component({
     spec: {
