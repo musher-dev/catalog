@@ -62,34 +62,49 @@ spec:
     # a crash loop. If state really cannot be migrated, the gateway exits 78
     # on its own.
     #
-    # ACCESS: TRUSTED-PROXY. There is no token screen. The platform edge signs
-    # the viewer in, strips any client-supplied copy of the identity header and
-    # of Forwarded / X-Forwarded-* / X-Real-IP, and injects the identity header
-    # on HTTP requests and WebSocket upgrades (musher-dev/platform#3149). The
-    # gateway (docs/gateway/trusted-proxy-auth.md, v2026.9.6) accepts that
+    # ACCESS: TRUSTED-PROXY. There is no token screen. The blueprint exposes
+    # `primary` with `access: AUTHENTICATED` and `viewerIdentity: HEADER`
+    # (blueprint §4.5, ADR 0034). So the platform signs the viewer in before
+    # forwarding (BP-ACCESS-002). It strips inbound copies of the identity
+    # header and of Forwarded / X-Forwarded-* / X-Real-IP, then sets the
+    # identity header to a stable, opaque user id on HTTP requests and
+    # WebSocket upgrades (BP-ACCESS-003). The header name and the proxy
+    # addresses are platform facts of the endpoint allocation, read through the
+    # `viewerIdentityHeader` and `trustedProxyCIDRs` outputs below and bound
+    # back into this node's inputs. Nothing here defaults or guesses them.
+    #
+    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.9.6) accepts that
     # header only when:
     #
-    #   1. the TCP peer is inside `gateway.trustedProxies` (the edge's source
-    #      CIDRs, musher-dev/infra#645), else `proxy_attribution_required`;
+    #   1. the TCP peer is inside `gateway.trustedProxies`, else
+    #      `proxy_attribution_required`. These are the addresses this container
+    #      sees as its peer: the compute host's proxy, not the edge and not
+    #      loopback. No other workload or tenant may originate from them
+    #      (BP-ACCESS-004);
     #   2. the peer is neither loopback nor one of this container's own
     #      interface addresses;
     #   3. the header is present and non-blank.
+    #
+    # The id is opaque rather than an email, so `allowUsers` and
+    # `identityScopes`, which key on user identities, are left unset. Access
+    # control is the platform's installation access policy.
     #
     # `deviceAutoApprove` then pairs the browser silently, so a first visit
     # lands connected, and every browser is a revocable paired device again.
     #
     # `operator.admin` is listed in the auto-approve scopes deliberately. The
     # person who deploys this is its owner and needs admin to configure the
-    # agent. The edge admits only members of the deployment's own organization.
-    # This matches the old posture, where the token was full admin.
-    # `openclaw security audit` reports it as the CRITICAL
+    # agent. The platform admits only viewers its access policy allows for this
+    # installation. This matches the old posture, where the token was full
+    # admin. `openclaw security audit` reports it as the CRITICAL
     # `gateway.trusted_proxy_device_auto_approve_admin` finding, and the gateway
     # logs a warning at startup. That is expected here, not a regression. Once
-    # the edge can send a role, `x-openclaw-scopes` or `identityScopes` can
-    # narrow it per user.
+    # the platform can send a role, `x-openclaw-scopes` can narrow it per user.
     #
-    # The whole boundary is the edge plus edge-only ingress. The header is only
-    # trustworthy if nothing but the edge can reach port 18789.
+    # The whole boundary is the platform's sign-in plus the trusted proxy
+    # addresses. A paired device outlives a sign-out: revoke it in the Control
+    # UI. An open WebSocket outlives one only for the bounded window the
+    # platform documents (BP-ACCESS-005).
     #
     # THE LANGUAGE MODEL. It arrives as the `llm` connection declared at the
     # foot of this file, in three env vars this item names (LLM_BASE_URL,
@@ -124,8 +139,10 @@ spec:
     #
     # Exec form: argv, no shell of the platform's own. The shell this needs is
     # the one named here. The script uses `${VAR%/}` to strip a trailing slash
-    # off the origin, and sed to turn the comma-separated proxy list into
-    # JSON array members.
+    # off the origin. OPENCLAW_TRUSTED_PROXIES is an array input, so it
+    # arrives as a compact JSON array and is spliced into the batch as it is.
+    # If it is empty or missing, the batch is not valid JSON and `config set`
+    # fails the boot under `set -e`, which fails closed.
     command:
       - sh
       - -c
@@ -133,12 +150,11 @@ spec:
         set -e;
         node /app/dist/index.js doctor --fix --non-interactive
         || echo "openclaw: doctor --fix reported an incomplete repair; continuing" >&2;
-        proxies=$(printf '%s' "$OPENCLAW_TRUSTED_PROXIES" | sed 's/[[:space:]]//g; s/,/","/g');
         node /app/dist/index.js config set --batch-json
         "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
         {\"path\":\"gateway.bind\",\"value\":\"lan\"},
         {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
-        {\"path\":\"gateway.trustedProxies\",\"value\":[\"${proxies}\"]},
+        {\"path\":\"gateway.trustedProxies\",\"value\":${OPENCLAW_TRUSTED_PROXIES}},
         {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
         {\"path\":\"gateway.auth.trustedProxy\",\"value\":{\"userHeader\":\"${OPENCLAW_IDENTITY_HEADER}\",\"deviceAutoApprove\":{\"enabled\":true,\"scopes\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]}}},
         {\"path\":\"models.providers.llm\",\"value\":{\"baseUrl\":\"${LLM_BASE_URL%/}\",\"api\":\"openai-completions\",\"apiKey\":\"\${LLM_API_KEY}\",\"models\":[{\"id\":\"${LLM_MODEL}\",\"name\":\"${LLM_MODEL}\",\"reasoning\":false,\"input\":[\"text\"]}]}},
@@ -240,27 +256,32 @@ spec:
         description: >-
           Local credential for OpenClaw's CLI inside the container. Browsers
           are admitted by the platform edge's sign-in instead.
-      # The two inputs below are the edge's half of trusted-proxy auth.
-      # Upstream reads no env var for either, so the boot command writes them
-      # into gateway.trustedProxies and gateway.auth.trustedProxy.userHeader.
+      # The two inputs below are the platform's half of trusted-proxy auth.
+      # The blueprint binds them from this node's own `identityHeader` and
+      # `trustedProxies` outputs. They carry no default: a literal here would
+      # let the item run where the platform forwards no identity. Upstream
+      # reads no env var for either, so the boot command writes them into
+      # gateway.auth.trustedProxy.userHeader and gateway.trustedProxies.
       identityHeader:
-        schema:
-          type: string
-        default: x-musher-user
-        target:
-          envVarKey: OPENCLAW_IDENTITY_HEADER
-        description: >-
-          Request header in which the platform edge passes the signed-in
-          user's identity.
-      trustedProxies:
         schema:
           type: string
         required: true
         target:
+          envVarKey: OPENCLAW_IDENTITY_HEADER
+        description: >-
+          Request header in which the platform passes the signed-in viewer's
+          identity.
+      trustedProxies:
+        schema:
+          type: array
+          items:
+            type: string
+        required: true
+        target:
           envVarKey: OPENCLAW_TRUSTED_PROXIES
         description: >-
-          Comma-separated IPs or CIDRs the platform edge connects from. The
-          identity header is trusted only on connections from these addresses.
+          CIDRs the platform's forwarded traffic arrives from. The identity
+          header is trusted only on connections from these addresses.
       publicOrigin:
         schema:
           type: string
@@ -312,6 +333,31 @@ spec:
           envVarKey: LLM_MODEL
         description: Model the agent uses by default.
     outputs:
+      # Platform facts of the `primary` allocation (component §5.2, COMP-EP-012).
+      # Reading them here means any blueprint deploying this component must
+      # forward viewer identity on `primary`, or it fails
+      # ERR_VIEWER_IDENTITY_NOT_FORWARDED. So the item cannot run where the
+      # header could be forged.
+      identityHeader:
+        schema:
+          type: string
+        description: >-
+          Header the platform carries the signed-in viewer's identity in,
+          bound back into this node's `identityHeader` input.
+        from:
+          endpoint: primary
+          property: viewerIdentityHeader
+      trustedProxies:
+        schema:
+          type: array
+          items:
+            type: string
+        description: >-
+          CIDRs the platform's forwarded traffic reaches this container from,
+          bound back into this node's `trustedProxies` input.
+        from:
+          endpoint: primary
+          property: trustedProxyCIDRs
       publicURL:
         schema:
           type: string

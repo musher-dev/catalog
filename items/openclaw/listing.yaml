@@ -48,10 +48,10 @@ spec:
     releases.
 
     ## Access and security
-    Signing in to Musher is what gets you in. The platform edge admits only
-    members of the organization that owns the deployment. It tells OpenClaw
-    who you are, and OpenClaw trusts that only on connections coming from
-    the edge, so the Control UI is never open to an unauthenticated visitor.
+    Signing in to Musher is what gets you in. The platform admits only people
+    its access policy allows for this deployment. It tells OpenClaw who you
+    are, and OpenClaw trusts that only on connections arriving through the
+    platform, so the Control UI is never open to an unauthenticated visitor.
 
     A default OpenClaw install asks you to approve each new browser once by
     running `openclaw devices approve` on the Gateway host. Here the signed-in
@@ -59,10 +59,11 @@ spec:
     first time you open the URL. Each browser is still its own paired device,
     and you can review or revoke devices from the Control UI.
 
-    Every signed-in member of the owning organization gets full admin over
-    an agent that can run tools and shell commands. `openclaw security audit`
-    flags that as critical, and here it is intended. Limit who belongs to the
-    organization accordingly.
+    Everyone the platform admits gets full admin over an agent that can run
+    tools and shell commands. `openclaw security audit` flags that as
+    critical, and here it is intended. Limit who can open the deployment
+    accordingly. A browser stays paired after its user loses access, so
+    revoke devices you no longer trust from the Control UI.
 
     The Configuration tab also shows a generated gateway password. Browsers
     never need it. It is for the OpenClaw CLI inside the container.
