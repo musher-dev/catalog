@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 5
-  description: OpenClaw agent gateway on the installer's language-model connection, behind a generated master token, with its own public origin in the Control UI allowlist.
+  revision: 6
+  description: OpenClaw agent gateway on the installer's language-model connection, reached through the platform edge's sign-in, with its own public origin in the Control UI allowlist.
 spec:
   components:
     llm:
@@ -26,8 +26,18 @@ spec:
       exposure:
         primary: PUBLIC
       bindings:
-        gatewayToken:
-          parameter: gatewayToken
+        gatewayPassword:
+          parameter: gatewayPassword
+        # The edge's source addresses, the only peers whose identity header the
+        # gateway trusts. PLACEHOLDER: 192.0.2.0/24 is RFC 5737 documentation
+        # space, so no real edge matches it and every browser is refused (fail
+        # closed). Replace it with the platform-supplied value once
+        # musher-dev/specifications#134 gives the edge CIDRs a binding source
+        # and musher-dev/infra#645 publishes them. This item must not ship
+        # before then. `identityHeader` takes the component default until the
+        # same spec change can bind the edge's own header name.
+        trustedProxies:
+          value: 192.0.2.0/24
         timezone:
           parameter: timezone
         # This node's own allocated origin, from the output the component derives
@@ -61,15 +71,17 @@ spec:
       ui:
         label: Language model
         order: 1
-    # Master gateway token: auto-minted at deploy, shown on the Configuration tab, and
-    # pasted into the Control UI on first visit. 32 bytes of hex == a 64-char token,
-    # matching the project's `openssl rand -hex 32` guidance.
-    gatewayToken:
+    # Local gateway password: auto-minted at deploy and shown on the Configuration
+    # tab. Browsers never need it; the platform edge signs them in. It is for the
+    # OpenClaw CLI inside the container, which authenticates to the gateway over
+    # loopback. 32 bytes of hex == 64 characters, matching the project's
+    # `openssl rand -hex 32` guidance.
+    gatewayPassword:
       generator:
         byteLength: 32
         encoding: HEX
       ui:
-        label: Gateway token
+        label: Gateway password (in-container CLI)
         order: 2
     timezone:
       default: UTC
