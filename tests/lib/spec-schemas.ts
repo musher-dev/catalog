@@ -75,14 +75,14 @@ export const RELEASES: Record<Family, { version: string; bundleSha256: string; a
     archiveSha256: '0243c55999947de392d61468ff076bd82bf3234124bdd980ba3ed6538ddea27e',
   },
   blueprint: {
-    version: '1.5.0',
-    bundleSha256: 'c573721abb4cfb0f62295cbffd9e80d7126b0475b544e2c938a2c1a6e0c53fa9',
-    archiveSha256: '6c81a61a51efbf853ac48201b25705d77f7d5816be97c129a9ab384e17743dfc',
+    version: '1.6.0',
+    bundleSha256: 'ebe0d75286b4d139c96db09cdb149d30a1f7873a092b819add4f08809e5c9257',
+    archiveSha256: 'a3e46a80a35735190c36526c8c04e60a3ef3be6dba6858caa70516765c94ad5f',
   },
   component: {
-    version: '1.4.0',
-    bundleSha256: '455d4e254cd423eab6f75cf31e066715947ac3b0549b84144a3327b80e2e45c1',
-    archiveSha256: '15586f1632f458cf7bc532082ca7cec75603ec327423080a97bf05ece1e69765',
+    version: '1.5.0',
+    bundleSha256: '4bef694cde8a4efa429838a15efbedcb82fd0d969a7d4b9e26bcba74ecca4f58',
+    archiveSha256: '0e0704dc6e431d3d268cf83da5acbe462b46bb069e4f0430b2419c1c772f98b1',
   },
 };
 

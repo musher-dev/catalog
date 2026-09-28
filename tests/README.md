@@ -5,7 +5,7 @@ These tests hold every item under `items/` to the contracts published in
 
 The suite is held to **one exact, released version per family**: the `RELEASES`
 table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.0`,
-component `v1.4.0` and blueprint `v1.5.0`. Nothing is vendored. The schemas are
+component `v1.5.0` and blueprint `v1.6.0`. Nothing is vendored. The schemas are
 fetched on every run from each release's exact URL:
 
 ```
@@ -29,7 +29,7 @@ because the alias changes its bytes whenever a release ships. A suite whose
 verdict can change without a commit here reports on a contract nobody chose.
 
 The **conformance corpus** is fetched the same way, from the
-`component-v1.4.0.tar.gz`, `blueprint-v1.5.0.tar.gz` and `listing-v1.0.0.tar.gz`
+`component-v1.5.0.tar.gz`, `blueprint-v1.6.0.tar.gz` and `listing-v1.0.0.tar.gz`
 release assets, each checked against the digest GitHub records for it.
 
 Every archive ships its whole dependency closure, so more than one carries a

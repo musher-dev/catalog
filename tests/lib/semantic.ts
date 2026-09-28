@@ -39,6 +39,14 @@ const HTTP_FAMILY = new Set(['HTTP', 'HTTPS', 'WS', 'GRPC']);
 /** L4 — the protocols whose PUBLIC endpoint publishes a `host:port` address. */
 const L4_FAMILY = new Set(['TCP', 'UDP']);
 
+/**
+ * The protocols a sign-in and a request header exist on — the only ones whose
+ * exposure may be AUTHENTICATED (BP-NODE-007) and whose endpoint publishes the
+ * viewer identity properties (COMP-EP-012). Narrower than HTTP_FAMILY: gRPC is
+ * left out.
+ */
+const VIEWER_IDENTITY_FAMILY = new Set(['HTTP', 'HTTPS', 'WS']);
+
 /** The protocols a probe may address — component spec §5.4, COMP-EP-002. */
 const PROBE_FAMILY = new Set(['HTTP', 'HTTPS']);
 
@@ -47,7 +55,7 @@ const PROBE_FAMILY = new Set(['HTTP', 'HTTPS']);
  * one needs (component spec §5.2, COMP-EP-004). A private property is published
  * by every endpoint, whatever it speaks.
  */
-const ADDRESS_PROPERTIES: Record<string, 'url' | 'host-port' | 'any'> = {
+const ADDRESS_PROPERTIES: Record<string, 'url' | 'host-port' | 'viewer-identity' | 'any'> = {
   privateHostname: 'any',
   privatePort: 'any',
   privateAddress: 'any',
@@ -55,10 +63,18 @@ const ADDRESS_PROPERTIES: Record<string, 'url' | 'host-port' | 'any'> = {
   publicHostname: 'url',
   publicAddress: 'host-port',
   publicPort: 'host-port',
+  viewerIdentityHeader: 'viewer-identity',
+  trustedProxyCIDRs: 'viewer-identity',
 };
 
 /** The four properties that only exist once a node exposes the endpoint PUBLIC. */
 const PUBLIC_PROPERTIES = new Set(['publicURL', 'publicHostname', 'publicAddress', 'publicPort']);
+
+/**
+ * The two properties that only exist once a node forwards viewer identity on
+ * the endpoint (component spec §5.2, COMP-EP-012; blueprint BP-NODE-007).
+ */
+const VIEWER_IDENTITY_PROPERTIES = new Set(['viewerIdentityHeader', 'trustedProxyCIDRs']);
 
 /**
  * The closed namespace set core spec §5.2 reserves, as ADR 0031 §5 re-spells it:
@@ -627,9 +643,27 @@ const endpointsOf = (component: Record<string, unknown> | null): Record<string, 
 const volumesOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
   record(workloadOf(component)['volumes']);
 
-/** The exposure a node selects for one endpoint; an endpoint left out is PRIVATE. */
-const exposureOf = (node: Record<string, unknown>, endpoint: string): string =>
-  record(node['exposure'])[endpoint] === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE';
+/**
+ * The effective exposure a node selects for one endpoint, whichever form states
+ * it (blueprint BP-NODE-005, §4.5). Bare `PUBLIC` is
+ * `{ visibility: PUBLIC, access: OPEN, viewerIdentity: NONE }`, and an endpoint
+ * left out is PRIVATE. `authored` says whether the node names the endpoint at
+ * all, which is what decides where an unmet requirement anchors.
+ */
+type Exposure = { visibility: string; access: string; viewerIdentity: string; authored: boolean };
+
+const exposureOf = (node: Record<string, unknown>, endpoint: string): Exposure => {
+  const exposures = record(node['exposure']);
+  const authored = Object.hasOwn(exposures, endpoint);
+  const selected = exposures[endpoint];
+  const form = isRecord(selected) ? selected : { visibility: selected };
+  return {
+    visibility: form['visibility'] === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE',
+    access: form['access'] === 'AUTHENTICATED' ? 'AUTHENTICATED' : 'OPEN',
+    viewerIdentity: form['viewerIdentity'] === 'HEADER' ? 'HEADER' : 'NONE',
+    authored,
+  };
+};
 
 /* -------------------------------------------------------- output origins */
 
@@ -745,8 +779,19 @@ function checkAddressOrigin(
     return [diag('ERR_ENDPOINT_NOT_EXPOSABLE', where, `endpoint ${JSON.stringify(named)} belongs to a WORKER, which is never exposed, so it publishes no ${property}`)];
   }
 
+  // COMP-EP-012. The viewer identity properties exist only where a node
+  // exposes the endpoint, so a WORKER never has them, as COMP-TYPE-003 says of
+  // a public property.
+  if (family === 'viewer-identity' && categoryOf(component) === 'WORKER') {
+    return [diag('ERR_ENDPOINT_NOT_EXPOSABLE', where, `endpoint ${JSON.stringify(named)} belongs to a WORKER, which is never exposed, so it publishes no ${property}`)];
+  }
+
   const protocol = endpoint['protocol'];
   if (typeof protocol !== 'string' || family === 'any') return [];
+
+  if (family === 'viewer-identity' && !VIEWER_IDENTITY_FAMILY.has(protocol)) {
+    return [diag('ERR_ENDPOINT_NOT_HTTP', where, `${property} needs an HTTP, HTTPS or WS endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
+  }
 
   if (family === 'url' && !HTTP_FAMILY.has(protocol)) {
     return [diag('ERR_ENDPOINT_NOT_HTTP', where, `${property} needs an HTTP-family endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
@@ -1026,9 +1071,11 @@ export function checkVolumeAllocations(context: SemanticContext): Diagnostic[] {
 /* ---------------------------------------------------------------- exposure */
 
 /**
- * Blueprint spec §4.3. Exposure is the node's to choose, so every rule that
- * depends on whether an endpoint is public is decided here rather than in the
- * component — including the ones that read a component's own outputs.
+ * Blueprint spec §4.3 and §4.5. Exposure is the node's to choose, so every rule
+ * that depends on whether an endpoint is public, signed in or identity-forwarding
+ * is decided here rather than in the component — including the ones that read a
+ * component's own outputs. Every rule reads the effective exposure, so the bare
+ * and object forms are judged alike (BP-NODE-005).
  */
 export function checkExposure(context: SemanticContext): Diagnostic[] {
   const blueprint = context.documents.blueprint;
@@ -1043,13 +1090,14 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
     const at = `${blueprint.label} /spec/components/${binding.name}/exposure`;
     const health = record(record(workloadOf(binding.component))['health']);
 
-    for (const [name, selected] of Object.entries(record(binding.node['exposure']))) {
+    for (const name of Object.keys(record(binding.node['exposure']))) {
       const endpoint = endpoints[name];
       if (!isRecord(endpoint)) {
         found.push(diag('ERR_UNKNOWN_ENDPOINT', `${at}/${name}`, `${JSON.stringify(name)} names no endpoint the component declares`));
         continue;
       }
-      if (selected !== 'PUBLIC') continue;
+      const selected = exposureOf(binding.node, name);
+      if (selected.visibility !== 'PUBLIC') continue;
 
       // A WORKER is not request-driven. Exposing one is rejected even when it
       // carries a readiness probe, which it now may.
@@ -1063,6 +1111,15 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
       // listening yet. The gate has to poll *this* endpoint: a readiness probe
       // on a sibling says nothing about whether this one answers.
       const protocol = endpoint['protocol'];
+
+      // BP-NODE-007. A sign-in and a request header exist only on HTTP, HTTPS
+      // and WS.
+      if (selected.access === 'AUTHENTICATED' && typeof protocol === 'string' && !VIEWER_IDENTITY_FAMILY.has(protocol)) {
+        found.push(
+          diag('ERR_ENDPOINT_NOT_HTTP', `${at}/${name}/access`, `endpoint ${JSON.stringify(name)} speaks ${protocol}, which no sign-in can sit in front of`),
+        );
+      }
+
       if (typeof protocol !== 'string' || !HTTP_FAMILY.has(protocol)) continue;
 
       if (record(record(health['readiness'])['http'])['endpoint'] !== name) {
@@ -1073,8 +1130,12 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
     }
 
     // An output reading a public property of an endpoint this node does not
-    // expose reads an address that was never allocated. The component cannot
-    // decide this; only the node knows what it exposed.
+    // expose reads an address that was never allocated, and one reading a
+    // viewer identity property of an endpoint this node does not forward
+    // identity on reads a header anyone could forge (BP-NODE-007). The
+    // component cannot decide either; only the node knows what it exposed.
+    // Both anchor at the endpoint's exposure, or at the node's componentRef
+    // for an endpoint left out of it.
     for (const [outputName, rawOutput] of Object.entries(outputsOf(binding.component))) {
       const from = record(record(rawOutput)['from']);
       const pairs: { endpoint: unknown; property: unknown }[] = [];
@@ -1089,17 +1150,31 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
       }
 
       for (const pair of pairs) {
-        if (!PUBLIC_PROPERTIES.has(String(pair.property))) continue;
-        if (!isRecord(endpoints[String(pair.endpoint)])) continue;
-        if (exposureOf(binding.node, String(pair.endpoint)) === 'PUBLIC') continue;
+        const property = String(pair.property);
+        const name = String(pair.endpoint);
+        if (!isRecord(endpoints[name])) continue;
 
-        found.push(
-          diag(
-            'ERR_ENDPOINT_NOT_PUBLIC',
-            `${blueprint.label} /spec/components/${binding.name}/componentRef`,
-            `output ${JSON.stringify(outputName)} reads ${pair.property} of endpoint ${JSON.stringify(pair.endpoint)}, which this node keeps PRIVATE`,
-          ),
-        );
+        const selected = exposureOf(binding.node, name);
+        const where = selected.authored ? `${at}/${name}` : `${blueprint.label} /spec/components/${binding.name}/componentRef`;
+
+        if (PUBLIC_PROPERTIES.has(property) && selected.visibility !== 'PUBLIC') {
+          found.push(
+            diag(
+              'ERR_ENDPOINT_NOT_PUBLIC',
+              where,
+              `output ${JSON.stringify(outputName)} reads ${property} of endpoint ${JSON.stringify(name)}, which this node keeps PRIVATE`,
+            ),
+          );
+        }
+        if (VIEWER_IDENTITY_PROPERTIES.has(property) && selected.viewerIdentity !== 'HEADER') {
+          found.push(
+            diag(
+              'ERR_VIEWER_IDENTITY_NOT_FORWARDED',
+              where,
+              `output ${JSON.stringify(outputName)} reads ${property} of endpoint ${JSON.stringify(name)}, on which this node forwards no viewer identity`,
+            ),
+          );
+        }
       }
     }
   }

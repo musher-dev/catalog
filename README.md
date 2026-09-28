@@ -65,6 +65,11 @@ because an offline validator is forbidden to report them.
 - component shape follows `spec.type`: a `WORKER` may declare private endpoints
   but is never exposed, and a `JOB` declares none. A `PUBLIC` HTTP endpoint
   needs a readiness probe;
+- an exposure is bare `PUBLIC` / `PRIVATE` or the object form
+  `{ visibility, access, viewerIdentity }`. `access: AUTHENTICATED` needs an
+  `HTTP`, `HTTPS` or `WS` endpoint, and a component reading
+  `viewerIdentityHeader` or `trustedProxyCIDRs` needs its node to forward
+  identity there with `viewerIdentity: HEADER`;
 - an `HTTPS` endpoint whose certificate nothing can verify says so with
   `tls: { verify: NONE }`, and a trust bundle or probe credential reads an input
   that is always supplied. A probe password or token is never a literal;
@@ -320,7 +325,7 @@ npm test
 
 Every item is validated against an **exact release of each family** of
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications):
-`core/v1.0.0`, `listing/v1.0.0`, `component/v1.4.0` and `blueprint/v1.5.0`.
+`core/v1.0.0`, `listing/v1.0.0`, `component/v1.5.0` and `blueprint/v1.6.0`.
 Families release independently, so they sit at different numbers — component and
 blueprint are past `1.0.0` because
 [ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
