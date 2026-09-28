@@ -63,7 +63,10 @@ It is one pull request, and it changes nothing else:
 2. If the family attaches a conformance archive (blueprint or listing), set its
    `archiveSha256` in the same entry, from the release's assets:
    `gh release view <family>/v<X.Y.Z> -R musher-dev/specifications --json assets`.
-3. Run `npm test`. Any item or rule the new release disagrees with fails by
+3. Point the editor at the same release: that family's URL under `yaml.schemas`
+   in [`.devcontainer/devcontainer.json`](../.devcontainer/devcontainer.json).
+   `spec.test.ts` fails while the two disagree.
+4. Run `npm test`. Any item or rule the new release disagrees with fails by
    name. Fix it in the same pull request.
 
 Families move independently, so this is usually one entry, not three. A release
