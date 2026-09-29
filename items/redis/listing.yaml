@@ -21,7 +21,7 @@ spec:
     - You're deploying another workload that expects a Redis URL.
 
     ## Defaults
-    Single-container deployment of `redis:8.8.1-alpine` listening on the
+    Single-container deployment of `redis:8.8.3-alpine` listening on the
     standard port 6379 as a private TCP endpoint — reachable by your other
     workloads, not exposed to the public internet. The server runs with
     append-only-file persistence enabled, journaling writes to the 5 GiB
