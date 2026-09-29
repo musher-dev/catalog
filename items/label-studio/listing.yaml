@@ -22,7 +22,7 @@ spec:
       human-in-the-loop workflow.
 
     ## Defaults
-    Single-container deployment of `heartexlabs/label-studio:1.23.0` with
+    Single-container deployment of `heartexlabs/label-studio:1.23.1` with
     the web UI on port 8080 behind the platform's HTTPS edge.
     SQLite-backed — suitable for personal and small-team labeling. The
     admin account is created from the email/password parameters on first
@@ -37,7 +37,11 @@ spec:
     sign-ins survive a restart. First boot runs the full database
     migration chain, so expect a few minutes before the app reports
     ready. A 10 GiB persistent volume mounted at `/label-studio/data`
-    keeps projects, annotations, and uploads across restarts.
+    keeps projects, annotations, and uploads across restarts. Label
+    Studio's outbound request protection is on: ML backends, webhooks,
+    S3-compatible storage, and URL imports must be reachable at public
+    addresses, because requests to private or local network addresses are
+    blocked.
   category: AI_ML
   lifecycleStage: STABLE
   tags:
