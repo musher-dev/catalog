@@ -22,10 +22,10 @@ spec:
       on the same flow.
 
     ## Defaults
-    Single-container deployment of `langflowai/langflow:1.11.0` with the
+    Single-container deployment of `langflowai/langflow:1.12.3` with the
     web UI on port 7860 behind the platform's HTTPS edge. Auto-login is
     disabled: sign in with the admin username (default `admin`) and the
-    auto-generated password from the deployment's Configuration tab. Both
+    auto-generated password from the deployment's Installation tab. Both
     are used once, to create the account: change the password inside
     Langflow afterwards, since editing either value later does not update
     it. Model providers are added as API keys inside Langflow; this

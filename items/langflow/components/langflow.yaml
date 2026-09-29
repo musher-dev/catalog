@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: Langflow visual flow builder for LLM applications, with its database on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: langflowai/langflow:1.11.0
+      image: langflowai/langflow:1.12.3
     endpoints:
       primary:
         targetPort: 7860
@@ -18,7 +18,7 @@ spec:
         # uvicorn serves /health before the app finishes booting, which would
         # declare readiness early. The platform probe is a one-shot startup
         # gate (not a continuous restart trigger), so the DB-coupled endpoint
-        # is safe here (health_check_router.py).
+        # is safe here (health_check_router.py:62-83, 1.12.3).
         http:
           endpoint: primary
           path: /health_check
@@ -64,11 +64,13 @@ spec:
           Whether the database is written into the configuration directory
           above, as the literal string the image parses.
       # Both superuser inputs take effect ONCE, when the account is created.
-      # With AUTO_LOGIN off, 1.11.0's setup_superuser calls
-      # get_or_create_super_user (services/utils.py), which returns early for
-      # an existing superuser without touching its password. A changed
-      # username is a new account, created as a second superuser. Change the
-      # password inside Langflow.
+      # With AUTO_LOGIN off, 1.12.3's setup_superuser calls
+      # get_or_create_super_user (services/utils.py:88-138, 214-256), which
+      # returns early for an existing superuser without touching its password
+      # (it only rotates one still set to the legacy default `langflow`). A
+      # changed username is a new account, created as a second superuser; a
+      # username that already exists as an ordinary user fails startup. Change
+      # the password inside Langflow.
       superuser:
         schema:
           type: string
