@@ -38,7 +38,7 @@ spec:
     **Admin Settings → Connections**.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/open-webui/open-webui:v0.10.2`
+    Single-container deployment of `ghcr.io/open-webui/open-webui:v0.11.4`
     with the web UI on port 8080 behind the platform's HTTPS edge. The
     first account you register becomes the admin. The native Ollama
     integration is off; point the connection at an Ollama server's `/v1` URL

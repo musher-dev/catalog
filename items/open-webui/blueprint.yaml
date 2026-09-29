@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 6
+  revision: 7
   description: Open WebUI chat interface wired to the language model the installer selects, as one connection.
 # Two nodes, one of which runs nothing. The language model is an EXTERNAL node
 # (`llm`) standing for the model API: it takes the connection whole — endpoint,

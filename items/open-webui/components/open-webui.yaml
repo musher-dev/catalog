@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 8
+  revision: 9
   description: Open WebUI chat interface for any OpenAI-compatible language-model API.
 spec:
   type: SERVICE
   workload:
     source:
-      image: ghcr.io/open-webui/open-webui:v0.10.2
+      image: ghcr.io/open-webui/open-webui:v0.11.4
     endpoints:
       primary:
         targetPort: 8080
@@ -18,12 +18,15 @@ spec:
           endpoint: primary
           path: /health
         # uvicorn binds the socket only after the FastAPI lifespan returns, so
-        # nothing answers on 8080 until the whole first boot has run: ~50
+        # nothing answers on 8080 until the whole first boot has run: ~60
         # alembic migrations, then a cold pull of the default embedding model
         # (sentence-transformers/all-MiniLM-L6-v2) from HuggingFace, then
-        # loading it. Every probe until then is connection-refused. The old 30s
-        # + 3-failure gate expired while the model was still loading and the
-        # agent reaped the container mid-boot (observed live). Same budget shape
+        # loading it. The image bakes that model in at build time, but into
+        # /app/backend/data/cache (SENTENCE_TRANSFORMERS_HOME, Dockerfile at
+        # v0.11.4), which the data volume below mounts over. Every probe until
+        # then is connection-refused. The old 30s + 3-failure gate expired
+        # while the model was still loading and the agent reaped the container
+        # mid-boot (observed live). Same budget shape
         # as label-studio and mlflow: the wait is carried by the initial delay,
         # because retries are cheap but few. First boot only — the model cache
         # and the DB both live in the data volume below.
@@ -47,7 +50,7 @@ spec:
         default: 'true'
         target:
           envVarKey: ENABLE_OPENAI_API
-        # Already True by default in v0.10.2 (config.py); pinned so the item
+        # Already True by default in v0.11.4 (config.py:319); pinned so the item
         # does not depend on an upstream default it cannot see change.
         description: >-
           Whether the OpenAI-compatible API client is enabled, as the literal
@@ -78,10 +81,10 @@ spec:
         presentationHint: ENDPOINT_URL
         target:
           envVarKey: OPENAI_API_BASE_URL
-        # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.10.2 reads
-        # these env vars into DEFAULT_CONFIG (config.py), and on every start
-        # main.py:317 calls seed_registered_defaults(). That runs
-        # Config.seed_defaults (models/config.py:237), which writes a row for
+        # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.11.4 reads
+        # these env vars into DEFAULT_CONFIG (config.py:2822), and on every
+        # start main.py:367 calls seed_registered_defaults(). That runs
+        # Config.seed_defaults (models/config.py:241), which writes a row for
         # every key that has none, and Config.get prefers a stored row. So the
         # first boot saves this URL, the key and the model into the database,
         # whether or not an admin ever opens Connections. Every later boot
@@ -93,9 +96,13 @@ spec:
         # ENABLE_PERSISTENT_CONFIG=false or RESET_CONFIG_ON_START=true would
         # make the env authoritative again. Neither is scoped to these keys:
         # both revert every admin setting on each restart. Rejected for that.
+        # v0.11.0 made env authoritative again for single sign-on, but only
+        # for `oauth.*` keys (ENABLE_OAUTH_PERSISTENT_CONFIG,
+        # models/config.py:136); `openai.*` and `ui.default_models` are still
+        # captured.
         #
-        # Open WebUI appends /chat/completions (routers/openai.py:1238) and
-        # also lists models from GET {url}/models (routers/openai.py:128). A
+        # Open WebUI appends /chat/completions (routers/openai.py:1636) and
+        # also lists models from GET {url}/models (routers/openai.py:131). A
         # chat for a model missing from that list fails with MODEL_NOT_FOUND,
         # so the endpoint behind this URL has to serve /models too.
         description: >-
