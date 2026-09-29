@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: Flowise low-code LLM flow builder, storing flows and credentials on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: flowiseai/flowise:3.1.3
+      image: flowiseai/flowise:3.1.4
     endpoints:
       primary:
         targetPort: 3000

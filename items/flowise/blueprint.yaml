@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  revision: 5
+  revision: 6
   description: Flowise with a generated credential-encryption key and a public web UI.
 spec:
   components:

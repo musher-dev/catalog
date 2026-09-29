@@ -23,7 +23,7 @@ spec:
       work better on a canvas than in code.
 
     ## Defaults
-    Single-container deployment of `flowiseai/flowise:3.1.3` with the web
+    Single-container deployment of `flowiseai/flowise:3.1.4` with the web
     UI on port 3000 behind the platform's HTTPS edge; you create the admin
     account from the sign-up screen on first launch. Open the app as soon as
     it reports ready: until an admin exists, whoever reaches that screen
