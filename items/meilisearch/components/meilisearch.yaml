@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: Meilisearch search engine serving its HTTP API from one data volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: getmeili/meilisearch:v1.53.2
+      image: getmeili/meilisearch:v1.54.1
     endpoints:
       primary:
         targetPort: 7700
@@ -51,7 +51,7 @@ spec:
       # IN-PLACE UPGRADES, the self-hosted path upstream documents
       # (documentation: resources/migration/updating.mdx). A database only
       # opens under the exact version that wrote it. check_version
-      # (crates/meilisearch/src/lib.rs, v1.53.2) refuses any major, minor or
+      # (crates/meilisearch/src/lib.rs, v1.54.1) refuses any major, minor or
       # patch mismatch unless this flag is set. Without it, every tag bump
       # leaves existing deployments unable to start.
       #

@@ -22,11 +22,11 @@ spec:
       client-safe tokens.
 
     ## Defaults
-    Single-container deployment of `getmeili/meilisearch:v1.53.2` with the
+    Single-container deployment of `getmeili/meilisearch:v1.54.1` with the
     HTTP API on port 7700 behind the platform's HTTPS edge, running in
     production mode with telemetry disabled. A master key is
     auto-generated for admin and indexing access — copy it from the
-    deployment's Configuration tab and mint scoped tenant tokens for
+    deployment's Installation tab and mint scoped tenant tokens for
     client-facing searches. An 8 GiB persistent volume mounted at
     `/meili_data` keeps indexes across restarts.
 
