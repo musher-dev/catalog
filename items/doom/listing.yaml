@@ -5,7 +5,7 @@ metadata:
 spec:
   itemType: BLUEPRINT
   displayName: Doom
-  summary: Play classic Doom in your browser, no install and no login
+  summary: Play classic Doom in your browser, no install and no extra login
   description: |
     ## What it is
     Chocolate Doom, a faithful source port of the original 1993 Doom,
@@ -18,11 +18,12 @@ spec:
     - You want a lightweight, shareable demo of a streamed desktop app.
 
     ## Defaults
-    Single-container deployment of `kasmweb/doom:1.18.0` with the KasmVNC
+    Single-container deployment of `kasmweb/doom:1.19.0` with the KasmVNC
     web client published on port 6901 behind the platform's HTTPS edge.
-    **There is no login:** the web login prompt is disabled, so anyone
-    with the deployment's URL can open the session and play. Share the
-    URL only with people you want to let in. An internal VNC password is
+    **There is no app login:** KasmVNC's own login prompt is disabled.
+    Instead, only people signed in to Musher as members of the
+    deployment's organization can open the session and play; having the
+    URL alone is not enough. An internal VNC password is
     generated automatically; you never need to enter it. Nothing is
     persisted, so save games are lost when the deployment restarts.
 

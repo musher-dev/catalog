@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: Browser-playable Chocolate Doom via KasmVNC, served over HTTPS with the web login disabled.
 spec:
   type: SERVICE
   workload:
     source:
-      image: kasmweb/doom:1.18.0
+      image: kasmweb/doom:1.19.0
     endpoints:
       web:
         targetPort: 6901
@@ -26,7 +26,8 @@ spec:
   contract:
     inputs:
       # The core image ships VNCOPTIONS set to its own streaming tuning
-      # (kasmtech/workspaces-core-images, dockerfile-kasm-core). Setting the
+      # (kasmtech/workspaces-core-images, dockerfile-kasm-core, release/1.19.0;
+      # unchanged from release/1.18.0). Setting the
       # variable replaces that value outright, so the default repeats those
       # flags and appends -disableBasicAuth rather than dropping them.
       vncOptions:
@@ -37,8 +38,8 @@ spec:
           envVarKey: VNCOPTIONS
         description: >-
           KasmVNC startup options. -disableBasicAuth removes the HTTP Basic
-          login prompt entirely, so the session is reachable by anyone with
-          the URL.
+          login prompt entirely; who can reach the session is decided by the
+          platform's sign-in in front of the endpoint.
       # Kasm's startup still writes this as the underlying VNC password even
       # with the web login disabled, and the image's own default is the
       # public string "vncpassword", so it is supplied rather than left unset.

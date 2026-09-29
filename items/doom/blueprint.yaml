@@ -2,16 +2,23 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: doom
-  revision: 1
-  description: Web-playable Doom via a browser-accessible KasmVNC/Chocolate Doom container, with no login.
+  revision: 2
+  description: Web-playable Doom via a browser-accessible KasmVNC/Chocolate Doom container, with no in-app login, behind the platform's sign-in.
 spec:
   components:
     doom:
       componentRef: ./components/doom.yaml
       compute:
         profile: general.standard.small
+      # The platform signs the viewer in before forwarding, so the session is
+      # open only to signed-in members of the organization even though
+      # KasmVNC's own login is disabled (-disableBasicAuth). The endpoint is
+      # HTTPS with tls verify NONE; AUTHENTICATED is allowed on it.
       exposure:
-        web: PUBLIC
+        web:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: NONE
       bindings:
         vncPassword:
           parameter: sessionPassword
