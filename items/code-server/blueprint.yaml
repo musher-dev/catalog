@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: code-server
-  revision: 4
-  description: code-server behind a generated access password, with a persistent home directory.
+  revision: 5
+  description: code-server behind the platform's sign-in, with a persistent home directory.
 spec:
   components:
     web:
@@ -13,15 +13,11 @@ spec:
       volumes:
         data:
           sizeGiB: 8
+      # The platform signs the viewer in before forwarding, and code-server's
+      # own password is off (components/code-server.yaml). code-server is
+      # browser-only, so blocking non-browser callers costs nothing.
       exposure:
-        primary: PUBLIC
-      bindings:
-        password:
-          parameter: password
-  parameters:
-    password:
-      generator:
-        byteLength: 32
-        encoding: HEX
-      ui:
-        label: Access password
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: NONE
