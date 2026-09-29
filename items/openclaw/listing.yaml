@@ -65,7 +65,7 @@ spec:
     accordingly. A browser stays paired after its user loses access, so
     revoke devices you no longer trust from the Control UI.
 
-    The Configuration tab also shows a generated gateway password. Browsers
+    The Installation tab also shows a generated gateway password. Browsers
     never need it. It is for the OpenClaw CLI inside the container.
 
     Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
