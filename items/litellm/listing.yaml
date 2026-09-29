@@ -23,19 +23,20 @@ spec:
       model traffic.
 
     ## Defaults
-    Single-container deployment of
-    `ghcr.io/berriai/litellm:v1.83.14-stable.patch.3` with the proxy on
-    port 4000 behind the platform's HTTPS edge. A master key is
-    auto-generated and is required for admin endpoints. Copy it from the
-    deployment's Configuration tab and present it exactly as shown.
+    Single-container deployment of `ghcr.io/berriai/litellm:v1.103.0`
+    with the proxy on port 4000 behind the platform's HTTPS edge. A master
+    key is auto-generated and is required for admin endpoints. Reveal it on
+    the deployment's Installation tab and present it exactly as shown, as a
+    bearer token to the API.
 
     ## Limitations
     This deployment runs stateless: no database, no persistent volume and
     no config file. LiteLLM registers models either from a config file or,
     with a database, from the dashboard, and this build has neither. As
     deployed, it answers health checks and authenticates the master key but
-    **serves no models**. Virtual keys, teams, budgets and spend tracking
-    need the database-backed build this catalog does not ship yet
+    **serves no models**. The admin dashboard's sign-in also needs the
+    database, so the UI cannot be used. Virtual keys, teams, budgets and
+    spend tracking need the database-backed build this catalog does not ship yet
     ([catalog#16](https://github.com/musher-dev/catalog/issues/16)).
   category: AI_ML
   lifecycleStage: BETA
