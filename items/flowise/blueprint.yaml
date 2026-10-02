@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  revision: 6
-  description: Flowise with a generated credential-encryption key and a public web UI.
+  revision: 7
+  description: Flowise behind the platform's sign-in, with its chat and flow APIs reachable and a generated credential-encryption key.
 spec:
   components:
     web:
@@ -13,8 +13,15 @@ spec:
       volumes:
         data:
           sizeGiB: 5
+      # The platform signs viewers in before forwarding, which also limits the
+      # first-run admin sign-up to people allowed into the installation. The
+      # prediction, embed and webhook routes are exempt (components/flowise.yaml).
       exposure:
-        primary: PUBLIC
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          accessExemptions:
+            - PATHS
       bindings:
         flowiseSecretKey:
           parameter: flowiseSecretKey

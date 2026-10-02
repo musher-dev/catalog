@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: Flowise low-code LLM flow builder, storing flows and credentials on one volume.
 spec:
   type: SERVICE
@@ -12,6 +12,33 @@ spec:
       primary:
         targetPort: 3000
         protocol: HTTP
+        # The routes an embedded chat widget, a webhook sender or an API
+        # client calls without a viewer session. A blueprint may let them past
+        # the platform's sign-in. Each is on Flowise's own WHITELIST_URLS,
+        # which it serves without a session and guards with a per-chatflow API
+        # key where one is assigned, except vector/upsert, which always needs
+        # an API key (utils/constants.ts, index.ts, flowise@3.1.4).
+        #
+        # Not `bearer`. A request carrying any bearer token would then pass
+        # sign-in on every route, and the whitelist also holds
+        # account/register, the route that makes its first caller the admin.
+        accessExemptions:
+          paths:
+            - /api/v1/prediction
+            - /api/v1/public-chatflows
+            - /api/v1/public-chatbotConfig
+            - /api/v1/public-executions
+            - /api/v1/chatflows-streaming
+            - /api/v1/chatflows-uploads
+            - /api/v1/get-upload-file
+            - /api/v1/attachments
+            - /api/v1/feedback
+            - /api/v1/leads
+            - /api/v1/chatmessage/abort
+            - /api/v1/text-to-speech
+            - /api/v1/webhook
+            - /api/v1/mcp
+            - /api/v1/vector/upsert
     health:
       readiness:
         http:

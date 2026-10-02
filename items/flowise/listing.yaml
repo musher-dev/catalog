@@ -24,10 +24,14 @@ spec:
 
     ## Defaults
     Single-container deployment of `flowiseai/flowise:3.1.4` with the web
-    UI on port 3000 behind the platform's HTTPS edge; you create the admin
-    account from the sign-up screen on first launch. Open the app as soon as
-    it reports ready: until an admin exists, whoever reaches that screen
-    first becomes the admin. Model providers are added as credentials inside
+    UI on port 3000 behind the platform's HTTPS edge and the platform's
+    sign-in: only people allowed into this installation reach the builder.
+    You create the Flowise admin account from the sign-up screen on first
+    launch; until one exists, the first signed-in person to reach that
+    screen becomes the admin. The prediction API, embedded chat widgets,
+    webhooks, MCP and vector upserts stay reachable without signing in, and
+    Flowise still checks a chatflow's API key where you assign one. Share
+    links (`/chatbot/…`) open only for signed-in people. Model providers are added as credentials inside
     Flowise, per flow; this deployment does not connect one for you.
     SQLite-backed by
     default (pointing it at Postgres is documented upstream but not
