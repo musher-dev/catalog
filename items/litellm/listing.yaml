@@ -23,7 +23,7 @@ spec:
       model traffic.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/berriai/litellm:v1.103.0`
+    Single-container deployment of `ghcr.io/berriai/litellm:v1.103.2`
     with the proxy on port 4000 behind the platform's HTTPS edge. A master
     key is auto-generated and is required for admin endpoints. Reveal it on
     the deployment's Installation tab and present it exactly as shown, as a
