@@ -22,7 +22,7 @@ spec:
       webhook endpoints on your own domain.
 
     ## Defaults
-    Single-container deployment of `n8nio/n8n:2.40.7` with the web UI on
+    Single-container deployment of `n8nio/n8n:2.41.6` with the web UI on
     port 5678 behind the platform's HTTPS edge and the platform's sign-in:
     only people allowed into this installation reach the editor.
     Webhooks, forms, MCP triggers, the public API (`/api`, with an n8n API

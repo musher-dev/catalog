@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 9
+  revision: 10
   description: n8n workflow automation, with its database and credentials on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: n8nio/n8n:2.40.7
+      image: n8nio/n8n:2.41.6
     endpoints:
       primary:
         targetPort: 5678
@@ -15,7 +15,7 @@ spec:
         # The routes machines call, which no viewer session can reach. A
         # blueprint may let them past the platform's sign-in; every other route
         # keeps it (component §5.2, ADR 0035). Each is the path's default in
-        # endpoints.config.ts and public-api.config.ts (n8n@2.40.7):
+        # endpoints.config.ts and public-api.config.ts (n8n@2.41.6):
         # production, test and waiting webhooks and forms, workflow MCP
         # triggers, the public API (every route checks X-N8N-API-KEY or a
         # bearer token), and the instance MCP server, whose handler checks its
@@ -38,7 +38,7 @@ spec:
       readiness:
         # /healthz/readiness answers 200 only once the DB is connected and
         # migrated and server initialisation has finished (abstract-server.ts,
-        # n8n@2.40.7); bare /healthz answers as soon as the process is
+        # n8n@2.41.6); bare /healthz answers as soon as the process is
         # reachable, which would declare readiness before n8n can serve
         # traffic (docs.n8n.io monitor-n8n).
         http:
@@ -90,7 +90,7 @@ spec:
         target:
           envVarKey: N8N_HOST
         description: Public hostname n8n uses for webhook URLs.
-      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.40.7 lists WEBHOOK_URL as
+      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.41.6 lists WEBHOOK_URL as
       # deprecated ("Use N8N_WEBHOOK_URL instead, which sets the base URL for
       # both test and production webhooks", cli/src/deprecation/
       # deprecation.service.ts). UrlService prefers the new name for both
@@ -122,7 +122,7 @@ spec:
       # screen. With N8N_INSTANCE_OWNER_MANAGED_BY_ENV on, n8n validates the
       # pair below and applies it on every start with overwriteExisting: true
       # (instance-settings-loader/loaders/owner.instance-settings-loader.ts,
-      # n8n@2.40.7), so a password changed inside n8n reverts at the next
+      # n8n@2.41.6), so a password changed inside n8n reverts at the next
       # restart. The first and last name keep n8n's defaults.
       ownerManagedByEnv:
         schema:
