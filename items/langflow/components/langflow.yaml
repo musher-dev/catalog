@@ -1,8 +1,8 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
-  description: Langflow visual flow builder for LLM applications, with its database on one volume.
+  revision: 7
+  description: Langflow visual flow builder for LLM applications, signing viewers in from the platform's signed assertion, with its database on one volume.
 spec:
   type: SERVICE
   workload:
@@ -12,6 +12,18 @@ spec:
       primary:
         targetPort: 7860
         protocol: HTTP
+        # The routes API clients call to run flows, which no viewer session
+        # reaches: run, webhook and the OpenAI-compatible responses API. A
+        # blueprint may let them past the platform's sign-in, and Langflow
+        # still requires an x-api-key there. An exempt request is forwarded
+        # with no assertion, even from a signed-in browser, so nothing the UI
+        # itself calls is listed. That includes /api/v1/mcp, which the MCP
+        # settings page shares with MCP clients.
+        accessExemptions:
+          paths:
+            - /api/v1/run
+            - /api/v1/webhook
+            - /api/v1/responses
     health:
       readiness:
         # /health_check answers only once the app (incl. DB) is genuinely up;
@@ -97,4 +109,101 @@ spec:
         target:
           envVarKey: LANGFLOW_SECRET_KEY
         description: Key used to encrypt API keys and secrets stored in flows
-    outputs: {}
+      # External authentication (lfx/services/settings/auth.py,
+      # services/auth/external.py, v1.12.3). Langflow tries its own session
+      # first. Otherwise it verifies the JWT in the named header against the
+      # key set, issuer and audience below, and provisions a local user keyed
+      # on the token's `sub`. Users created this way are never superusers.
+      # No trusted proxies are needed: the signature says the platform sent
+      # it (component §11).
+      externalAuthEnabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_ENABLED
+        description: >-
+          Whether Langflow accepts the platform's signed viewer assertion, as
+          the literal string the image parses.
+      externalAuthProvider:
+        schema:
+          type: string
+        default: musher
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_PROVIDER
+        description: Provider key Langflow records on the accounts it provisions from the assertion.
+      externalAuthAlgorithms:
+        schema:
+          type: string
+        default: RS256
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_ALGORITHMS
+        description: Signature algorithms Langflow accepts on the assertion; the platform signs RS256.
+      assertionHeader:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_TOKEN_HEADER
+        description: Request header the platform carries the signed viewer assertion in.
+      assertionIssuer:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_ISSUER
+        description: Issuer the assertion must name.
+      # Unique to this endpoint, so an assertion minted for any other
+      # installation is rejected here.
+      assertionAudience:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_AUDIENCE
+        description: Audience the assertion must name.
+      # Langflow refuses a key set URL that is not https, and the platform
+      # publishes an absolute https one.
+      assertionKeysURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: LANGFLOW_EXTERNAL_AUTH_JWKS_URL
+        description: URL of the key set the assertion's signature is verified against.
+    outputs:
+      # Platform facts of the `primary` allocation (component §5.2, COMP-EP-012).
+      # Reading them means any blueprint deploying this component must select
+      # viewerIdentity ASSERTION on `primary`, or it fails
+      # ERR_VIEWER_IDENTITY_NOT_FORWARDED. The blueprint binds each back into
+      # the input of the same name.
+      assertionHeader:
+        schema:
+          type: string
+        description: Header the platform carries the signed viewer assertion in.
+        from:
+          endpoint: primary
+          property: viewerAssertionHeader
+      assertionIssuer:
+        schema:
+          type: string
+        description: Issuer of the platform's viewer assertions.
+        from:
+          endpoint: primary
+          property: viewerAssertionIssuer
+      assertionAudience:
+        schema:
+          type: string
+        description: Audience of the assertions the platform mints for this endpoint.
+        from:
+          endpoint: primary
+          property: viewerAssertionAudience
+      assertionKeysURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: URL of the key set that verifies the platform's viewer assertions.
+        from:
+          endpoint: primary
+          property: viewerAssertionKeysURL

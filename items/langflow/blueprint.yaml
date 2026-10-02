@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: langflow
-  revision: 6
-  description: Langflow with a generated admin password and flow-secret key, behind a public web UI.
+  revision: 7
+  description: Langflow behind the platform's sign-in, signing viewers in from its signed assertion, with a generated admin password and flow-secret key.
 spec:
   components:
     web:
@@ -13,9 +13,36 @@ spec:
       volumes:
         data:
           sizeGiB: 5
+      # The platform signs viewers in and forwards each request with a signed
+      # assertion, which Langflow verifies to sign the viewer in. Email and
+      # name ride inside the assertion, so the accounts it provisions carry
+      # them. The flow-running API is exempt (components/langflow.yaml).
       exposure:
-        primary: PUBLIC
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: ASSERTION
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
       bindings:
+        # The platform's facts of this node's own `primary` allocation. A node
+        # reading its own endpoint outputs is a discovery dependency and not a
+        # value cycle (BP-CONN-002).
+        assertionHeader:
+          node: web
+          output: assertionHeader
+        assertionIssuer:
+          node: web
+          output: assertionIssuer
+        assertionAudience:
+          node: web
+          output: assertionAudience
+        assertionKeysURL:
+          node: web
+          output: assertionKeysURL
         superuser:
           parameter: superuser
         superuserPassword:
