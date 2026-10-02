@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: n8n
-  revision: 6
-  description: n8n workflow automation with its own public address wired into the webhook and editor URLs it publishes.
+  revision: 7
+  description: n8n workflow automation behind the platform's sign-in, owned by its installer, with webhooks reachable and its own address wired in.
 spec:
   components:
     web:
@@ -13,11 +13,22 @@ spec:
       volumes:
         data:
           sizeGiB: 4
+      # The platform signs viewers in before forwarding. Webhooks, forms, MCP
+      # triggers and the public API are exempt, because the services that call
+      # them never hold a viewer session (components/n8n.yaml).
       exposure:
-        primary: PUBLIC
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          accessExemptions:
+            - PATHS
       bindings:
         timezone:
           parameter: timezone
+        ownerEmail:
+          parameter: ownerEmail
+        ownerPasswordHash:
+          parameter: ownerPasswordHash
         # All three take this node's own allocated address, from the outputs the
         # component derives from its `primary` endpoint. A node reading its own
         # endpoint output is a discovery dependency and not a value cycle
@@ -35,6 +46,24 @@ spec:
           node: web
           output: publicURL
   parameters:
+    # The installer owns the deployment: their verified email, captured once
+    # when the installation is created (BP-PARAM-011).
+    ownerEmail:
+      from: "${{ deployment.installer.email }}"
+    # Disclosed to whoever manages the installation, and never bound: n8n
+    # receives only the bcrypt hash below. 24 bytes in BASE64URL is 32
+    # characters, inside the 72 bcrypt reads (BP-PARAM-012).
+    ownerPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Owner password
+        order: 2
+    ownerPasswordHash:
+      hash:
+        parameter: ownerPassword
+        algorithm: BCRYPT
     timezone:
       default: UTC
       ui:
