@@ -1,38 +1,51 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 8
   description: OpenClaw agent gateway and Control UI behind the platform edge's sign-in, with its config, sessions and credentials on two volumes.
 spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 2026.9.6 is the latest stable release (2026-09-23). The tag on
+      # PINNED. 2026.9.7 is the latest stable release (2026-09-30). The tag on
       # ghcr carries no `v` prefix.
       #
       # This item previously sat on 2026.7.1 because it relied on
       # `gateway.controlUi.dangerouslyDisableDeviceAuth`, which 2026.8.x made
-      # inert: at 2026.9.6 `shouldSkipControlUiPairing`
+      # inert: at 2026.9.7 `shouldSkipControlUiPairing`
       # (src/gateway/server/ws-connection/connect-policy.ts) returns only
       # "tailscale-device", "auth-none" or null, and `doctor --fix` deletes the
       # key as retired. Browsers are admitted here by trusted-proxy auth with
       # `deviceAutoApprove` instead (see the block above `command`).
       #
-      # Before bumping past 2026.9.6, check two things. `main` moves the
-      # ENTRYPOINT to `tini -s -- node /app/docker-entrypoint.mjs`, which runs
-      # `doctor --fix --non-interactive` itself and may not pass `sh -c`
-      # through the way `tini -s --` does. And re-read the pairing plan
+      # When bumping, re-read the pairing plan
       # (src/gateway/server/ws-connection/connect-pairing-approval-plan.ts) for
-      # the trusted-proxy auto-approve lane.
-      image: ghcr.io/openclaw/openclaw:2026.9.6
+      # the trusted-proxy auto-approve lane, and docker-entrypoint.mjs (see
+      # below) for any change to which commands it passes through.
+      image: ghcr.io/openclaw/openclaw:2026.9.7
     # Converge config through OpenClaw's own `config set` CLI, then exec the
-    # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
+    # gateway.
+    #
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT. Since
+    # 2026.9.7 that is `tini -s -- node /app/docker-entrypoint.mjs`. The
+    # adapter runs `doctor --fix --non-interactive` itself only when its argv
+    # is a foreground gateway run (`node openclaw.mjs gateway` and the like),
+    # and treats a failed Doctor as fatal. Any other command, `sh -c` here,
+    # it hands straight to process.execve unchanged, so tini still supervises
+    # it. That is why the script below still runs Doctor itself, with a
+    # failure reported but not fatal. Its final `exec node openclaw.mjs
+    # gateway` does not go back through the adapter, so Doctor runs once per
+    # boot.
     #
     # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
-    # CONFIG-FILE-ONLY: no env var sets it. At 2026.9.6 a non-loopback bind
-    # with the Control UI on refuses to start without it
-    # (src/gateway/server-runtime-config.ts). The newer `gateway.publicOrigin`
-    # key does not feed it, so it is not set here.
+    # CONFIG-FILE-ONLY: no env var sets it. At 2026.9.7 a non-loopback bind
+    # with the Control UI on refuses to start without it or
+    # `gateway.publicOrigin` (src/gateway/server-runtime-config.ts). Since
+    # 2026.9.7 an omitted allowlist defaults to `[gateway.publicOrigin]`, but
+    # an authored list, even an empty one, overrides it
+    # (src/config/gateway-control-ui-origins.ts). The explicit list stays: it
+    # is what volumes from earlier releases already carry, and `config set`
+    # would not remove it anyway. `gateway.publicOrigin` is not set here.
     #
     # `config set` (not a hand-written openclaw.json) is what upstream's own
     # container guide uses (docs/install/docker.md), and it is the only form
@@ -73,7 +86,7 @@ spec:
     # `viewerIdentityHeader` and `trustedProxyCIDRs` outputs below and bound
     # back into this node's inputs. Nothing here defaults or guesses them.
     #
-    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.9.6) accepts that
+    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.9.7) accepts that
     # header only when:
     #
     #   1. the TCP peer is inside `gateway.trustedProxies`, else
@@ -167,7 +180,7 @@ spec:
     health:
       readiness:
         # /startupz is upstream's orchestrator gate (docs/install/docker.md,
-        # v2026.9.6): 503 while startup, migrations included, is still settling,
+        # v2026.9.7): 503 while startup, migrations included, is still settling,
         # then 200. /readyz also turns 503 on plugin reloads and failed channels,
         # which suits monitoring better than routing.
         http:

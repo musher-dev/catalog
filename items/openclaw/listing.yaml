@@ -35,7 +35,7 @@ spec:
     the Control UI reverts to the connection's model on restart.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.9.6`
+    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.9.7`
     with the Control UI on port 18789 behind the platform's HTTPS edge.
     Open the deployment's URL and you land in the Control UI, already
     connected. There is no token to copy. The agent is already on the
