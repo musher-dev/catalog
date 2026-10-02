@@ -1,7 +1,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 8
+  revision: 9
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
@@ -12,6 +12,15 @@ spec:
       primary:
         targetPort: 8080
         protocol: HTTP
+        # The REST API, which SDK and script clients call without a viewer
+        # session. A blueprint may let it past the platform's sign-in, and
+        # Label Studio still checks every request there: the REST framework
+        # defaults to IsAuthenticated over token and session authentication
+        # (core/settings/base.py, 1.23.1). The sign-in and signup pages stay
+        # behind the platform's sign-in.
+        accessExemptions:
+          paths:
+            - /api
     health:
       readiness:
         http:
@@ -85,7 +94,7 @@ spec:
         required: true
         target:
           envVarKey: LABEL_STUDIO_USERNAME
-        description: Email address for the bootstrap admin account
+        description: Email address the bootstrap admin account is created with
       adminPassword:
         schema:
           type: string
