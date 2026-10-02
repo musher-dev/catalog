@@ -22,7 +22,7 @@ spec:
       client-safe tokens.
 
     ## Defaults
-    Single-container deployment of `getmeili/meilisearch:v1.54.1` with the
+    Single-container deployment of `getmeili/meilisearch:v1.54.3` with the
     HTTP API on port 7700 behind the platform's HTTPS edge, running in
     production mode with telemetry disabled. A master key is
     auto-generated for admin and indexing access — copy it from the
