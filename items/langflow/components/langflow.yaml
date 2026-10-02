@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 8
   description: Langflow visual flow builder for LLM applications, signing viewers in from the platform's signed assertion, with its database on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: langflowai/langflow:1.12.3
+      image: langflowai/langflow:1.12.4
     endpoints:
       primary:
         targetPort: 7860
@@ -30,7 +30,7 @@ spec:
         # uvicorn serves /health before the app finishes booting, which would
         # declare readiness early. The platform probe is a one-shot startup
         # gate (not a continuous restart trigger), so the DB-coupled endpoint
-        # is safe here (health_check_router.py:62-83, 1.12.3).
+        # is safe here (health_check_router.py:62-83, 1.12.4).
         http:
           endpoint: primary
           path: /health_check
@@ -76,7 +76,7 @@ spec:
           Whether the database is written into the configuration directory
           above, as the literal string the image parses.
       # Both superuser inputs take effect ONCE, when the account is created.
-      # With AUTO_LOGIN off, 1.12.3's setup_superuser calls
+      # With AUTO_LOGIN off, 1.12.4's setup_superuser calls
       # get_or_create_super_user (services/utils.py:88-138, 214-256), which
       # returns early for an existing superuser without touching its password
       # (it only rotates one still set to the legacy default `langflow`). A
@@ -110,7 +110,7 @@ spec:
           envVarKey: LANGFLOW_SECRET_KEY
         description: Key used to encrypt API keys and secrets stored in flows
       # External authentication (lfx/services/settings/auth.py,
-      # services/auth/external.py, v1.12.3). Langflow tries its own session
+      # services/auth/external.py, v1.12.4). Langflow tries its own session
       # first. Otherwise it verifies the JWT in the named header against the
       # key set, issuer and audience below, and provisions a local user keyed
       # on the token's `sub`. Users created this way are never superusers.
