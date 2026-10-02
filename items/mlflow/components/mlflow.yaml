@@ -1,8 +1,8 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 9
-  description: MLflow tracking server with its metadata store and proxied artifacts on one volume.
+  revision: 10
+  description: MLflow tracking server with its own login, its metadata store, user store and proxied artifacts on one volume.
 spec:
   type: SERVICE
   workload:
@@ -19,19 +19,46 @@ spec:
     # `pip install`); without an explicit server command the container
     # inherits python:slim's `python3`, reads EOF, and exits immediately. The
     # server reads MLFLOW_HOST / MLFLOW_PORT / MLFLOW_BACKEND_STORE_URI /
-    # MLFLOW_ARTIFACTS_DESTINATION from the environment, so the bare command
-    # suffices (https://mlflow.org/docs/latest/api_reference/cli.html).
+    # MLFLOW_ARTIFACTS_DESTINATION from the environment
+    # (https://mlflow.org/docs/latest/api_reference/cli.html).
+    #
+    # `--app-name basic-auth` turns on MLflow's own login (mlflow[auth], in
+    # the -full image). Its user store defaults to `sqlite:///basic_auth.db`,
+    # relative to the working directory and so off the volume, and only a
+    # config file moves it (server/auth/config.py, basic_auth.ini, v3.16.1).
+    # The script writes that file onto the volume from the inputs below, on
+    # every start, then execs the server. The admin username and password
+    # come from MLFLOW_AUTH_ADMIN_*, which take precedence over the file.
     command:
-      - mlflow
-      - server
+      - sh
+      - -c
+      - >-
+        set -eu;
+        printf '[mlflow]\ndefault_permission = %s\ndatabase_uri = %s\nauthorization_function = mlflow.server.auth:authenticate_request_basic_auth\n'
+        "$MLFLOW_AUTH_DEFAULT_PERMISSION" "$MLFLOW_AUTH_DATABASE_URI" > "$MLFLOW_AUTH_CONFIG_PATH";
+        exec mlflow server --app-name basic-auth
     endpoints:
       primary:
         targetPort: 5000
         protocol: HTTP
+        # The routes the MLflow client and trace exporters call: the REST API
+        # (/api/2.0 and /api/3.0, proxied artifacts included), the two artifact
+        # downloads and OTLP trace ingest (server/__init__.py, v3.16.1). A
+        # blueprint may let them past the platform's sign-in, because no client
+        # holds a viewer session. MLflow's own basic auth still checks every one.
+        # The browser UI calls /ajax-api, which stays behind sign-in.
+        accessExemptions:
+          paths:
+            - /api
+            - /get-artifact
+            - /model-versions/get-artifact
+            - /v1/traces
     health:
       readiness:
         # /health is MLflow's dedicated auth-bypassing 200 "OK"; the root
-        # serves the heavy React bundle (mlflow/server/__init__.py).
+        # serves the heavy React bundle (mlflow/server/__init__.py). The auth
+        # app leaves it open too (_UNPROTECTED_PATH_PREFIXES, server/auth).
+        # The edge exempts probes from sign-in.
         http:
           endpoint: primary
           path: /health
@@ -126,6 +153,63 @@ spec:
           envVarKey: MLFLOW_ARTIFACTS_DESTINATION
         description: Where the tracking server stores proxied run artifacts. Default
           uses the local volume; production should use s3:// or gs://.
+      # MLflow's own login. The admin is created only the first time the auth
+      # app starts against an empty user store; after that both values are
+      # ignored, and the password is changed in MLflow
+      # (create_admin_user, server/auth/__init__.py, v3.16.1).
+      authAdminUsername:
+        schema:
+          type: string
+        default: admin
+        target:
+          envVarKey: MLFLOW_AUTH_ADMIN_USERNAME
+        description: Username of the admin account MLflow creates on first start.
+      authAdminPassword:
+        schema:
+          type: string
+          minLength: 13
+        sensitive: true
+        required: true
+        target:
+          envVarKey: MLFLOW_AUTH_ADMIN_PASSWORD
+        description: >-
+          Password the admin account is created with on first start; MLflow
+          requires more than 12 characters. Copy it from the deployment's
+          Installation tab.
+      # The auth app refuses to start without it: it signs the CSRF token of
+      # the user-creation form (server/auth/__init__.py, v3.16.1).
+      flaskSecretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: MLFLOW_FLASK_SERVER_SECRET_KEY
+        description: Key the MLflow server signs its CSRF tokens with.
+      authConfigPath:
+        schema:
+          type: string
+        default: /mlflow/basic_auth.ini
+        target:
+          envVarKey: MLFLOW_AUTH_CONFIG_PATH
+        description: Path the start script writes MLflow's auth config file to, on the volume.
+      authDatabaseURI:
+        schema:
+          type: string
+        default: sqlite:////mlflow/basic_auth.db
+        target:
+          envVarKey: MLFLOW_AUTH_DATABASE_URI
+        description: SQLAlchemy URI of the user and permission store, on the volume by default.
+      # READ lets every MLflow user see every experiment, and only its owner
+      # or an admin change it: the upstream default.
+      authDefaultPermission:
+        schema:
+          type: string
+          enum: [READ, EDIT, MANAGE, NO_PERMISSIONS]
+        default: READ
+        target:
+          envVarKey: MLFLOW_AUTH_DEFAULT_PERMISSION
+        description: Permission every MLflow user holds on resources they did not create.
       # This deployment's own origin, bound from the output below. Without it
       # the UI cannot write. MLflow rejects any POST, PUT, PATCH or DELETE to
       # /api/ or /ajax-api/ whose Origin is not localhost or on this list
