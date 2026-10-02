@@ -22,7 +22,7 @@ spec:
       human-in-the-loop workflow.
 
     ## Defaults
-    Single-container deployment of `heartexlabs/label-studio:1.23.1` with
+    Single-container deployment of `heartexlabs/label-studio:1.23.2` with
     the web UI on port 8080 behind the platform's HTTPS edge and the
     platform's sign-in: only people allowed into this installation reach the
     app. The REST API (`/api`) stays reachable without signing in, for SDK

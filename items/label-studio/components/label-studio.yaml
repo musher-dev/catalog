@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 9
+  revision: 10
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: heartexlabs/label-studio:1.23.1
+      image: heartexlabs/label-studio:1.23.2
     endpoints:
       primary:
         targetPort: 8080
@@ -16,7 +16,7 @@ spec:
         # session. A blueprint may let it past the platform's sign-in, and
         # Label Studio still checks every request there: the REST framework
         # defaults to IsAuthenticated over token and session authentication
-        # (core/settings/base.py, 1.23.1). The sign-in and signup pages stay
+        # (core/settings/base.py, 1.23.2). The sign-in and signup pages stay
         # behind the platform's sign-in.
         accessExemptions:
           paths:
@@ -81,7 +81,7 @@ spec:
           Whether the CSRF cookie is marked HttpOnly, as the integer-parsed
           literal the image expects.
       # Both admin inputs take effect ONCE, when the account is created. With
-      # a username set, 1.23.1's _create_user (label_studio/server.py) calls
+      # a username set, 1.23.2's _create_user (label_studio/server.py) calls
       # create_user, and for an existing email the IntegrityError is only
       # printed as "already exists": the stored password is never updated. A
       # changed email is a new account, created as a second superuser and
@@ -113,7 +113,7 @@ spec:
       # move, leaves the trusted-origin list empty and the 403 where it was.
       #
       # Why there is a 403 at all: TLS terminates at the gateway and the
-      # container serves plain HTTP on 8080. 1.23.1 sets no
+      # container serves plain HTTP on 8080. 1.23.2 sets no
       # SECURE_PROXY_SSL_HEADER and exposes no env var for one, so
       # request.is_secure() is False and Django composes its expected origin as
       # http://<host> while the browser sends https://<host>. A scheme mismatch
