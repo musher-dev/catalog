@@ -1,26 +1,26 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: code-server, VS Code in the browser, with a persistent home directory.
 spec:
   type: SERVICE
   workload:
     source:
-      image: codercom/code-server:4.139.1
+      image: codercom/code-server:4.140.0
     # code-server's own password screen is turned off: the blueprint exposes
     # `primary` with `access: AUTHENTICATED`, so the platform signs the viewer
     # in before forwarding, and the container is reachable only through that
     # edge. A second password would only be a credential to copy around.
     # The image's ENTRYPOINT is `entrypoint.sh --bind-addr 0.0.0.0:8080 .`
     # with no CMD, and entrypoint.sh ends `exec dumb-init /usr/bin/code-server
-    # "$@"` (ci/release-image/, v4.139.1), so these arguments are appended
+    # "$@"` (ci/release-image/, v4.140.0), so these arguments are appended
     # after the ENTRYPOINT's. The flag outranks the `auth: password` that
     # code-server writes to ~/.config/code-server/config.yaml on first start,
     # which persists on the volume: setDefaults merges
-    # `Object.assign({}, configArgs, cliArgs)` (src/node/cli.ts, v4.139.1).
+    # `Object.assign({}, configArgs, cliArgs)` (src/node/cli.ts, v4.140.0).
     # /healthz is mounted outside the auth check either way
-    # (src/node/routes/index.ts, v4.139.1).
+    # (src/node/routes/index.ts, v4.140.0).
     command:
       - --auth
       - none
@@ -39,7 +39,7 @@ spec:
         failureThreshold: 3
     volumes:
       # The volume must be writable by uid 1000. The image runs as USER 1000
-      # (ci/release-image/Dockerfile, v4.139.1), and its entrypoint's
+      # (ci/release-image/Dockerfile, v4.140.0), and its entrypoint's
       # `fixuid -q` only remaps and re-owns files when the container runs
       # under a different uid than `coder`'s. It does nothing here, so a volume
       # mounted root-owned stays root-owned, and code-server cannot write

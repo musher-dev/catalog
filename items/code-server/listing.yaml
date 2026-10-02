@@ -22,7 +22,7 @@ spec:
       that outlives any single machine.
 
     ## Defaults
-    Single-container deployment of `codercom/code-server:4.139.1` with the
+    Single-container deployment of `codercom/code-server:4.140.0` with the
     web UI published on port 8080 behind the platform's HTTPS edge. There
     is no separate password: opening the editor requires signing in to
     Musher as a member of the deployment's organization, and code-server's
