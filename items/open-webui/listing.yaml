@@ -39,8 +39,17 @@ spec:
 
     ## Defaults
     Single-container deployment of `ghcr.io/open-webui/open-webui:v0.11.4`
-    with the web UI on port 8080 behind the platform's HTTPS edge. The
-    first account you register becomes the admin. The native Ollama
+    with the web UI on port 8080 behind the platform's HTTPS edge and the
+    platform's sign-in. Open WebUI signs people in through the platform's
+    OpenID Connect provider, so there is no second password: each person's
+    account carries their verified email and name, and the first person to
+    sign in becomes the admin. Password sign-in is off. On a deployment
+    upgraded from an earlier version, an existing account is taken over by
+    the person who signs in with the same verified email, chats included.
+    The chat-completion, model and embedding APIs stay reachable without
+    signing in, for clients using an Open WebUI API key. API keys are on
+    for new deployments; on an upgraded one, an admin turns them on in
+    Settings. The native Ollama
     integration is off; point the connection at an Ollama server's `/v1` URL
     instead. A session-token signing key is auto-generated, and an 8 GiB
     persistent volume mounted at `/app/backend/data` keeps accounts, chats,

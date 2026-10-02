@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 7
-  description: Open WebUI chat interface wired to the language model the installer selects, as one connection.
+  revision: 8
+  description: Open WebUI behind the platform's sign-in, signing viewers in through its OpenID Connect provider, wired to the language model the installer selects.
 # Two nodes, one of which runs nothing. The language model is an EXTERNAL node
 # (`llm`) standing for the model API: it takes the connection whole — endpoint,
 # credential and model acquired together — and publishes the three members as
@@ -35,11 +35,39 @@ spec:
       volumes:
         data:
           sizeGiB: 8
+      # The platform signs viewers in, and Open WebUI signs them in again as an
+      # OpenID Connect client of the platform, with no second password. It
+      # creates accounts with an email and a display name, so the node
+      # releases both claims. The chat-completion API is exempt for API-key
+      # clients (components/open-webui.yaml).
       exposure:
-        primary: PUBLIC
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
       bindings:
         webuiSecretKey:
           parameter: webuiSecretKey
+        # The platform's OIDC client for this node's own `primary` endpoint. A
+        # node reading its own endpoint outputs is a discovery dependency and
+        # not a value cycle (BP-CONN-002).
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        oidcDiscoveryURL:
+          node: web
+          output: oidcDiscoveryURL
+        oidcRedirectURI:
+          node: web
+          output: oidcRedirectURI
         # The three members of the one connection the `llm` node holds.
         openaiApiBaseURL:
           node: llm

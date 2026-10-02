@@ -1,8 +1,8 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 9
-  description: Open WebUI chat interface for any OpenAI-compatible language-model API.
+  revision: 10
+  description: Open WebUI chat interface for any OpenAI-compatible language-model API, signing viewers in as an OpenID Connect client of the platform.
 spec:
   type: SERVICE
   workload:
@@ -12,6 +12,38 @@ spec:
       primary:
         targetPort: 8080
         protocol: HTTP
+        # Open WebUI signs viewers in as an OpenID Connect client. These are the
+        # routes it receives the authorization response on for its `oidc`
+        # provider: /login/callback, plus the legacy /callback it still serves
+        # (main.py, v0.11.4). The platform registers publicURL followed by each.
+        oidc:
+          redirectPaths:
+            - /oauth/oidc/login/callback
+            - /oauth/oidc/callback
+        # The OpenAI- and Anthropic-compatible chat, model and embedding APIs,
+        # the OpenAI proxy, and incoming channel webhooks. API clients call
+        # these with an Open WebUI API key and no viewer session, and Open
+        # WebUI authenticates every one itself (utils/auth.py; channel
+        # webhooks carry their token in the path). A blueprint may let them
+        # past the platform's sign-in. The UI keeps working through them,
+        # because under OIDC it holds Open WebUI's own session.
+        #
+        # Not `bearer`. /api/v1/auths/signup checks no credential, and on a
+        # deployment first installed before this revision, sign-up stays as
+        # that install saved it (ui.enable_signup and ui.enable_login_form
+        # are captured at first boot, config.py). Any bearer token would
+        # then open self-registration to the internet.
+        accessExemptions:
+          paths:
+            - /api/chat/completions
+            - /api/v1/chat/completions
+            - /api/models
+            - /api/v1/models
+            - /api/embeddings
+            - /api/v1/embeddings
+            - /api/v1/messages
+            - /api/v1/channels/webhooks
+            - /openai
     health:
       readiness:
         http:
@@ -132,4 +164,158 @@ spec:
         target:
           envVarKey: WEBUI_SECRET_KEY
         description: Secret key used to sign session tokens
-    outputs: {}
+      # Sign-in through the platform's OpenID Connect provider. Unlike the
+      # connection above, `oauth.*` settings are read from the environment on
+      # every start (ENABLE_OAUTH_PERSISTENT_CONFIG defaults to False,
+      # config.py, v0.11.4), so a rotated client secret takes effect on the
+      # next restart. Open WebUI keys accounts on the provider's `sub`.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: OAUTH_CLIENT_ID
+        description: Client identifier the platform registered for this endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: OAUTH_CLIENT_SECRET
+        description: Client secret the platform registered for this endpoint.
+      # A discovery document, not the bare issuer: Open WebUI hands this URL
+      # to Authlib as server_metadata_url (utils/oauth.py, v0.11.4).
+      oidcDiscoveryURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: OPENID_PROVIDER_URL
+        description: URL of the platform's OpenID Connect discovery document.
+      # Stated rather than derived. Open WebUI otherwise builds the URI with
+      # request.url_for, which depends on the scheme the proxy reports.
+      oidcRedirectURI:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: OPENID_REDIRECT_URI
+        description: Redirect URI Open WebUI sends with its authorization request.
+      oauthSignup:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: ENABLE_OAUTH_SIGNUP
+        description: >-
+          Whether a first sign-in through the platform creates the account, as
+          the literal string the image parses.
+      # The platform's EMAIL claim is a verified address (blueprint
+      # BP-ACCESS-006), so merging on it is safe. Without it, an account
+      # registered with a password before this revision could never sign in
+      # again, because password sign-in is off below.
+      oauthMergeAccountsByEmail:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+        description: >-
+          Whether a platform sign-in takes over the existing account with the
+          same verified email, as the literal string the image parses.
+      oauthProviderName:
+        schema:
+          type: string
+        default: Musher
+        target:
+          envVarKey: OAUTH_PROVIDER_NAME
+        description: Name the sign-in button gives the platform's provider.
+      # The platform's provider requires PKCE with S256 (BP-ACCESS-008).
+      oauthCodeChallengeMethod:
+        schema:
+          type: string
+        default: S256
+        target:
+          envVarKey: OAUTH_CODE_CHALLENGE_METHOD
+        description: PKCE method Open WebUI uses in its authorization request.
+      oauthAutoRedirect:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: OAUTH_AUTO_REDIRECT
+        description: >-
+          Whether the sign-in page goes straight to the platform's provider, as
+          the literal string the image parses.
+      # Read from the environment on every start; refuses password sign-in
+      # (routers/auths.py, v0.11.4).
+      passwordAuth:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVarKey: ENABLE_PASSWORD_AUTH
+        description: >-
+          Whether accounts may sign in with a password, as the literal string
+          the image parses.
+      # Captured at first boot, so it reaches only a new deployment. With it
+      # off, the first admin is the first person to sign in through the
+      # platform rather than whoever registers first.
+      loginForm:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVarKey: ENABLE_LOGIN_FORM
+        description: >-
+          Whether the email and password form is shown on a new deployment, as
+          the literal string the image parses.
+      # Captured at first boot, like the login form, so it reaches only a new
+      # deployment; an admin toggles it under Settings afterwards. The
+      # exempt API paths are useful only to a client holding an API key.
+      apiKeys:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: ENABLE_API_KEYS
+        description: >-
+          Whether users may create API keys on a new deployment, as the literal
+          string the image parses.
+    outputs:
+      # The client the platform registers for `primary` (component §5.2,
+      # COMP-EP-012/014). Reading it means any blueprint deploying this
+      # component must select viewerIdentity OIDC there. The blueprint binds
+      # each output back into the input of the same name.
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret
+      oidcDiscoveryURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Discovery document of the platform's OpenID Connect provider.
+        from:
+          template: "${{ self.endpoints.primary.oidcIssuerURL }}/.well-known/openid-configuration"
+      oidcRedirectURI:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Redirect URI the platform registered for this endpoint.
+        from:
+          template: "${{ self.endpoints.primary.publicURL }}/oauth/oidc/login/callback"
