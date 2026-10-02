@@ -1,0 +1,60 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: Redis in-memory data store with append-only persistence on one volume, publishing its private address and a redis:// URL.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      image: redis:8.8.3-alpine
+    # Exec form, no shell: `command` replaces the image's CMD and keeps its
+    # ENTRYPOINT, which is what Docker and Compose mean by the same word.
+    #
+    # NO AUTHENTICATION. There is no `requirepass`, and the official image
+    # compiles protected-mode off (alpine/Dockerfile:83-88 in
+    # docker-library-redis v8.8.3), so any workload that can reach the private
+    # endpoint can read and write every key. Adding a password needs a shell
+    # to put an input into argv. A `sh -c` command would also skip the
+    # entrypoint's `redis-server` branch, which drops root and chowns /data,
+    # so it is left for a change that also gives consumers a way to take the
+    # password.
+    command:
+      - redis-server
+      - --appendonly
+      - "yes"
+    endpoints:
+      primary:
+        targetPort: 6379
+        protocol: TCP
+    volumes:
+      data:
+        minSizeGiB: 5
+        mountPath: /data
+  contract:
+    inputs: {}
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the cache endpoint (for example
+          `cache-myapp.internal:6379`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's input to point that
+          workload at this cache.
+        from:
+          endpoint: primary
+          property: privateAddress
+      # LiteLLM reads one Redis URL, and a template is the one way a
+      # component composes a value from its own address (COMP-REF-001). No
+      # credential goes in it: the server runs with no requirepass, and the
+      # endpoint is never exposed, so only this deployment's workloads reach it.
+      redisURL:
+        schema:
+          type: string
+        presentationHint: CONNECTION_STRING
+        description: >-
+          redis:// URL of the cache endpoint, resolvable only by workloads in the
+          same deployment, for clients that take one URL rather than an address.
+        from:
+          template: "redis://${{ self.endpoints.primary.privateAddress }}"

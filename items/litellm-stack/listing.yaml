@@ -1,0 +1,68 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: litellm-stack
+spec:
+  itemType: BLUEPRINT
+  displayName: LiteLLM Stack
+  summary: LiteLLM with its own Postgres and Redis — virtual keys, teams, and per-client spend that outlive a restart
+  description: |
+    ## What it is
+    The LiteLLM proxy deployed the way it is meant to run in production:
+    with a database behind it and a shared cache beside it. LiteLLM fronts
+    100+ LLM providers (OpenAI, Anthropic, Bedrock, Vertex, Mistral,
+    Azure, local Ollama) behind one OpenAI-compatible endpoint. Postgres
+    is what turns that into an accountable service — virtual API keys,
+    teams, budgets, rate limits and a per-key spend ledger are rows, and
+    without a database none of them exist. Redis is the shared state a
+    second replica needs: response cache, cross-replica rate-limit
+    counters, and router health.
+
+    ## When to use
+    - You are re-billing model access to clients or teams and need
+      per-key budgets and a spend ledger you can invoice from.
+    - You want to issue and revoke API keys per customer without
+      handing out a provider key or redeploying.
+    - You want provider fallbacks and load balancing in front of your
+      model traffic, with models managed from the dashboard.
+
+    ## Defaults
+    Three nodes. `db` runs `postgres:17.11-alpine` on a private endpoint
+    with a 10 GiB volume; `cache` runs `redis:8.8.3-alpine` with
+    append-only persistence on a 5 GiB volume; `web` runs
+    `ghcr.io/berriai/litellm:v1.103.2` on port 4000 behind the platform's
+    HTTPS edge. The database address, credentials and the Redis URL are
+    wired between the nodes, so nothing is typed at install. The three
+    secrets the stack runs on — the master key, the credential-encryption
+    salt key and the database password — are auto-generated at deploy;
+    copy them from the deployment's Installation tab. LiteLLM applies its
+    own schema to the empty database on first boot, which is why the first
+    deploy takes a few minutes longer than a restart.
+
+    Sign in to the dashboard at `/ui` as `admin`, with the master key as
+    the password, and add provider upstreams there. Model definitions are
+    stored in the database rather than a config file, so they survive a
+    redeploy. Response caching is the one thing that is not on by
+    default: LiteLLM has no environment variable for the switch, so turn
+    it on once — from the dashboard, or with a single POST to
+    `/config/update`. Either way the setting is written to Postgres and
+    applies on every start, using the Redis URL already in the
+    environment.
+
+    Rotating the salt key after any provider credential has been saved
+    makes those credentials unreadable. Treat it as fixed.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - proxy
+    - gateway
+    - openai-compatible
+    - postgres
+    - redis
+  homepageURL: https://www.litellm.ai
+  sourceRepoURL: https://github.com/BerriAI/litellm
+  supportURL: https://docs.litellm.ai
+  license: MIT
+  icon: media/icon.png
