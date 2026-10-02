@@ -66,10 +66,19 @@ because an offline validator is forbidden to report them.
   but is never exposed, and a `JOB` declares none. A `PUBLIC` HTTP endpoint
   needs a readiness probe;
 - an exposure is bare `PUBLIC` / `PRIVATE` or the object form
-  `{ visibility, access, viewerIdentity }`. `access: AUTHENTICATED` needs an
-  `HTTP`, `HTTPS` or `WS` endpoint, and a component reading
-  `viewerIdentityHeader` or `trustedProxyCIDRs` needs its node to forward
-  identity there with `viewerIdentity: HEADER`;
+  `{ visibility, access, viewerIdentity, viewerClaims, accessExemptions }`.
+  `access: AUTHENTICATED` needs an `HTTP`, `HTTPS` or `WS` endpoint, and a
+  component reading a viewer identity property needs its node to select the
+  mode that publishes it — `HEADER` for `viewerIdentityHeader` and
+  `trustedProxyCIDRs` (plus the `EMAIL` / `NAME` claim for `viewerEmailHeader`
+  / `viewerNameHeader`), `ASSERTION` for the four `viewerAssertion*`, and
+  `OIDC` for the three `oidc*`. `OIDC`, and any `oidc*` read, needs the
+  endpoint to declare `oidc.redirectPaths`, and a node lets through only the
+  `accessExemptions` (`PATHS`, `BEARER`) its component declares;
+- a parameter's `from` names a `variables`, `connections` or
+  `deployment.installer.{identity,email,name}` fact, and a `hash` names a
+  generated parameter — one that bcrypt can read whole, for `BCRYPT`. A hashed
+  source with `ui` is disclosed to the installer and needs no binding;
 - an `HTTPS` endpoint whose certificate nothing can verify says so with
   `tls: { verify: NONE }`, and a trust bundle or probe credential reads an input
   that is always supplied. A probe password or token is never a literal;
@@ -325,7 +334,7 @@ npm test
 
 Every item is validated against an **exact release of each family** of
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications):
-`core/v1.0.0`, `listing/v1.0.0`, `component/v1.5.0` and `blueprint/v1.6.0`.
+`core/v1.1.0`, `listing/v1.0.1`, `component/v1.6.0` and `blueprint/v1.7.1`.
 Families release independently, so they sit at different numbers — component and
 blueprint are past `1.0.0` because
 [ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)

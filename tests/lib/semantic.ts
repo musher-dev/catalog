@@ -65,24 +65,56 @@ const ADDRESS_PROPERTIES: Record<string, 'url' | 'host-port' | 'viewer-identity'
   publicPort: 'host-port',
   viewerIdentityHeader: 'viewer-identity',
   trustedProxyCIDRs: 'viewer-identity',
+  viewerEmailHeader: 'viewer-identity',
+  viewerNameHeader: 'viewer-identity',
+  viewerAssertionHeader: 'viewer-identity',
+  viewerAssertionIssuer: 'viewer-identity',
+  viewerAssertionAudience: 'viewer-identity',
+  viewerAssertionKeysURL: 'viewer-identity',
+  oidcIssuerURL: 'viewer-identity',
+  oidcClientID: 'viewer-identity',
+  oidcClientSecret: 'viewer-identity',
 };
 
 /** The four properties that only exist once a node exposes the endpoint PUBLIC. */
 const PUBLIC_PROPERTIES = new Set(['publicURL', 'publicHostname', 'publicAddress', 'publicPort']);
 
 /**
- * The two properties that only exist once a node forwards viewer identity on
- * the endpoint (component spec §5.2, COMP-EP-012; blueprint BP-NODE-007).
+ * The properties that only exist once a node forwards viewer identity on the
+ * endpoint, each with the `viewerIdentity` mode it needs and, for the two claim
+ * headers, the claim the node must release (component spec §5.2, COMP-EP-012;
+ * blueprint BP-NODE-007).
  */
-const VIEWER_IDENTITY_PROPERTIES = new Set(['viewerIdentityHeader', 'trustedProxyCIDRs']);
+const VIEWER_IDENTITY_PROPERTIES: Record<string, { mode: string; claim?: string }> = {
+  viewerIdentityHeader: { mode: 'HEADER' },
+  trustedProxyCIDRs: { mode: 'HEADER' },
+  viewerEmailHeader: { mode: 'HEADER', claim: 'EMAIL' },
+  viewerNameHeader: { mode: 'HEADER', claim: 'NAME' },
+  viewerAssertionHeader: { mode: 'ASSERTION' },
+  viewerAssertionIssuer: { mode: 'ASSERTION' },
+  viewerAssertionAudience: { mode: 'ASSERTION' },
+  viewerAssertionKeysURL: { mode: 'ASSERTION' },
+  oidcIssuerURL: { mode: 'OIDC' },
+  oidcClientID: { mode: 'OIDC' },
+  oidcClientSecret: { mode: 'OIDC' },
+};
+
+/**
+ * The OIDC client's three properties, which exist only on an endpoint that
+ * declares `oidc` (component spec §5.2, COMP-EP-014).
+ */
+const OIDC_CLIENT_PROPERTIES = new Set(['oidcIssuerURL', 'oidcClientID', 'oidcClientSecret']);
+
+/** The modes a node may select for `viewerIdentity` (blueprint §4.5, BP-NODE-006). */
+const VIEWER_IDENTITY_MODES = new Set(['NONE', 'HEADER', 'ASSERTION', 'OIDC']);
 
 /**
  * The closed namespace set core spec §5.2 reserves, as ADR 0031 §5 re-spells it:
  * `config` became `variables`, `params` became `parameters`, and `connections`
  * was added. Two positions are open, and each admits a different subset —
  * a component's output template admits `self` alone (COMP-REF-001), and a
- * blueprint parameter's `from` admits `variables` and `connections` alone
- * (BP-REF-001). Everything else here is reserved so it can never become a name
+ * blueprint parameter's `from` admits `variables`, `deployment` and
+ * `connections` alone (BP-REF-001). Everything else here is reserved so it can never become a name
  * an author addresses, and writing one is CORE-REF-003 rather than CORE-REF-002.
  */
 const RESERVED_NAMESPACES = new Set([
@@ -97,7 +129,10 @@ const RESERVED_NAMESPACES = new Set([
 ]);
 
 /** The namespaces a blueprint parameter's `from` may name — BP-REF-001. */
-const PARAMETER_SOURCE_NAMESPACES = new Set(['variables', 'connections']);
+const PARAMETER_SOURCE_NAMESPACES = new Set(['variables', 'deployment', 'connections']);
+
+/** The three facts the `deployment` namespace defines — BP-PARAM-011. */
+const DEPLOYMENT_FACTS = new Set(['installer.identity', 'installer.email', 'installer.name']);
 
 const record = (value: unknown): Record<string, unknown> => (isRecord(value) ? value : {});
 const specOf = (doc: LoadedDocument | null | undefined): Record<string, unknown> => record(doc?.value?.['spec']);
@@ -650,7 +685,17 @@ const volumesOf = (component: Record<string, unknown> | null): Record<string, un
  * left out is PRIVATE. `authored` says whether the node names the endpoint at
  * all, which is what decides where an unmet requirement anchors.
  */
-type Exposure = { visibility: string; access: string; viewerIdentity: string; authored: boolean };
+type Exposure = {
+  visibility: string;
+  access: string;
+  viewerIdentity: string;
+  viewerClaims: string[];
+  accessExemptions: string[];
+  authored: boolean;
+};
+
+const stringsOf = (value: unknown): string[] =>
+  Array.isArray(value) ? value.filter((item): item is string => typeof item === 'string') : [];
 
 const exposureOf = (node: Record<string, unknown>, endpoint: string): Exposure => {
   const exposures = record(node['exposure']);
@@ -660,7 +705,9 @@ const exposureOf = (node: Record<string, unknown>, endpoint: string): Exposure =
   return {
     visibility: form['visibility'] === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE',
     access: form['access'] === 'AUTHENTICATED' ? 'AUTHENTICATED' : 'OPEN',
-    viewerIdentity: form['viewerIdentity'] === 'HEADER' ? 'HEADER' : 'NONE',
+    viewerIdentity: VIEWER_IDENTITY_MODES.has(String(form['viewerIdentity'])) ? String(form['viewerIdentity']) : 'NONE',
+    viewerClaims: stringsOf(form['viewerClaims']),
+    accessExemptions: stringsOf(form['accessExemptions']),
     authored,
   };
 };
@@ -791,6 +838,15 @@ function checkAddressOrigin(
 
   if (family === 'viewer-identity' && !VIEWER_IDENTITY_FAMILY.has(protocol)) {
     return [diag('ERR_ENDPOINT_NOT_HTTP', where, `${property} needs an HTTP, HTTPS or WS endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
+  }
+
+  // COMP-EP-014. The platform registers an OIDC client only for an endpoint
+  // that declares the redirect paths it would need, so an endpoint without
+  // `oidc` has no client to read.
+  if (OIDC_CLIENT_PROPERTIES.has(String(property)) && !isRecord(endpoint['oidc'])) {
+    return [
+      diag('ERR_ENDPOINT_NOT_OIDC_CLIENT', where, `${property} needs endpoint ${JSON.stringify(named)} to declare oidc, and it declares none`),
+    ];
   }
 
   if (family === 'url' && !HTTP_FAMILY.has(protocol)) {
@@ -1120,6 +1176,35 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
         );
       }
 
+      // BP-NODE-008. The component constrains and the node selects: OIDC needs
+      // an endpoint declaring `oidc`, and each exemption needs the component to
+      // have declared the matching half of `accessExemptions`.
+      if (selected.viewerIdentity === 'OIDC' && !isRecord(endpoint['oidc'])) {
+        found.push(
+          diag(
+            'ERR_ENDPOINT_NOT_OIDC_CLIENT',
+            `${at}/${name}/viewerIdentity`,
+            `endpoint ${JSON.stringify(name)} declares no oidc, so the platform has no redirect paths to register a client for`,
+          ),
+        );
+      }
+      const declared = record(endpoint['accessExemptions']);
+      selected.accessExemptions.forEach((exemption, index) => {
+        const offered =
+          exemption === 'PATHS' ? Array.isArray(declared['paths']) && declared['paths'].length > 0 : exemption === 'BEARER' ? declared['bearer'] === true : true;
+        if (!offered) {
+          found.push(
+            diag(
+              'ERR_EXEMPTION_NOT_DECLARED',
+              `${at}/${name}/accessExemptions/${index}`,
+              exemption === 'PATHS'
+                ? `endpoint ${JSON.stringify(name)} declares no accessExemptions.paths for PATHS to let through`
+                : `endpoint ${JSON.stringify(name)} does not declare accessExemptions.bearer: true, so it never said it checks bearer tokens`,
+            ),
+          );
+        }
+      });
+
       if (typeof protocol !== 'string' || !HTTP_FAMILY.has(protocol)) continue;
 
       if (record(record(health['readiness'])['http'])['endpoint'] !== name) {
@@ -1166,12 +1251,21 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
             ),
           );
         }
-        if (VIEWER_IDENTITY_PROPERTIES.has(property) && selected.viewerIdentity !== 'HEADER') {
+        const needs = Object.hasOwn(VIEWER_IDENTITY_PROPERTIES, property) ? VIEWER_IDENTITY_PROPERTIES[property] : undefined;
+        if (needs && selected.viewerIdentity !== needs.mode) {
           found.push(
             diag(
               'ERR_VIEWER_IDENTITY_NOT_FORWARDED',
               where,
-              `output ${JSON.stringify(outputName)} reads ${property} of endpoint ${JSON.stringify(name)}, on which this node forwards no viewer identity`,
+              `output ${JSON.stringify(outputName)} reads ${property} of endpoint ${JSON.stringify(name)}, which needs viewerIdentity ${needs.mode} and this node selects ${selected.viewerIdentity}`,
+            ),
+          );
+        } else if (needs?.claim && !selected.viewerClaims.includes(needs.claim)) {
+          found.push(
+            diag(
+              'ERR_VIEWER_IDENTITY_NOT_FORWARDED',
+              where,
+              `output ${JSON.stringify(outputName)} reads ${property} of endpoint ${JSON.stringify(name)}, and this node releases no ${needs.claim} claim there`,
             ),
           );
         }
@@ -1611,14 +1705,26 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
   const parameters = record(specOf(blueprint)['parameters']);
   const bound = boundByParameter(context);
   const found: Diagnostic[] = [];
+  const hashedSources = new Set(
+    Object.values(parameters)
+      .map((one) => record(record(one)['hash'])['parameter'])
+      .filter((named): named is string => typeof named === 'string'),
+  );
 
   for (const [key, rawParameter] of Object.entries(parameters)) {
     const parameter = record(rawParameter);
     const at = `${blueprint.label} /spec/parameters/${key}`;
     const supplies = bound.get(key) ?? [];
 
+    found.push(...checkHashSource(parameter, parameters, at));
+
     // BP-PARAM-001. Asking a deploying user for a value nothing reads is a field
     // that cannot do anything, and it is silent — which is why it is an error.
+    // The one exception is a generated parameter with `ui` that a hash names:
+    // the installer reads it through disclosure, and only its hash is bound.
+    if (supplies.length === 0 && 'generator' in parameter && 'ui' in parameter && hashedSources.has(key)) {
+      continue;
+    }
     if (supplies.length === 0) {
       const everyNodeReadable = context.nodes.every((binding) => !binding.unreadable);
       if (everyNodeReadable) {
@@ -1684,8 +1790,63 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
 }
 
 /**
+ * The length of the string a generator produces, before any hash reads it
+ * (BP-PARAM-004): `byteLength` defaults to 32 and `encoding` to HEX; BASE64 is
+ * padded and BASE64URL is not.
+ */
+function generatedLength(generator: Record<string, unknown>): number {
+  const bytes = typeof generator['byteLength'] === 'number' ? generator['byteLength'] : 32;
+  switch (generator['encoding']) {
+    case 'BASE64':
+      return 4 * Math.ceil(bytes / 3);
+    case 'BASE64URL':
+      return Math.ceil((bytes * 4) / 3);
+    default:
+      return 2 * bytes;
+  }
+}
+
+/**
+ * Blueprint spec §5.2 — BP-PARAM-012. A hash names a generated parameter of
+ * the same blueprint, and bcrypt, which reads at most 72 bytes, a source short
+ * enough that none of it is ignored. A receiver whose schema is not a string is
+ * ERR_VALUE_CONSTRAINT, which this suite leaves to the platform.
+ */
+function checkHashSource(parameter: Record<string, unknown>, parameters: Record<string, unknown>, at: string): Diagnostic[] {
+  const hash = parameter['hash'];
+  if (!isRecord(hash)) return [];
+
+  const named = hash['parameter'];
+  if (typeof named !== 'string') return [];
+  const source = Object.hasOwn(parameters, named) ? parameters[named] : undefined;
+  if (!isRecord(source)) {
+    return [diag('ERR_UNKNOWN_PARAMETER', `${at}/hash/parameter`, `${JSON.stringify(named)} names no parameter this blueprint declares`)];
+  }
+  if (!isRecord(source['generator'])) {
+    return [
+      diag(
+        'ERR_INVALID_HASH_SOURCE',
+        `${at}/hash/parameter`,
+        `${JSON.stringify(named)} is not generated, and a hash is made only from a value the platform generates`,
+      ),
+    ];
+  }
+  const length = generatedLength(source['generator']);
+  if (hash['algorithm'] === 'BCRYPT' && length > 72) {
+    return [
+      diag(
+        'ERR_INVALID_HASH_SOURCE',
+        `${at}/hash/algorithm`,
+        `${JSON.stringify(named)} generates ${length} characters, and bcrypt ignores everything past 72`,
+      ),
+    ];
+  }
+  return [];
+}
+
+/**
  * Blueprint spec §5.2 — BP-REF-001. A parameter's `from` is exactly one whole
- * reference, in `variables` or `connections`.
+ * reference, in `variables`, `deployment` or `connections`.
  *
  * "Whole" is the load-bearing word: a `from` that interpolates a reference into
  * surrounding text, or names two, is not a reference to one entry, and there is
@@ -1711,7 +1872,23 @@ function checkParameterSource(parameter: Record<string, unknown>, at: string): D
   }
   if (!PARAMETER_SOURCE_NAMESPACES.has(namespace)) {
     return [
-      diag('ERR_REFERENCE_NOT_IN_SCOPE', where, `a parameter takes a value from variables or connections, and this names ${JSON.stringify(namespace)}`),
+      diag(
+        'ERR_REFERENCE_NOT_IN_SCOPE',
+        where,
+        `a parameter takes a value from variables, deployment or connections, and this names ${JSON.stringify(namespace)}`,
+      ),
+    ];
+  }
+
+  // BP-PARAM-011. The namespace defines exactly three facts about the installer.
+  const path = references[0]!.path.join('.');
+  if (namespace === 'deployment' && !DEPLOYMENT_FACTS.has(path)) {
+    return [
+      diag(
+        'ERR_UNKNOWN_DEPLOYMENT_FACT',
+        where,
+        `deployment.${path} is not a fact the platform keeps; only installer.identity, installer.email and installer.name are`,
+      ),
     ];
   }
   return [];
