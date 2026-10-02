@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: n8n
-  revision: 8
+  revision: 9
   description: n8n workflow automation behind the platform's sign-in, owned by its installer, with webhooks reachable and its own address wired in.
 spec:
   components:
