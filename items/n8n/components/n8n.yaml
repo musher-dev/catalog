@@ -1,23 +1,46 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 10
   description: n8n workflow automation, with its database and credentials on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: n8nio/n8n:2.39.8
+      image: n8nio/n8n:2.41.6
     endpoints:
       primary:
         targetPort: 5678
         protocol: HTTP
+        # The routes machines call, which no viewer session can reach. A
+        # blueprint may let them past the platform's sign-in; every other route
+        # keeps it (component §5.2, ADR 0035). Each is the path's default in
+        # endpoints.config.ts and public-api.config.ts (n8n@2.41.6):
+        # production, test and waiting webhooks and forms, workflow MCP
+        # triggers, the public API (every route checks X-N8N-API-KEY or a
+        # bearer token), and the instance MCP server, whose handler checks its
+        # own bearer token (modules/mcp/mcp.controller.ts). Not `bearer`:
+        # /rest and the editor's pages check a session cookie, never a bearer
+        # token.
+        accessExemptions:
+          paths:
+            - /webhook
+            - /webhook-test
+            - /webhook-waiting
+            - /form
+            - /form-test
+            - /form-waiting
+            - /mcp
+            - /mcp-test
+            - /api
+            - /mcp-server
     health:
       readiness:
         # /healthz/readiness answers 200 only once the DB is connected and
-        # migrated; bare /healthz answers as soon as the process is reachable,
-        # which would declare readiness before n8n can serve traffic
-        # (docs.n8n.io monitor-n8n).
+        # migrated and server initialisation has finished (abstract-server.ts,
+        # n8n@2.41.6); bare /healthz answers as soon as the process is
+        # reachable, which would declare readiness before n8n can serve
+        # traffic (docs.n8n.io monitor-n8n).
         http:
           endpoint: primary
           path: /healthz/readiness
@@ -67,7 +90,7 @@ spec:
         target:
           envVarKey: N8N_HOST
         description: Public hostname n8n uses for webhook URLs.
-      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.39.8 lists WEBHOOK_URL as
+      # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.41.6 lists WEBHOOK_URL as
       # deprecated ("Use N8N_WEBHOOK_URL instead, which sets the base URL for
       # both test and production webhooks", cli/src/deprecation/
       # deprecation.service.ts). UrlService prefers the new name for both
@@ -95,6 +118,40 @@ spec:
         description: >-
           Public URL of the n8n editor, used in emails and OAuth/SAML
           redirects.
+      # The owner account comes from the environment rather than the setup
+      # screen. With N8N_INSTANCE_OWNER_MANAGED_BY_ENV on, n8n validates the
+      # pair below and applies it on every start with overwriteExisting: true
+      # (instance-settings-loader/loaders/owner.instance-settings-loader.ts,
+      # n8n@2.41.6), so a password changed inside n8n reverts at the next
+      # restart. The first and last name keep n8n's defaults.
+      ownerManagedByEnv:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: N8N_INSTANCE_OWNER_MANAGED_BY_ENV
+        description: >-
+          Whether n8n takes its owner account from the environment, as the
+          literal string the image parses.
+      ownerEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVarKey: N8N_INSTANCE_OWNER_EMAIL
+        description: Email address of the owner account n8n creates and signs in with.
+      # A hash, never the password: n8n stores the value as the password hash
+      # and rejects anything not matching /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.
+      ownerPasswordHash:
+        schema:
+          type: string
+          pattern: ^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$
+        sensitive: true
+        required: true
+        target:
+          envVarKey: N8N_INSTANCE_OWNER_PASSWORD_HASH
+        description: bcrypt hash of the owner account's password.
       timezone:
         schema:
           type: string

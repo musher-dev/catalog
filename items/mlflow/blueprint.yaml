@@ -2,8 +2,8 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 8
-  description: MLflow tracking server on local SQLite and volume-backed artifacts, both overridable at install.
+  revision: 9
+  description: MLflow tracking server behind the platform's sign-in and its own login, on local SQLite and volume-backed artifacts, both overridable at install.
 spec:
   components:
     web:
@@ -13,9 +13,20 @@ spec:
       volumes:
         data:
           sizeGiB: 20
+      # The platform signs viewers in before forwarding. The tracking API is
+      # exempt for the MLflow client, which MLflow's own login still checks
+      # (components/mlflow.yaml).
       exposure:
-        primary: PUBLIC
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          accessExemptions:
+            - PATHS
       bindings:
+        authAdminPassword:
+          parameter: authAdminPassword
+        flaskSecretKey:
+          parameter: flaskSecretKey
         backendStoreURI:
           parameter: backendStoreURI
         artifactsDestination:
@@ -55,3 +66,17 @@ spec:
         examples:
           - s3://my-bucket/mlflow
           - gs://my-bucket/mlflow
+    authAdminPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Admin password
+        order: 3
+    flaskSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Server secret key
+        order: 4

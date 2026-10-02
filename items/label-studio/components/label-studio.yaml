@@ -1,17 +1,26 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 10
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: heartexlabs/label-studio:1.23.0
+      image: heartexlabs/label-studio:1.23.2
     endpoints:
       primary:
         targetPort: 8080
         protocol: HTTP
+        # The REST API, which SDK and script clients call without a viewer
+        # session. A blueprint may let it past the platform's sign-in, and
+        # Label Studio still checks every request there: the REST framework
+        # defaults to IsAuthenticated over token and session authentication
+        # (core/settings/base.py, 1.23.2). The sign-in and signup pages stay
+        # behind the platform's sign-in.
+        accessExemptions:
+          paths:
+            - /api
     health:
       readiness:
         http:
@@ -46,10 +55,10 @@ spec:
           literal string the image parses.
       # Browsers only ever reach this deployment over https at the platform
       # edge, so the session cookie can be Secure. The value is '1', not
-      # 'true': base.py:470 parses it with int() before label_studio.py:27
+      # 'true': base.py:473 parses it with int() before label_studio.py:27
       # re-reads it as a bool, and int('true') would fail at settings import.
       # That is also why these stay string inputs: the literal matters.
-      # CSRF_COOKIE_SECURE follows it (base.py:473), which is wanted.
+      # CSRF_COOKIE_SECURE follows it (base.py:476), which is wanted.
       sessionCookieSecure:
         schema:
           type: string
@@ -60,7 +69,7 @@ spec:
           Whether the session cookie is marked Secure, as the integer-parsed
           literal the image expects.
       # CSRF_COOKIE_HTTPONLY would follow SESSION_COOKIE_SECURE too
-      # (base.py:474), and it is pinned at its current '0' so the frontend
+      # (base.py:477), and it is pinned at its current '0' so the frontend
       # reads the CSRF cookie exactly as before.
       csrfCookieHTTPOnly:
         schema:
@@ -72,7 +81,7 @@ spec:
           Whether the CSRF cookie is marked HttpOnly, as the integer-parsed
           literal the image expects.
       # Both admin inputs take effect ONCE, when the account is created. With
-      # a username set, 1.23.0's _create_user (label_studio/server.py) calls
+      # a username set, 1.23.2's _create_user (label_studio/server.py) calls
       # create_user, and for an existing email the IntegrityError is only
       # printed as "already exists": the stored password is never updated. A
       # changed email is a new account, created as a second superuser and
@@ -85,7 +94,7 @@ spec:
         required: true
         target:
           envVarKey: LABEL_STUDIO_USERNAME
-        description: Email address for the bootstrap admin account
+        description: Email address the bootstrap admin account is created with
       adminPassword:
         schema:
           type: string
@@ -104,7 +113,7 @@ spec:
       # move, leaves the trusted-origin list empty and the 403 where it was.
       #
       # Why there is a 403 at all: TLS terminates at the gateway and the
-      # container serves plain HTTP on 8080. 1.23.0 sets no
+      # container serves plain HTTP on 8080. 1.23.2 sets no
       # SECURE_PROXY_SSL_HEADER and exposes no env var for one, so
       # request.is_secure() is False and Django composes its expected origin as
       # http://<host> while the browser sends https://<host>. A scheme mismatch

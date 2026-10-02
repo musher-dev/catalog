@@ -1098,6 +1098,113 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
       'ERR_ENDPOINT_NOT_EXPOSABLE',
     );
   });
+
+  /** `reading`, with members added to the `primary` endpoint — `oidc`, `accessExemptions`. */
+  const readingOn = (property: string | null, endpoint: Doc): Doc =>
+    component({
+      spec: {
+        type: 'SERVICE',
+        workload: {
+          source: { image: 'ghcr.io/acme/web:1.2.3' },
+          endpoints: { primary: { targetPort: 8080, protocol: 'HTTP', ...endpoint } },
+          health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+        },
+        contract: {
+          inputs: {},
+          outputs:
+            property === null
+              ? {}
+              : {
+                  read: {
+                    description: 'The property.',
+                    schema: { type: 'string' },
+                    ...(property === 'oidcClientSecret' ? { sensitive: true } : {}),
+                    from: { endpoint: 'primary', property },
+                  },
+                },
+        },
+      },
+    });
+  const exposed = (exposure: Doc): Doc => blueprint({ spec: { components: { web: node({ exposure: { primary: exposure } }) } } });
+  const client = { oidc: { redirectPaths: ['/oauth/oidc/callback'] } };
+
+  it('accepts an OIDC endpoint whose component declares oidc and reads the client — BP-NODE-008, COMP-EP-014', async () => {
+    const fixture: Fixture = {
+      blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'OIDC', viewerClaims: ['EMAIL', 'NAME'] }),
+      components: { 'components/web.yaml': readingOn('oidcClientSecret', client) },
+    };
+    await assertClean(fixture);
+    await assertStructurallyValid(build(fixture));
+  });
+
+  it('ERR_ENDPOINT_NOT_OIDC_CLIENT when a component reads the client of an endpoint declaring no oidc — COMP-EP-014', async () => {
+    await assertReports(
+      {
+        blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'OIDC' }),
+        components: { 'components/web.yaml': readingOn('oidcClientID', {}) },
+      },
+      'ERR_ENDPOINT_NOT_OIDC_CLIENT',
+    );
+  });
+
+  it('ERR_ENDPOINT_NOT_OIDC_CLIENT at viewerIdentity when a node selects OIDC for an endpoint that is no client — BP-NODE-008', async () => {
+    const anchors = await anchorsOf(
+      {
+        blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'OIDC' }),
+        components: { 'components/web.yaml': readingOn(null, {}) },
+      },
+      'ERR_ENDPOINT_NOT_OIDC_CLIENT',
+    );
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary/viewerIdentity']);
+  });
+
+  it('accepts an assertion property read under ASSERTION, and refuses it under HEADER — BP-NODE-007', async () => {
+    await assertClean({
+      blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'ASSERTION' }),
+      components: { 'components/web.yaml': readingOn('viewerAssertionKeysURL', {}) },
+    });
+    await assertReportsExactly(
+      {
+        blueprint: exposed(signedIn),
+        components: { 'components/web.yaml': readingOn('viewerAssertionHeader', {}) },
+      },
+      ['ERR_VIEWER_IDENTITY_NOT_FORWARDED'],
+    );
+  });
+
+  it('ERR_VIEWER_IDENTITY_NOT_FORWARDED when a claim header is read and the node releases no such claim — BP-NODE-007', async () => {
+    await assertReportsExactly(
+      {
+        blueprint: exposed({ ...signedIn, viewerClaims: ['NAME'] }),
+        components: { 'components/web.yaml': readingOn('viewerEmailHeader', {}) },
+      },
+      ['ERR_VIEWER_IDENTITY_NOT_FORWARDED'],
+    );
+    await assertClean({
+      blueprint: exposed({ ...signedIn, viewerClaims: ['EMAIL'] }),
+      components: { 'components/web.yaml': readingOn('viewerEmailHeader', {}) },
+    });
+  });
+
+  it('accepts the exemptions a component declares — BP-NODE-008', async () => {
+    const fixture: Fixture = {
+      blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', accessExemptions: ['PATHS', 'BEARER'] }),
+      components: { 'components/web.yaml': readingOn(null, { accessExemptions: { paths: ['/webhook'], bearer: true } }) },
+    };
+    await assertClean(fixture);
+    await assertStructurallyValid(build(fixture));
+  });
+
+  it('ERR_EXEMPTION_NOT_DECLARED at the exemption the component never offered — BP-NODE-008', async () => {
+    const anchors = await anchorsOf(
+      {
+        blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', accessExemptions: ['PATHS', 'BEARER'] }),
+        components: { 'components/web.yaml': readingOn(null, { accessExemptions: { paths: ['/webhook'] } }) },
+      },
+      'ERR_EXEMPTION_NOT_DECLARED',
+    );
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary/accessExemptions/1']);
+  });
 });
 
 describe('bindings — blueprint §4.2', () => {
@@ -1896,5 +2003,64 @@ describe('parameter sources — blueprint §5.2, BP-REF-001', () => {
 
   it('ERR_REFERENCE_NOT_IN_SCOPE when a reserved namespace is not one a parameter may read', async () => {
     await assertReports(sourced('${{ self.endpoints.primary.publicURL }}'), 'ERR_REFERENCE_NOT_IN_SCOPE');
+  });
+  it('accepts each installer fact — BP-PARAM-011', async () => {
+    await assertClean(sourced('${{ deployment.installer.email }}'));
+    await assertClean(sourced('${{ deployment.installer.name }}'));
+    await assertClean(sourced('${{ deployment.installer.identity }}'));
+  });
+
+  it('ERR_UNKNOWN_DEPLOYMENT_FACT for any other deployment path — BP-PARAM-011', async () => {
+    await assertReportsExactly(sourced('${{ deployment.id }}'), ['ERR_UNKNOWN_DEPLOYMENT_FACT']);
+  });
+});
+
+describe('hashed parameters — blueprint §5.2, BP-PARAM-001, BP-PARAM-012', () => {
+  /** A generated password disclosed to the installer, of which the workload receives only a hash. */
+  const hashed = (source: Doc, hash: Doc = { parameter: 'password', algorithm: 'BCRYPT' }): Fixture => ({
+    blueprint: blueprint({
+      spec: {
+        parameters: { password: source, passwordHash: { hash } },
+        components: { web: node({ bindings: { passwordHash: { parameter: 'passwordHash' } } }) },
+      },
+    }),
+    components: {
+      'components/web.yaml': component({
+        spec: {
+          type: 'SERVICE',
+          workload: {
+            source: { image: 'ghcr.io/acme/web:1.2.3' },
+            endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
+            health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+          },
+          contract: { inputs: { passwordHash: input({ sensitive: true, target: { envVarKey: 'PASSWORD_HASH' } }) }, outputs: {} },
+        },
+      }),
+    },
+  });
+  const disclosed = { generator: { byteLength: 24, encoding: 'BASE64URL' }, ui: { label: 'Password' } };
+
+  it('accepts a bound hash of a disclosed, generated password that nothing else binds', async () => {
+    await assertClean(hashed(disclosed));
+    await assertStructurallyValid(build(hashed(disclosed)));
+  });
+
+  it('ERR_UNBOUND_PARAMETER when the hashed source carries no ui, so nobody could ever read it — BP-PARAM-001', async () => {
+    await assertReportsExactly(hashed({ generator: { byteLength: 24 } }), ['ERR_UNBOUND_PARAMETER']);
+  });
+
+  it('ERR_INVALID_HASH_SOURCE when the source is submitted rather than generated', async () => {
+    await assertReports(hashed({ ui: { label: 'Password' } }), 'ERR_INVALID_HASH_SOURCE');
+  });
+
+  it('ERR_UNKNOWN_PARAMETER when the hash names no declared parameter', async () => {
+    await assertReports(hashed(disclosed, { parameter: 'missing', algorithm: 'ARGON2ID' }), 'ERR_UNKNOWN_PARAMETER');
+  });
+
+  it('ERR_INVALID_HASH_SOURCE when a bcrypt source encodes past 72 characters, and not at 72', async () => {
+    await assertReportsExactly(hashed({ generator: { byteLength: 37 }, ui: { label: 'Password' } }), ['ERR_INVALID_HASH_SOURCE']);
+    await assertClean(hashed({ generator: { byteLength: 36 }, ui: { label: 'Password' } }));
+    await assertClean(hashed({ generator: { byteLength: 54, encoding: 'BASE64' }, ui: { label: 'Password' } }));
+    await assertClean(hashed({ generator: { byteLength: 40 }, ui: { label: 'Password' } }, { parameter: 'password', algorithm: 'ARGON2ID' }));
   });
 });

@@ -70,19 +70,19 @@ const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
  */
 export const RELEASES: Record<Family, { version: string; bundleSha256: string; archiveSha256?: string }> = {
   listing: {
-    version: '1.0.0',
-    bundleSha256: '8a0ac418d4dacfc998310d11bf8003a1841e10b0869ca6b2b294caafb845305d',
-    archiveSha256: '0243c55999947de392d61468ff076bd82bf3234124bdd980ba3ed6538ddea27e',
+    version: '1.0.1',
+    bundleSha256: 'efced6005efe4e25f60fc6d801070315160285823d4f0f4bcb93127f6010ee6b',
+    archiveSha256: 'e20dcd5a9597002aaee9d7b62ff86ed02001bb28085f7bdb6dd4f3230a05109a',
   },
   blueprint: {
-    version: '1.6.0',
-    bundleSha256: 'ebe0d75286b4d139c96db09cdb149d30a1f7873a092b819add4f08809e5c9257',
-    archiveSha256: 'a3e46a80a35735190c36526c8c04e60a3ef3be6dba6858caa70516765c94ad5f',
+    version: '1.7.1',
+    bundleSha256: 'f3b64517ff6e90ac023736ee15eede2c1198ed393330f88d9b734cf372c5a3b3',
+    archiveSha256: 'd67d967e0cd844f3d0412f69fa8f07368614155c14da30cdb912ed6bfebe6fca',
   },
   component: {
-    version: '1.5.0',
-    bundleSha256: '4bef694cde8a4efa429838a15efbedcb82fd0d969a7d4b9e26bcba74ecca4f58',
-    archiveSha256: '0e0704dc6e431d3d268cf83da5acbe462b46bb069e4f0430b2419c1c772f98b1',
+    version: '1.6.0',
+    bundleSha256: 'f8ed1c8b0076705438f8ac3442a1c3365a056ef93a7bc1eef07c12d855d19fa1',
+    archiveSha256: 'bdc2e6b9372c7f40e37afc52ab4965b99fc54b811baf93b62db6c75a73d721d1',
   },
 };
 

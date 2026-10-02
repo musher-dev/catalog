@@ -33,10 +33,19 @@ spec:
     carries those drivers, and both URIs are deploy parameters.
 
     ## Access and security
-    The tracking server has **no login**. Anyone who has the deployment's URL
-    can read, create and delete experiments, runs and registered models, from
-    the browser or the MLflow client. Keep the URL private, and don't store
-    anything in it you wouldn't share with everyone who might have it.
+    The tracking UI sits behind the platform's sign-in, so only people
+    allowed into this installation reach it. It also has MLflow's own login.
+    The admin account is `admin`, with the generated password on the
+    deployment's Installation tab, and an admin can add MLflow users from
+    the UI. The browser asks for those credentials after you sign in.
+
+    The tracking API (`/api`, artifact downloads, and OTLP traces at
+    `/v1/traces`) stays reachable without the platform's sign-in, so the
+    MLflow client works from notebooks and CI. It still needs MLflow
+    credentials: set `MLFLOW_TRACKING_USERNAME` and
+    `MLFLOW_TRACKING_PASSWORD` beside `MLFLOW_TRACKING_URI`. Earlier
+    versions of this item had no login, so clients set up before this
+    version must add credentials before they can reach the server again.
 
     **The backend store URI is not treated as a secret.** It defaults to a
     SQLite path, which is not one. If you point it at Postgres or MySQL, the

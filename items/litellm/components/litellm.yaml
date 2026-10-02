@@ -1,21 +1,30 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 6
   description: LiteLLM proxy exposing one OpenAI-compatible API in front of many model providers.
 spec:
   type: SERVICE
   workload:
     source:
-      image: ghcr.io/berriai/litellm:v1.83.14-stable.patch.3
+      # Plain vX.Y.Z is LiteLLM's stable tag. From v1.84.0 it stopped
+      # publishing `-stable` / `-stable.patch.N` tags; pre-releases carry
+      # -rc.N / -dev.N instead
+      # (docs.litellm.ai/blog/cleaner-release-versions).
+      image: ghcr.io/berriai/litellm:v1.103.2
     endpoints:
       primary:
         targetPort: 4000
         protocol: HTTP
     health:
       readiness:
-        # /health/liveliness (LiteLLM's spelling) is the pure unauthenticated
-        # alive signal; /health/readiness is DB/cache-coupled (proxy/health docs).
+        # /health/liveliness is the unauthenticated alive signal: it only
+        # answers 503 once graceful shutdown starts. v1.103.2 also serves it as
+        # /health/liveness; neither is deprecated, liveliness being kept as the
+        # historical name (proxy/health_endpoints/_health_endpoints.py).
+        # /health/readiness is public too but DB-coupled: it 503s when a
+        # configured database is unreachable, so it is kept for the
+        # database-backed build.
         http:
           endpoint: primary
           path: /health/liveliness
@@ -32,12 +41,17 @@ spec:
         required: true
         target:
           envVarKey: LITELLM_MASTER_KEY
-        # Presented exactly as generated. v1.83.14-stable.patch.3 compares it
-        # to the request's key with secrets.compare_digest
-        # (proxy/auth/user_api_key_auth.py) and adds no prefix. The "must start
-        # with sk-" assertion there applies only to virtual keys, which this
-        # database-less build cannot issue anyway.
+        # Presented exactly as generated. v1.103.2 compares it to the request's
+        # key with secrets.compare_digest (proxy/auth/user_api_key_auth.py) and
+        # adds no prefix; the v1.84.0 release notes also stop accepting its
+        # SHA-256 hash in its place. The "must start with sk-" assertion there applies only
+        # to virtual keys, which this database-less build cannot issue anyway.
+        #
+        # Not a dashboard password here. The admin UI login (username `admin`,
+        # the master key as password) matches, then writes the admin user and
+        # a session key to the database, so without DATABASE_URL it fails with
+        # "Not connected to DB!" (proxy/auth/login_utils.py _sign_in, via
+        # user_update in management_endpoints/internal_user_endpoints.py).
         description: >-
-          Admin token for the proxy API and dashboard, presented exactly as
-          generated.
+          Admin token for the proxy API, presented exactly as generated.
     outputs: {}

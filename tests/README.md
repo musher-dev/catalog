@@ -4,8 +4,8 @@ These tests hold every item under `items/` to the contracts published in
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications).
 
 The suite is held to **one exact, released version per family**: the `RELEASES`
-table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.0`,
-component `v1.5.0` and blueprint `v1.6.0`. Nothing is vendored. The schemas are
+table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.1`,
+component `v1.6.0` and blueprint `v1.7.1`. Nothing is vendored. The schemas are
 fetched on every run from each release's exact URL:
 
 ```
@@ -29,7 +29,7 @@ because the alias changes its bytes whenever a release ships. A suite whose
 verdict can change without a commit here reports on a contract nobody chose.
 
 The **conformance corpus** is fetched the same way, from the
-`component-v1.5.0.tar.gz`, `blueprint-v1.6.0.tar.gz` and `listing-v1.0.0.tar.gz`
+`component-v1.6.0.tar.gz`, `blueprint-v1.7.1.tar.gz` and `listing-v1.0.1.tar.gz`
 release assets, each checked against the digest GitHub records for it.
 
 Every archive ships its whole dependency closure, so more than one carries a
@@ -60,7 +60,7 @@ It is one pull request, and it changes nothing else:
 
 1. Edit that family's entry in `RELEASES` in `lib/spec-schemas.ts` — `version`
    and `bundleSha256` together, from the new entry in `published.json`.
-2. If the family attaches a conformance archive (blueprint or listing), set its
+2. If the family attaches a conformance archive (component, blueprint or listing), set its
    `archiveSha256` in the same entry, from the release's assets:
    `gh release view <family>/v<X.Y.Z> -R musher-dev/specifications --json assets`.
 3. Point the editor at the same release: that family's URL under `yaml.schemas`
@@ -97,7 +97,7 @@ phases pass.
 | `spec.test.ts` | — | The bundles resolve, are byte for byte the pinned release, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
 | `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (core §6.1): UTF-8, one document per file, string keys, no anchors, aliases, merge keys or explicit tags, finite numbers and safe integers, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
-| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution and dependency validity (§10), path containment, media, the description Markdown profile, environment keys — no two inputs claim one `envVarKey` (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004), authored secrets (COMP-VAL-005, §11), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), binding resolution and type agreement (BP-PARAM-006/007/008), value cycles (BP-CONN-002), connection bindings — a connection input takes a connection parameter and a connection parameter takes one (BP-CONNECTION-001), and the parameters — reachability, schema agreement, sources and enum labels (BP-PARAM-001..003, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
+| `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, the listing's `itemType` against the item root (LIST-ITEM-001), reference resolution and dependency validity (§10), path containment, media, the description Markdown profile, environment keys — no two inputs claim one `envVarKey` (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), output origins and templates (COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004), authored secrets (COMP-VAL-005, §11), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), access and viewer identity — the mode or claim each viewer property needs, OIDC clients and declared exemptions (BP-NODE-007/008, COMP-EP-012/014), binding resolution and type agreement (BP-PARAM-006/007/008), value cycles (BP-CONN-002), connection bindings — a connection input takes a connection parameter and a connection parameter takes one (BP-CONNECTION-001), and the parameters — reachability, schema agreement, sources, installer facts, hashes and enum labels (BP-PARAM-001..003, BP-PARAM-011/012, BP-REF-001, BP-UI-003, CORE-REF-001..003). |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
 | `rules.test.ts` | — | The rules themselves, against deliberately broken synthetic items. |
 | `conformance.test.ts` | all three | The pinned release's conformance corpus, run through the same three phases. Each case is a test named by its id. |

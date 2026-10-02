@@ -1,13 +1,13 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: postgres:17.10-alpine
+      image: postgres:17.11-alpine
     endpoints:
       primary:
         targetPort: 5432
@@ -47,7 +47,7 @@ spec:
           envVarKey: POSTGRES_PASSWORD
         description: >-
           Password the database superuser is created with on first boot; copy
-          it from the deployment's Configuration tab.
+          it from the deployment's Installation tab.
       postgresUser:
         schema:
           type: string

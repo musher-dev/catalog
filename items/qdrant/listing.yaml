@@ -26,7 +26,7 @@ spec:
     API on port 6333 behind the platform's HTTPS edge; the gRPC port 6334
     exists in Qdrant but is not exposed by this listing. Clients
     authenticate with an auto-generated API key — copy or rotate it from
-    the deployment's Configuration tab. An 8 GiB persistent volume
+    the deployment's Installation tab. An 8 GiB persistent volume
     mounted at `/qdrant/storage` keeps collections and vectors across
     restarts.
 

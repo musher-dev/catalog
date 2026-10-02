@@ -29,7 +29,10 @@ spec:
           # openclaw.yaml applied) and a mock server logging what it received. A
           # plain "say ping" turn sent POST {baseURL}/chat/completions with
           # `stream: true`, 34 tool definitions, the model id as given, the key
-          # resolved from LLM_API_KEY, and no reasoning field. Memory search
+          # resolved from LLM_API_KEY, and no reasoning field. The item now runs
+          # 2026.9.7. There, by reading the source rather than by observation,
+          # `openai-completions` is still a model-data API and the
+          # custom-provider shape is unchanged. Memory search
           # does not need embeddings: with no embedding provider configured it
           # falls back to keyword search (docs/concepts/memory-search.md).
           #

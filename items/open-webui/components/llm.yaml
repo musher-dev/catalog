@@ -13,7 +13,7 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: The language-model API Open WebUI sends chat requests to, taken whole as one connection.
 spec:
   type: EXTERNAL
@@ -25,11 +25,11 @@ spec:
           endpoint, credential and model, acquired together.
         connection:
           # Streaming and tool calls, and both are load-bearing. Open WebUI
-          # streams chat completions by default. v0.10.2 also defaults to
+          # streams chat completions by default. v0.11.4 also defaults to
           # native function calling: every UI chat is sent with its built-in
           # tools (time, knowledge-base retrieval, chat search) as OpenAI
           # `tools`, unless an admin sets a model's function calling to
-          # `legacy` (utils/middleware.py:2518-2522, 2763-2767). An endpoint
+          # `legacy` (utils/middleware.py:2809-2813, 3189-3193). An endpoint
           # without tool calls would be accepted here and then fail on ordinary
           # chats. Everything else Open WebUI asks of the model is plain chat:
           # title, tag and follow-up generation reuse the chat model, and RAG

@@ -22,13 +22,18 @@ spec:
       human-in-the-loop workflow.
 
     ## Defaults
-    Single-container deployment of `heartexlabs/label-studio:1.23.0` with
-    the web UI on port 8080 behind the platform's HTTPS edge.
-    SQLite-backed — suitable for personal and small-team labeling. The
-    admin account is created from the email/password parameters on first
-    boot (the password is auto-generated). After that, change the password
-    in Label Studio's account settings: editing either parameter later does
-    not update the account, and a new email creates a second admin. Open
+    Single-container deployment of `heartexlabs/label-studio:1.23.2` with
+    the web UI on port 8080 behind the platform's HTTPS edge and the
+    platform's sign-in: only people allowed into this installation reach the
+    app. The REST API (`/api`) stays reachable without signing in, for SDK
+    and script clients, and Label Studio still requires an access token
+    there. SQLite-backed — suitable for personal and small-team labeling.
+    The admin account is created on first boot with the installer's verified
+    email and an auto-generated password, shown on the deployment's
+    Installation tab. After that, change the password in Label Studio's
+    account settings: editing the parameter later does not update the
+    account. A deployment first installed with a typed admin email gains a
+    second admin, under the installer's email, when it upgrades. Open
     self-signup is disabled — invite
     annotators by link. The public URL, and the origins the sign-in form
     is accepted from, are both taken from this deployment's own https
@@ -37,7 +42,11 @@ spec:
     sign-ins survive a restart. First boot runs the full database
     migration chain, so expect a few minutes before the app reports
     ready. A 10 GiB persistent volume mounted at `/label-studio/data`
-    keeps projects, annotations, and uploads across restarts.
+    keeps projects, annotations, and uploads across restarts. Label
+    Studio's outbound request protection is on: ML backends, webhooks,
+    S3-compatible storage, and URL imports must be reachable at public
+    addresses, because requests to private or local network addresses are
+    blocked.
   category: AI_ML
   lifecycleStage: STABLE
   tags:

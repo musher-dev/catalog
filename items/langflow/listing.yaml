@@ -22,13 +22,21 @@ spec:
       on the same flow.
 
     ## Defaults
-    Single-container deployment of `langflowai/langflow:1.11.0` with the
-    web UI on port 7860 behind the platform's HTTPS edge. Auto-login is
-    disabled: sign in with the admin username (default `admin`) and the
-    auto-generated password from the deployment's Configuration tab. Both
-    are used once, to create the account: change the password inside
-    Langflow afterwards, since editing either value later does not update
-    it. Model providers are added as API keys inside Langflow; this
+    Single-container deployment of `langflowai/langflow:1.12.4` with the
+    web UI on port 7860 behind the platform's HTTPS edge and the
+    platform's sign-in. Signed-in people reach Langflow already signed in:
+    it verifies the platform's signed assertion and creates each person an
+    ordinary account, with their email and name, the first time they arrive.
+    The flow-running API (`/api/v1/run`, webhooks and `/api/v1/responses`)
+    stays reachable without signing in, for API clients, and Langflow still
+    requires one of its API keys there. MCP clients must go through the
+    sign-in.
+
+    Those accounts are never Langflow admins. The admin account is still
+    the admin username (default `admin`) with the auto-generated password
+    from the deployment's Installation tab. Both are used once, to create
+    the account: change the password inside Langflow afterwards, since
+    editing either value later does not update it. Model providers are added as API keys inside Langflow; this
     deployment does not connect one for you. A
     separate auto-generated secret key encrypts provider API keys stored
     in your flows. SQLite-backed by default — fine for personal and

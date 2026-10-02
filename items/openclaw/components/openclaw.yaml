@@ -1,87 +1,123 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 6
-  description: OpenClaw agent gateway and Control UI, with its config, sessions and auth secrets on two volumes.
+  revision: 8
+  description: OpenClaw agent gateway and Control UI behind the platform edge's sign-in, with its config, sessions and credentials on two volumes.
 spec:
   type: SERVICE
   workload:
     source:
-      # PINNED, and the pin is load-bearing rather than merely current: 2026.7.1
-      # is the last stable release in which
-      # `gateway.controlUi.dangerouslyDisableDeviceAuth` still works, and this
-      # item depends on it to be reachable at all (see the block above `command`).
+      # PINNED. 2026.9.7 is the latest stable release (2026-09-30). The tag on
+      # ghcr carries no `v` prefix.
       #
-      # Verified by reading `shouldSkipControlUiPairing` in each published
-      # bundle: 2026.7.1 ends `return role === "operator" && policy.allowBypass`,
-      # while 2026.8.1 and 2026.8.2 both end `return null`, having dropped that
-      # branch. Upstream calls the key "a retired break-glass input, now fully
-      # inert" and has `doctor --fix` delete it. 2026.7.2 exists only as betas,
-      # which this catalog does not pin.
+      # This item previously sat on 2026.7.1 because it relied on
+      # `gateway.controlUi.dangerouslyDisableDeviceAuth`, which 2026.8.x made
+      # inert: at 2026.9.7 `shouldSkipControlUiPairing`
+      # (src/gateway/server/ws-connection/connect-policy.ts) returns only
+      # "tailscale-device", "auth-none" or null, and `doctor --fix` deletes the
+      # key as retired. Browsers are admitted here by trusted-proxy auth with
+      # `deviceAutoApprove` instead (see the block above `command`).
       #
-      # So bumping this tag re-breaks the deployment silently. Anything past
-      # 2026.7.1 has to pair devices, which means either re-adding the
-      # in-container `devices approve` watcher this item used to carry, or
-      # `gateway.auth.trustedProxy.deviceAutoApprove` (2026.8.x only), which
-      # needs `gateway.auth.mode: "trusted-proxy"` and therefore a platform edge
-      # that injects an identity header. Settle that before changing the tag.
-      image: ghcr.io/openclaw/openclaw:2026.7.1
+      # When bumping, re-read the pairing plan
+      # (src/gateway/server/ws-connection/connect-pairing-approval-plan.ts) for
+      # the trusted-proxy auto-approve lane, and docker-entrypoint.mjs (see
+      # below) for any change to which commands it passes through.
+      image: ghcr.io/openclaw/openclaw:2026.9.7
     # Converge config through OpenClaw's own `config set` CLI, then exec the
-    # stock gateway entrypoint (`tini -s --` passes argv through, so `sh -c` works).
+    # gateway.
+    #
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT. Since
+    # 2026.9.7 that is `tini -s -- node /app/docker-entrypoint.mjs`. The
+    # adapter runs `doctor --fix --non-interactive` itself only when its argv
+    # is a foreground gateway run (`node openclaw.mjs gateway` and the like),
+    # and treats a failed Doctor as fatal. Any other command, `sh -c` here,
+    # it hands straight to process.execve unchanged, so tini still supervises
+    # it. That is why the script below still runs Doctor itself, with a
+    # failure reported but not fatal. Its final `exec node openclaw.mjs
+    # gateway` does not go back through the adapter, so Doctor runs once per
+    # boot.
     #
     # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
-    # CONFIG-FILE-ONLY — verified against 2026.7.1, whose bundle declares no
-    # matching env var — and without this deployment's public origin in it the
-    # gateway rejects the browser with "Browser origin not allowed".
+    # CONFIG-FILE-ONLY: no env var sets it. At 2026.9.7 a non-loopback bind
+    # with the Control UI on refuses to start without it or
+    # `gateway.publicOrigin` (src/gateway/server-runtime-config.ts). Since
+    # 2026.9.7 an omitted allowlist defaults to `[gateway.publicOrigin]`, but
+    # an authored list, even an empty one, overrides it
+    # (src/config/gateway-control-ui-origins.ts). The explicit list stays: it
+    # is what volumes from earlier releases already carry, and `config set`
+    # would not remove it anyway. `gateway.publicOrigin` is not set here.
     #
     # `config set` (not a hand-written openclaw.json) is what upstream's own
-    # container guide uses, and it is the only form that works: the CLI writes a
-    # normalized document carrying the `meta.lastTouchedVersion` stamp the gateway
-    # expects, whereas a hand-rolled file is rejected as clobbered config
-    # ("existing config is missing gateway.mode"). Verified live: after
-    # `config set`, the origin survives gateway startup and /readyz returns 200.
+    # container guide uses (docs/install/docker.md), and it is the only form
+    # that works: the CLI writes a normalized document carrying the
+    # `meta.lastTouchedVersion` stamp the gateway expects, whereas a hand-rolled
+    # file is rejected as clobbered config ("existing config is missing
+    # gateway.mode").
     #
-    # Run unconditionally on every boot rather than behind a first-boot guard —
+    # `gateway.bind=lan` is set explicitly. In a container the default is
+    # `auto` (src/gateway/net.ts `defaultGatewayBindMode`), and the platform
+    # edge is a separate network hop, so the listener must be on a routable
+    # interface. OPENCLAW_GATEWAY_BIND is not set: it is a compose-file
+    # variable that the gateway runtime does not read.
+    #
+    # Run unconditionally on every boot rather than behind a first-boot guard:
     # the config lives on a persistent volume, so a guard would pin the very first
     # boot's origin forever and leave a re-deployed app permanently unreachable.
     # `config set` is declarative, so re-applying is a no-op.
     #
-    # GATEWAY AUTH IS UNTOUCHED, despite the name of the key below.
-    # `gateway.auth.mode` stays at its default (`token`), so every Control UI
-    # connection still has to present OPENCLAW_GATEWAY_TOKEN. Verified by
-    # reading the connect path in the 2026.7.1 bundle
-    # (dist/message-handler-*.js), where three gates run in this order:
+    # DOCTOR FIRST. At 2026.9.x `config set` refuses to write over an invalid
+    # existing config and points at `doctor --fix`. Since 2026.9.5 some
+    # conversions (older conversations, pairing records, file-based queues) wait
+    # for an explicit doctor run and no longer happen on restart alone. A volume
+    # carried over from 2026.7.1 needs both. `--non-interactive` applies the
+    # startup-blocking migrations without prompting and exits 1 when a repair
+    # is incomplete. That exit is reported and not fatal, so it cannot become
+    # a crash loop. If state really cannot be migrated, the gateway exits 78
+    # on its own.
     #
-    #   1. handleMissingDeviceIdentity()  — device identity; allowBypass admits
-    #   2. `if (!authOk) { rejectUnauthorized(authResult); return; }`
-    #   3. shouldSkipControlUiPairing()   — pairing; allowBypass skips
+    # ACCESS: TRUSTED-PROXY. There is no token screen. The blueprint exposes
+    # `primary` with `access: AUTHENTICATED` and `viewerIdentity: HEADER`
+    # (blueprint §4.5, ADR 0034). So the platform signs the viewer in before
+    # forwarding (BP-ACCESS-002). It strips inbound copies of the identity
+    # header and of Forwarded / X-Forwarded-* / X-Real-IP, then sets the
+    # identity header to a stable, opaque user id on HTTP requests and
+    # WebSocket upgrades (BP-ACCESS-003). The header name and the proxy
+    # addresses are platform facts of the endpoint allocation, read through the
+    # `viewerIdentityHeader` and `trustedProxyCIDRs` outputs below and bound
+    # back into this node's inputs. Nothing here defaults or guesses them.
     #
-    # Gate 2 is unconditional — no isControlUi test, no allowBypass exemption —
-    # and it sits BETWEEN the two gates the key affects. So the key removes
-    # device identity and pairing while the token check stays fully enforced.
+    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.9.7) accepts that
+    # header only when:
     #
-    # That is the intended posture for this item: anyone holding the token gets
-    # in from any browser, and no device is enrolled or allowlisted. Device
-    # pairing is a second gate that a valid token does not satisfy, it can only
-    # be cleared by an already-paired admin session, and on a fresh deployment
-    # nothing is ever paired — so left alone the Control UI is permanently
-    # unreachable, reporting "device pairing required (requestId: ...)" and
-    # naming a CLI that a catalog user has no host shell to run. Upstream was
-    # asked to let a valid token bypass pairing and declined (openclaw#29908,
-    # closed as not planned).
+    #   1. the TCP peer is inside `gateway.trustedProxies`, else
+    #      `proxy_attribution_required`. These are the addresses this container
+    #      sees as its peer: the compute host's proxy, not the edge and not
+    #      loopback. No other workload or tenant may originate from them
+    #      (BP-ACCESS-004);
+    #   2. the peer is neither loopback nor one of this container's own
+    #      interface addresses;
+    #   3. the header is present and non-blank.
     #
-    # The alternative, carried here previously, was an in-container watcher that
-    # approved pending requests via `devices approve`. It worked and kept device
-    # identity, but it made a background process load-bearing for reachability
-    # and put a cold CLI start in front of every first connect. Traded away
-    # deliberately for a declarative key and an instant first load.
+    # The id is opaque rather than an email, so `allowUsers` and
+    # `identityScopes`, which key on user identities, are left unset. Access
+    # control is the platform's installation access policy.
     #
-    # What it costs: with no device identity there is no second factor and no
-    # per-device revocation, so a leaked token is sufficient on its own, and
-    # browsers re-present the token each session instead of holding a stored
-    # device token. `openclaw security audit` reports
-    # `gateway.control_ui.device_auth_disabled` as critical — expected here, not
-    # a regression. The token is the whole boundary; rotate it if it leaks.
+    # `deviceAutoApprove` then pairs the browser silently, so a first visit
+    # lands connected, and every browser is a revocable paired device again.
+    #
+    # `operator.admin` is listed in the auto-approve scopes deliberately. The
+    # person who deploys this is its owner and needs admin to configure the
+    # agent. The platform admits only viewers its access policy allows for this
+    # installation. This matches the old posture, where the token was full
+    # admin. `openclaw security audit` reports it as the CRITICAL
+    # `gateway.trusted_proxy_device_auto_approve_admin` finding, and the gateway
+    # logs a warning at startup. That is expected here, not a regression. Once
+    # the platform can send a role, `x-openclaw-scopes` can narrow it per user.
+    #
+    # The whole boundary is the platform's sign-in plus the trusted proxy
+    # addresses. A paired device outlives a sign-out: revoke it in the Control
+    # UI. An open WebSocket outlives one only for the bounded window the
+    # platform documents (BP-ACCESS-005).
     #
     # THE LANGUAGE MODEL. It arrives as the `llm` connection declared at the
     # foot of this file, in three env vars this item names (LLM_BASE_URL,
@@ -104,7 +140,10 @@ spec:
     #     neither thinking nor vision, and this keeps OpenClaw from asking for
     #     either.
     #   - agents.defaults.model, as the whole object rather than `.primary`, so
-    #     it succeeds under `set -e` whatever shape a UI edit left behind.
+    #     it succeeds under `set -e` whatever shape a UI edit left behind. At
+    #     2026.9.x `config set` resolves model refs before writing. `llm/<model>`
+    #     resolves because the provider is written in the same batch, but a
+    #     model id OpenClaw cannot parse fails the boot here, visibly.
     #
     # Because the batch runs on every boot, the connection is authoritative.
     # A rotated credential or replaced connection takes effect at the next
@@ -112,18 +151,25 @@ spec:
     # and the listing says so.
     #
     # Exec form: argv, no shell of the platform's own. The shell this needs is
-    # the one named here, because the script uses `${VAR%/}` to strip a trailing
-    # slash off the origin before writing it into the allowlist.
+    # the one named here. The script uses `${VAR%/}` to strip a trailing slash
+    # off the origin. OPENCLAW_TRUSTED_PROXIES is an array input, so it
+    # arrives as a compact JSON array and is spliced into the batch as it is.
+    # If it is empty or missing, the batch is not valid JSON and `config set`
+    # fails the boot under `set -e`, which fails closed.
     command:
       - sh
       - -c
       - >-
         set -e;
+        node /app/dist/index.js doctor --fix --non-interactive
+        || echo "openclaw: doctor --fix reported an incomplete repair; continuing" >&2;
         node /app/dist/index.js config set --batch-json
         "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
         {\"path\":\"gateway.bind\",\"value\":\"lan\"},
         {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
-        {\"path\":\"gateway.controlUi.dangerouslyDisableDeviceAuth\",\"value\":true},
+        {\"path\":\"gateway.trustedProxies\",\"value\":${OPENCLAW_TRUSTED_PROXIES}},
+        {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
+        {\"path\":\"gateway.auth.trustedProxy\",\"value\":{\"userHeader\":\"${OPENCLAW_IDENTITY_HEADER}\",\"deviceAutoApprove\":{\"enabled\":true,\"scopes\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]}}},
         {\"path\":\"models.providers.llm\",\"value\":{\"baseUrl\":\"${LLM_BASE_URL%/}\",\"api\":\"openai-completions\",\"apiKey\":\"\${LLM_API_KEY}\",\"models\":[{\"id\":\"${LLM_MODEL}\",\"name\":\"${LLM_MODEL}\",\"reasoning\":false,\"input\":[\"text\"]}]}},
         {\"path\":\"agents.defaults.model\",\"value\":{\"primary\":\"llm/${LLM_MODEL}\"}}]";
         exec node openclaw.mjs gateway
@@ -133,49 +179,52 @@ spec:
         protocol: HTTP
     health:
       readiness:
-        # /readyz is the machine-readable gate; /healthz can return the Control UI
-        # HTML shell with a 200, which would falsely read as ready.
+        # /startupz is upstream's orchestrator gate (docs/install/docker.md,
+        # v2026.9.7): 503 while startup, migrations included, is still settling,
+        # then 200. /readyz also turns 503 on plugin reloads and failed channels,
+        # which suits monitoring better than routing.
         http:
           endpoint: primary
-          path: /readyz
-        # Node boot + SQLite migrations run before the gate opens on first start.
+          path: /startupz
+        # Node boot, doctor and SQLite migrations run before the gate opens.
         initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
       liveness:
+        # Probe routes are answered before the Control UI and need no auth, so
+        # /healthz returns JSON `{ok:true,status:"live"}`, never the UI shell.
         http:
           endpoint: primary
           path: /healthz
+        # Nothing listens while the boot command's doctor and config runs are
+        # still going. Without this delay, three failures 30s apart would
+        # restart a container in the middle of a first-boot migration.
+        initialDelaySeconds: 120
         periodSeconds: 30
         timeoutSeconds: 5
         failureThreshold: 3
     volumes:
-      # Core state: openclaw.json, SQLite session DBs, installed plugins, .env, and
-      # the agent workspace (default /home/node/.openclaw/workspace lives inside
-      # this directory, so a single claim covers config + workspace).
+      # Core state: openclaw.json, SQLite session DBs (which, at 2026.9.x, hold
+      # connected-channel OAuth tokens in plaintext), paired devices, installed
+      # plugins and the agent workspace (default /home/node/.openclaw/workspace
+      # lives inside this directory, so a single claim covers config +
+      # workspace). This is the credential-bearing volume.
       config:
         minSizeGiB: 10
         mountPath: /home/node/.openclaw
-      # Master encryption key for OAuth-backed auth profiles. Kept as its own claim
-      # because OpenClaw intentionally places this key outside the config directory,
-      # so connected-channel tokens survive restarts and stay decryptable.
+      # The key that recovers legacy encrypted OAuth sidecars written by
+      # releases before 2026.9. Upstream keeps it outside the config directory
+      # and still mounts it (docker-compose.yml), so a volume carried over from
+      # 2026.7.1 can still decrypt what it holds.
       auth-secrets:
         minSizeGiB: 1
         mountPath: /home/node/.config/openclaw
   contract:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
-      # input, including the constant below. It carries a default, so no
-      # blueprint has to wire it and the install form gains no field.
-      #
-      # The image's own default bind is loopback (Dockerfile:344, v2026.7.1).
-      # The gateway is routable only because the boot command sets
-      # `gateway.bind=lan`. OPENCLAW_GATEWAY_BIND is not set here because it is
-      # a compose-file variable that the gateway runtime does not read. A
-      # loopback bind would make targetPort 18789 unreachable, since the
-      # platform edge is a separate hop, not a proxy sharing this container's
-      # network namespace.
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
       #
       # No mDNS advertising inside a container network (also auto-disabled when
       # the runtime detects a container; kept explicit for intent).
@@ -188,15 +237,64 @@ spec:
         description: >-
           Whether mDNS advertising is off, as the literal string the gateway
           runtime parses.
-      gatewayToken:
+      # State and config paths, pinned the way upstream compose pins them, so
+      # they cannot drift from the volume mounts above if a default moves.
+      stateDir:
+        schema:
+          type: string
+        default: /home/node/.openclaw
+        target:
+          envVarKey: OPENCLAW_STATE_DIR
+        description: Directory OpenClaw keeps its state in, the `config` volume's mount path.
+      configPath:
+        schema:
+          type: string
+        default: /home/node/.openclaw/openclaw.json
+        target:
+          envVarKey: OPENCLAW_CONFIG_PATH
+        description: Path of the gateway's config file, on the `config` volume.
+      # Local-only credential. In trusted-proxy mode nothing coming through the
+      # edge can present it: a password is honoured only for loopback-direct
+      # clients carrying no forwarding headers. It exists for the in-container
+      # CLI (`openclaw status`, `openclaw devices list`), which upstream
+      # directs to OPENCLAW_GATEWAY_PASSWORD rather than identity headers
+      # (docs/gateway/trusted-proxy-auth.md).
+      gatewayPassword:
         schema:
           type: string
         sensitive: true
         required: true
         target:
-          envVarKey: OPENCLAW_GATEWAY_TOKEN
+          envVarKey: OPENCLAW_GATEWAY_PASSWORD
         description: >-
-          Master token authenticating the Control UI, WebSocket streams, and HTTP API.
+          Local credential for OpenClaw's CLI inside the container. Browsers
+          are admitted by the platform edge's sign-in instead.
+      # The two inputs below are the platform's half of trusted-proxy auth.
+      # The blueprint binds them from this node's own `identityHeader` and
+      # `trustedProxies` outputs. They carry no default: a literal here would
+      # let the item run where the platform forwards no identity. Upstream
+      # reads no env var for either, so the boot command writes them into
+      # gateway.auth.trustedProxy.userHeader and gateway.trustedProxies.
+      identityHeader:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: OPENCLAW_IDENTITY_HEADER
+        description: >-
+          Request header in which the platform passes the signed-in viewer's
+          identity.
+      trustedProxies:
+        schema:
+          type: array
+          items:
+            type: string
+        required: true
+        target:
+          envVarKey: OPENCLAW_TRUSTED_PROXIES
+        description: >-
+          CIDRs the platform's forwarded traffic arrives from. The identity
+          header is trusted only on connections from these addresses.
       publicOrigin:
         schema:
           type: string
@@ -248,6 +346,31 @@ spec:
           envVarKey: LLM_MODEL
         description: Model the agent uses by default.
     outputs:
+      # Platform facts of the `primary` allocation (component §5.2, COMP-EP-012).
+      # Reading them here means any blueprint deploying this component must
+      # forward viewer identity on `primary`, or it fails
+      # ERR_VIEWER_IDENTITY_NOT_FORWARDED. So the item cannot run where the
+      # header could be forged.
+      identityHeader:
+        schema:
+          type: string
+        description: >-
+          Header the platform carries the signed-in viewer's identity in,
+          bound back into this node's `identityHeader` input.
+        from:
+          endpoint: primary
+          property: viewerIdentityHeader
+      trustedProxies:
+        schema:
+          type: array
+          items:
+            type: string
+        description: >-
+          CIDRs the platform's forwarded traffic reaches this container from,
+          bound back into this node's `trustedProxies` input.
+        from:
+          endpoint: primary
+          property: trustedProxyCIDRs
       publicURL:
         schema:
           type: string

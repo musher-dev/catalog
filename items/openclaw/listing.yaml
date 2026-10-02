@@ -35,34 +35,38 @@ spec:
     the Control UI reverts to the connection's model on restart.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.7.1`
+    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.9.7`
     with the Control UI on port 18789 behind the platform's HTTPS edge.
-    Access is gated by an auto-generated gateway token — copy it from the
-    deployment's Configuration tab and enter it on your first visit. The
-    agent is already on the language model you chose. The deployment's public
-    origin is written into the gateway's browser-origin allowlist
-    automatically. Two persistent
-    volumes (10 GiB
-    at `/home/node/.openclaw`, 1 GiB at `/home/node/.config/openclaw`)
-    keep configuration, session history, and the OAuth-token encryption
-    key across restarts.
+    Open the deployment's URL and you land in the Control UI, already
+    connected. There is no token to copy. The agent is already on the
+    language model you chose. The deployment's public origin is written into
+    the gateway's browser-origin allowlist automatically. Two persistent
+    volumes (10 GiB at `/home/node/.openclaw`, 1 GiB at
+    `/home/node/.config/openclaw`) keep configuration, session history,
+    paired browsers and connected-channel credentials across restarts. The
+    smaller one holds only the key for credentials written by older
+    releases.
 
     ## Access and security
-    Every connection must present the gateway token, so the Control UI is
-    never open to an unauthenticated visitor. Any browser holding the token
-    can connect — there is no per-device approval step to complete first.
+    Signing in to Musher is what gets you in. The platform admits only people
+    its access policy allows for this deployment. It tells OpenClaw who you
+    are, and OpenClaw trusts that only on connections arriving through the
+    platform, so the Control UI is never open to an unauthenticated visitor.
 
-    That differs from a default OpenClaw install, which also requires each
-    new browser to be approved once by running `openclaw devices approve` on
-    the Gateway host. A one-click deployment gives you no host shell to run
-    that from, so this item turns the device check off and leaves the token
-    as the single gate.
+    A default OpenClaw install asks you to approve each new browser once by
+    running `openclaw devices approve` on the Gateway host. Here the signed-in
+    identity is the approval, so a new browser is paired automatically the
+    first time you open the URL. Each browser is still its own paired device,
+    and you can review or revoke devices from the Control UI.
 
-    The practical consequence is that the gateway token is the only thing
-    guarding an admin surface that can run tools and shell commands. There is
-    no second factor and no per-device revocation, so treat the token as a
-    secret, don't paste it into shared channels, and rotate it from the
-    Configuration tab if it leaks.
+    Everyone the platform admits gets full admin over an agent that can run
+    tools and shell commands. `openclaw security audit` flags that as
+    critical, and here it is intended. Limit who can open the deployment
+    accordingly. A browser stays paired after its user loses access, so
+    revoke devices you no longer trust from the Control UI.
+
+    The Installation tab also shows a generated gateway password. Browsers
+    never need it. It is for the OpenClaw CLI inside the container.
 
     Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
     the interactive CLI and is not available in this deployment yet.
