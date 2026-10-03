@@ -1,0 +1,40 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: zeroclaw
+  revision: 1
+  description: ZeroClaw agent daemon and web dashboard behind the platform's sign-in, with ZeroClaw's own device pairing on top and its model chosen in the dashboard's Quickstart.
+spec:
+  components:
+    # One node. There is no `llm` node: ZeroClaw v0.8.5 can only take a
+    # provider from config.toml or from lowercase ZEROCLAW_* env overrides,
+    # and a component input cannot carry a lowercase env key. The model is set
+    # in the dashboard's Quickstart instead (components/zeroclaw.yaml, the
+    # block above `command`).
+    web:
+      componentRef: ./components/zeroclaw.yaml
+      # A single Rust binary. Upstream reserves 32 MiB and caps it at 512 MiB
+      # (docker-compose.yml `deploy.resources`), and the agent's shell tool
+      # has no shell to spawn in this image, so no build tools or CLIs run
+      # beside it.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # Signed in, without identity forwarding (blueprint §4.5). The platform
+      # authenticates every request and WebSocket upgrade before forwarding
+      # it. ZeroClaw has no trusted-header login, so `viewerIdentity` would
+      # publish a header nothing reads. ZeroClaw's own pairing still applies
+      # behind the edge: each browser pairs once and holds a revocable bearer
+      # token. No `accessExemptions`: the component declares none, so
+      # webhook-driven channels cannot reach the gateway, and the listing says
+      # so.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+  # No parameters. Both inputs are constants with defaults, nothing here is
+  # secret, and ZeroClaw generates its own pairing code and secrets key on
+  # first boot.
+  parameters: {}
