@@ -1,0 +1,365 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: Hermes Agent's messaging gateway and web dashboard in one container, signing viewers in through the platform's OpenID Connect provider, with all agent state on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v2026.9.24 is the latest release (2026-09-24). Docker Hub
+      # tags carry the `v` prefix and are multi-arch (amd64, arm64). The
+      # `-desktop` variants add an Xfce desktop (built with
+      # HERMES_BOT_DESKTOP=1) that this item does not need, and `latest` /
+      # `main` move.
+      #
+      # When bumping, re-read docker/s6-rc.d/dashboard/run,
+      # docker/main-wrapper.sh and docker/stage2-hook.sh (process model and
+      # API_SERVER_KEY handling), plugins/dashboard_auth/self_hosted/ (the OIDC
+      # sign-in below) and hermes_cli/runtime_provider_custom.py (the model
+      # route the boot command writes).
+      image: nousresearch/hermes-agent:v2026.9.24
+    # PROCESS MODEL. One container runs both the messaging gateway and the
+    # dashboard, which is the layout upstream documents for its image
+    # (website/docs/user-guide/docker.md, "Running the dashboard": `-e
+    # HERMES_DASHBOARD=1 ... gateway run`). Upstream's docker-compose.yml splits
+    # them into two containers that share ~/.hermes with `network_mode: host`;
+    # here volumes are per node and there is no shared host network, so they
+    # have to share one container.
+    #
+    # The image ENTRYPOINT (docker/entrypoint-dispatch.sh) execs s6-overlay's
+    # /init when it is PID 1. /init runs the cont-init hooks (UID remap,
+    # volume chown, first-boot seeding of config.yaml and .env), starts the
+    # s6-rc services, then runs this `command` as the main program through
+    # docker/main-wrapper.sh, which drops to the `hermes` user. The dashboard
+    # is one of those s6 services (docker/s6-rc.d/dashboard/run): it runs only
+    # when HERMES_DASHBOARD is truthy, binds HERMES_DASHBOARD_HOST (default
+    # 0.0.0.0) on HERMES_DASHBOARD_PORT (default 9119), and s6 restarts it if
+    # it exits.
+    #
+    # `command` replaces the image's empty CMD and keeps its ENTRYPOINT. The
+    # main program is the Python below. It converges config.yaml, then execs
+    # `hermes gateway run`. Inside the s6 image that call hands the gateway to
+    # an s6 longrun slot (`gateway-default`) and turns this process into a
+    # `sleep infinity` heartbeat (`_maybe_redirect_run_to_s6_supervision`,
+    # hermes_cli/gateway.py). s6 restarts a crashed gateway without restarting
+    # the container. The dashboard's gateway controls run `hermes gateway
+    # restart` and the like, which inside the container are routed to s6-svc
+    # on that same slot (docker.md, "Per-profile gateway supervision").
+    #
+    # Python and not `sh -c`: the main wrapper runs an executable it finds on
+    # PATH as it is, and the venv's `python` is on PATH. Python also writes the
+    # file through Hermes's own config writer, so no shell quoting is involved.
+    #
+    # THE LANGUAGE MODEL. It arrives as the `llm` connection declared at the
+    # foot of this file, in three env vars this item names (LLM_BASE_URL,
+    # LLM_API_KEY, LLM_MODEL). Hermes reads no env var for a custom endpoint's
+    # address or its model: config.yaml is the single source of truth, and
+    # OPENAI_BASE_URL applies only to the `openai-api` provider
+    # (website/docs/integrations/providers.md, "Legacy env vars"). So the
+    # script writes the documented custom-provider shape on every boot:
+    #
+    #   - providers.llm, a keyed custom provider (configuring-models.md): `api`
+    #     is the base URL, `api_mode: chat_completions` pins the OpenAI wire,
+    #     and `key_env: LLM_API_KEY` names the env var holding the credential.
+    #     `_match_new_style_provider` (hermes_cli/runtime_provider_custom.py)
+    #     reads the key from that env var at request time, so the credential
+    #     never lands in config.yaml on the volume.
+    #   - model.provider `custom:llm`, the stable identity Hermes gives a
+    #     keyed provider (`custom_provider_slug`, hermes_cli/providers.py). A
+    #     `custom:` name is never shadowed by a built-in provider
+    #     (`_shadowed_by_builtin`).
+    #   - model.base_url, model.api_mode and model.key_env, set to the same
+    #     values. A route that resolves through `model.base_url` instead (the
+    #     bare-custom path, `_resolve_direct_alias_runtime`) then reaches the
+    #     same endpoint with the same key. The seeded config.yaml points
+    #     model.base_url at OpenRouter, so this must be overwritten, not
+    #     left behind.
+    #   - model.default, the model id, as a string. `hermes config set` is not
+    #     used because it coerces values that look like numbers or booleans.
+    #   - model.api_key and providers.llm.api_key are removed if present, so a
+    #     literal key left by an edit cannot shadow the connection's.
+    #
+    # LLM_API_KEY is not on Hermes's provider-credential scrub list
+    # (tools/environments/local_env_policy.py), so commands the agent runs
+    # through its terminal tool inherit it. A listed name such as
+    # OPENAI_API_KEY would be scrubbed there, but Hermes would also read it as
+    # the credential of its built-in OpenAI provider.
+    # The scrub is defence in depth only: those commands run as the same user
+    # as the gateway and can read its environment and the volume. The
+    # dashboard's Chat tab starts `hermes --tui` with secrets kept
+    # (`build_subprocess_env(scrub_secrets=False)`,
+    # hermes_cli/web_server_chat.py), so it resolves `key_env` either way.
+    #
+    # TERMINAL BACKEND. The default is `local`: the agent's commands run
+    # inside this container. The script switches `docker` or `singularity`
+    # back to `local`, because this container has no container runtime to
+    # reach. Other remote backends (ssh, modal, daytona and so on) are left
+    # as the operator set them.
+    #
+    # Run on every boot, not behind a first-boot guard, so the connection is
+    # authoritative: a replaced connection takes effect on the next restart,
+    # and a different model picked in the dashboard reverts to the
+    # connection's model then. The listing says so. Hermes re-reads config.yaml
+    # on every turn (load_config is cached on the file's mtime), so a gateway
+    # that s6 restarted before this script finished picks up the new route on
+    # its next turn.
+    #
+    # `atomic_config_write` (hermes_cli/config.py) is the only config.yaml
+    # writer upstream allows. It keeps comments, deletes keys absent from the
+    # new state, and refuses to replace a config.yaml it cannot parse. A
+    # corrupt config then fails the boot visibly instead of being reset.
+    command:
+      - python
+      - -c
+      - |
+        import os
+        from hermes_cli.config import (
+            atomic_config_write, get_config_path, require_readable_config_before_write)
+
+        base_url = os.environ["LLM_BASE_URL"].strip().rstrip("/")
+        model_id = os.environ["LLM_MODEL"].strip()
+        path = get_config_path()
+        cfg = require_readable_config_before_write(path)
+
+        model = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
+        model.pop("api_key", None)
+        model.pop("model", None)
+        model.update({"provider": "custom:llm", "default": model_id, "base_url": base_url,
+                      "api_mode": "chat_completions", "key_env": "LLM_API_KEY"})
+        cfg["model"] = model
+
+        providers = cfg.get("providers") if isinstance(cfg.get("providers"), dict) else {}
+        providers["llm"] = {"api": base_url, "api_mode": "chat_completions",
+                            "key_env": "LLM_API_KEY", "default_model": model_id}
+        cfg["providers"] = providers
+
+        terminal = cfg.get("terminal")
+        if isinstance(terminal, dict) and terminal.get("backend") in ("docker", "singularity"):
+            terminal["backend"] = "local"
+
+        atomic_config_write(path, cfg)
+        os.execvp("hermes", ["hermes", "gateway", "run"])
+    endpoints:
+      # The web dashboard: chat (the full TUI in the browser), sessions,
+      # config, API keys, messaging channels, cron, skills and the gateway's
+      # start/stop controls.
+      primary:
+        targetPort: 9119
+        protocol: HTTP
+        # Hermes signs viewers in itself, as an OpenID Connect client of the
+        # platform (component §5.2). On a non-loopback bind the dashboard
+        # refuses to start without a sign-in provider, and
+        # HERMES_DASHBOARD_INSECURE no longer bypasses that
+        # (`should_require_auth` and `_configure_auth_gate`,
+        # hermes_cli/web_server.py). The bundled `self-hosted` provider
+        # (plugins/dashboard_auth/self_hosted/) is a generic OIDC relying
+        # party: authorization code with PKCE (S256), plus the client secret
+        # when one is set, and the ID token is verified against the issuer's
+        # JWKS with `iss` and `aud` pinned. Its callback is
+        # `<HERMES_DASHBOARD_PUBLIC_URL>/auth/callback` (`_redirect_uri`,
+        # hermes_cli/dashboard_auth/routes.py).
+        #
+        # Hermes has no trusted-proxy header mode, so viewerIdentity HEADER is
+        # not an option.
+        oidc:
+          redirectPaths:
+            - /auth/callback
+      # NOT EXPOSED: the gateway's OpenAI-compatible API server (:8642). It
+      # authenticates every route with a bearer key (`_check_auth`,
+      # gateway/platforms/api_server.py), so it could take a BEARER exemption.
+      # But a component has one readiness probe, and every PUBLIC HTTP
+      # endpoint needs one that polls it (ERR_READINESS_REQUIRED), so only
+      # the dashboard can be public. The API server is left as the image
+      # configures it: on 127.0.0.1, with a key the cont-init hook generates
+      # into /opt/data/.env (docker/stage2-hook.sh), serving only the
+      # dashboard's in-container calls such as cron forwarding.
+    health:
+      readiness:
+        # /api/health is the dashboard's liveness route. It answers
+        # `{ok, version, auth_required}` and sits on the auth gate's public
+        # list, so a probe without a session gets 200 rather than a redirect
+        # (hermes_cli/web_routers/status.py,
+        # hermes_cli/dashboard_auth/public_paths.py). The dashboard binds
+        # 0.0.0.0, so the Host-header check accepts the probe's Host. It
+        # answers once s6 has run the cont-init hooks and the dashboard has
+        # registered its sign-in provider.
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 20
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 18
+      liveness:
+        http:
+          endpoint: primary
+          path: /api/health
+        # A first boot chowns and seeds the volume before the dashboard
+        # starts.
+        initialDelaySeconds: 120
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+    volumes:
+      # HERMES_HOME: config.yaml, .env (the API keys and messaging-channel
+      # tokens the dashboard saves), auth.json, the session database,
+      # memories, skills, cron jobs, logs, the agent's workspace, and
+      # lazily installed optional packages (HERMES_LAZY_INSTALL_TARGET,
+      # /opt/data/lazy-packages). /opt/hermes, the application tree, is
+      # read-only and not persisted (docker.md).
+      data:
+        minSizeGiB: 10
+        mountPath: /opt/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # The image already sets HERMES_HOME to the same path. Restating it ties
+      # it to the volume mount above.
+      hermesHome:
+        schema:
+          type: string
+        default: /opt/data
+        target:
+          envVarKey: HERMES_HOME
+        description: Directory Hermes keeps its state in, the `data` volume's mount path.
+      dashboardEnabled:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVarKey: HERMES_DASHBOARD
+        description: >-
+          Whether the image's supervised dashboard service runs, as the literal
+          string its run script parses.
+      dashboardHost:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVarKey: HERMES_DASHBOARD_HOST
+        description: Address the dashboard listens on inside the container.
+      dashboardPort:
+        schema:
+          type: string
+        default: '9119'
+        target:
+          envVarKey: HERMES_DASHBOARD_PORT
+        description: Port the dashboard listens on, the `primary` endpoint's target port.
+      # The dashboard's own public origin. It makes the OIDC callback exactly
+      # `<publicURL>/auth/callback`, the URI the platform registers for
+      # `primary`, instead of one rebuilt from forwarded headers. Hermes also
+      # accepts its hostname as an exact Host and WebSocket Origin
+      # (`_dashboard_public_hosts`, hermes_cli/web_server.py).
+      dashboardPublicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: HERMES_DASHBOARD_PUBLIC_URL
+        description: >-
+          Public https URL of this deployment's dashboard, which Hermes builds
+          its sign-in callback from.
+      # The three inputs below are the platform's OIDC client registration for
+      # `primary`. The blueprint binds them from this node's own outputs. They
+      # carry no default: a literal here would let the item run where the
+      # platform registered no client. Setting the issuer and client id is
+      # what registers the `self-hosted` provider; with it as the only
+      # provider, a visit with no session goes straight to the platform's
+      # sign-in (`_auto_sso_response`, hermes_cli/dashboard_auth/middleware.py).
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: HERMES_DASHBOARD_OIDC_ISSUER
+        description: >-
+          Issuer URL of the platform's OpenID Connect provider. Hermes fetches
+          its discovery document from this URL.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: HERMES_DASHBOARD_OIDC_CLIENT_ID
+        description: Client identifier the platform registered for the dashboard endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: HERMES_DASHBOARD_OIDC_CLIENT_SECRET
+        description: Client secret the platform registered for the dashboard endpoint.
+      # The three inputs below carry one language-model connection. They are not
+      # supplied independently: the blueprint wires all three to the outputs of
+      # the `llm` node, which takes the connection whole (components/llm.yaml).
+      # The env var names belong to this item. The boot command writes them
+      # into Hermes's documented custom-provider config (see the block above
+      # `command`).
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVarKey: LLM_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API the agent sends
+          model requests to, ending in the version segment (for example /v1).
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVarKey: LLM_API_KEY
+        description: Bearer credential for the API above.
+      llmModel:
+        schema:
+          type: string
+        target:
+          envVarKey: LLM_MODEL
+        description: Model the agent uses by default.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https URL the dashboard answers at, as the platform allocated
+          it. The blueprint binds it back into this node's dashboardPublicURL
+          input.
+        from:
+          endpoint: primary
+          property: publicURL
+      # The client the platform registers for `primary` (component §5.2,
+      # COMP-EP-012/014). Reading these means any blueprint deploying this
+      # component must select viewerIdentity OIDC there. The blueprint binds
+      # each output back into the input of the same name.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+        from:
+          endpoint: primary
+          property: oidcIssuerURL
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for the dashboard endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for the dashboard endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret

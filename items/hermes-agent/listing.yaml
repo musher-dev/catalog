@@ -1,0 +1,88 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: hermes-agent
+spec:
+  itemType: BLUEPRINT
+  displayName: Hermes Agent
+  summary: Nous Research's self-improving AI agent, with a web dashboard and messaging gateway, running on your organization's language model
+  description: |
+    ## What it is
+    Hermes Agent, from Nous Research, is an open-source agent that keeps
+    memory across sessions and writes its own reusable skills as it works.
+    It has a terminal-style chat, scheduled jobs and tool use. A long-running
+    gateway connects it to messaging apps such as Telegram, Discord and Slack.
+    This deployment runs the gateway together with Hermes's web dashboard,
+    where you chat with the agent and manage its configuration, keys,
+    sessions, skills and channels.
+
+    ## When to use
+    - You want a persistent agent on infrastructure you control, reachable
+      from a browser and from the messaging apps you already use.
+    - You want an agent that runs scheduled jobs and keeps learning between
+      conversations, not a chat tab that forgets.
+    - You want to set the agent up, chat with it and watch what it does from
+      a browser, without a terminal on the host.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model name travel
+    together as a single connection. Anything speaking the OpenAI
+    chat-completions protocol with streaming and tool calls will do,
+    including an engine you run yourself.
+
+    The connection is written into Hermes's configuration each time it
+    starts, so a replaced connection takes effect on the next restart. For
+    the same reason, a different main model picked in the dashboard reverts
+    to the connection's model on restart. The credential itself is read from
+    the deployment's environment and is never saved to the data volume.
+
+    ## Defaults
+    A single container runs `nousresearch/hermes-agent:v2026.9.24` with the
+    dashboard on port 9119, behind the platform's HTTPS edge and sign-in. The
+    messaging gateway runs beside it, supervised so that a crash restarts the
+    gateway, not the container. No messaging channel is connected at first.
+    Add Telegram, Discord, Slack or another channel on the dashboard's
+    **Channels** page and restart the gateway from there.
+
+    Hermes's OpenAI-compatible API server is not exposed. It stays on the
+    container's loopback interface, where the dashboard uses it, and other
+    apps cannot call it.
+
+    A 10 GiB volume at `/opt/data` keeps configuration, saved keys and
+    channel tokens, sessions, memories, skills, cron jobs and logs across
+    restarts. The agent's shell commands run inside this container.
+
+    ## Access and security
+    Signing in to Musher is what gets you in. The platform admits only people
+    its access policy allows for this deployment. Hermes then signs you in
+    through the platform as well, which normally happens without a prompt.
+    When a dashboard session expires, Hermes may show its own sign-in page
+    with a single button.
+
+    Everyone the platform admits has full control of the agent. That includes
+    the keys and channel tokens saved in the dashboard, and an agent that can
+    run shell commands in the container and reach the network. Limit who can
+    open the deployment accordingly. Upstream recommends never exposing this
+    dashboard without authentication. Here it is never reachable without
+    signing in.
+
+    Channels that connect outward, such as Telegram, Discord and Slack, need
+    no extra exposure. Channels that wait for inbound webhooks, such as
+    Microsoft Teams or Hermes's generic webhook endpoint, cannot be reached,
+    because only the dashboard is exposed. Each connected channel lets the
+    people it allows talk to the agent. Use the channel's allowlist or the
+    dashboard's **Pairing** page to control who that is.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - agents
+    - assistant
+    - automation
+    - messaging
+  homepageURL: https://hermes-agent.nousresearch.com
+  sourceRepoURL: https://github.com/NousResearch/hermes-agent
+  supportURL: https://hermes-agent.nousresearch.com/docs/
+  license: MIT
+  icon: media/icon.png

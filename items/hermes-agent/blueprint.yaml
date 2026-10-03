@@ -1,0 +1,84 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: hermes-agent
+  revision: 1
+  description: Hermes Agent gateway and web dashboard on the installer's language-model connection, with the dashboard signed in through the platform's OpenID Connect provider.
+spec:
+  components:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the three
+      # members of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    web:
+      componentRef: ./components/hermes-agent.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # Signed in, never path-exempt: the dashboard stores API keys and
+      # messaging tokens and can start agent turns that run shell commands.
+      # The platform admits only viewers its access policy allows, and Hermes
+      # then signs the same viewer in as an OpenID Connect client of the
+      # platform (BP-ACCESS-008). The platform issues a code only to an
+      # authorized viewer, and it already holds the viewer's session, so this
+      # adds a redirect rather than a second password. The email and name are
+      # released so the dashboard can show who is signed in.
+      #
+      # The gateway's OpenAI-compatible API server is not exposed: a component
+      # can have only one public HTTP endpoint, the one its readiness probe
+      # polls (components/hermes-agent.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+      bindings:
+        # This node's own allocated address and OIDC client, from the outputs
+        # the component derives from its `primary` endpoint. A node reading its
+        # own endpoint outputs is a discovery dependency and not a value cycle
+        # (BP-CONN-002): the address and the client registration exist before
+        # anything runs.
+        dashboardPublicURL:
+          node: web
+          output: publicURL
+        oidcIssuerURL:
+          node: web
+          output: oidcIssuerURL
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        # The three members of the one connection the `llm` node holds. Wiring
+        # them from one node is what keeps them consistent: an address from one
+        # provider beside a key from another would have to be written here, in
+        # the open, rather than assembled silently.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+  parameters:
+    # The language model the agent runs on: endpoint, credential and model
+    # acquired together as one connection, defaulting to the organization's. A
+    # connection parameter binds only to a connection input, and the `llm`
+    # node's is the only one here (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
