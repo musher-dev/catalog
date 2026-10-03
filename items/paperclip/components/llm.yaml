@@ -1,0 +1,65 @@
+# The language model Paperclip's Claude Code agents run on, as a node this
+# platform does not run (component spec §5.6). Modelled on the `llm-endpoint`
+# item's building block: a repo-local componentRef cannot leave its item
+# directory, so a blueprint that needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
+# node declares three ordinary string inputs and the blueprint wires them to the
+# three outputs below, so the endpoint, the credential and the model always come
+# from one acquired connection rather than three independently supplied values.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The Anthropic Messages API Paperclip's Claude Code agents send model requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection Paperclip's Claude Code agents run on:
+          endpoint, credential and model, acquired together.
+        connection:
+          # ANTHROPIC_MESSAGES, unlike openclaw's OPENAI_CHAT_COMPLETIONS: the
+          # agent runtime this feeds is the Claude Code CLI bundled in the image
+          # (adapter `claude_local`), which speaks only the Messages API, reading
+          # ANTHROPIC_BASE_URL and ANTHROPIC_API_KEY. It streams every turn and
+          # is an agent loop built on tool use, so both capabilities are
+          # unconditional.
+          #
+          # This is declared on the supplying node rather than on `web`: after
+          # ADR 0033 a workload sees three strings and cannot demand a protocol.
+          protocol: ANTHROPIC_MESSAGES
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the Anthropic Messages API, from the connection this node
+          was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the agents use by default, from the same connection.
+        from:
+          input: llm
+          member: model
