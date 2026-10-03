@@ -1,0 +1,88 @@
+# The language model the OpenHands agent runs on, as a node this platform does
+# not run (component spec §5.6). A copy of the `llm-endpoint` item's building
+# block: a repo-local componentRef cannot leave its item directory, so a
+# blueprint that needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The
+# `seed-llm` node declares three ordinary string inputs and the blueprint wires
+# them to the three outputs below, so the endpoint, the credential and the model
+# always come from one acquired connection rather than three independently
+# supplied values. That job writes them into Agent Canvas as an LLM profile
+# (components/seed-llm.yaml); the `web` node itself reads no model env var.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The language-model API the OpenHands agent in Agent Canvas sends model requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection the agent runs on: endpoint, credential and
+          model, acquired together.
+        connection:
+          # Streaming and tool calls, both unconditionally. Read from source at
+          # the pinned tags, not observed against a mock server:
+          #
+          #   - The Canvas frontend starts conversations, and switches their
+          #     model, with `stream: true` on the LLM it sends
+          #     (src/api/conversation-service/agent-server-conversation-service.api.ts,
+          #     OpenHands v1.24.0).
+          #   - The SDK's LLM defaults to `native_tool_calling: true`, and the
+          #     OpenHands agent acts only through tools (terminal, file editor,
+          #     task tracker) (openhands-sdk/openhands/sdk/llm/llm.py,
+          #     software-agent-sdk v1.49.6, the agent-server the image is built
+          #     on).
+          #
+          # The seed job writes the profile with `api_mode: chat`, so requests
+          # go to {baseURL}/chat/completions through LiteLLM's `openai/`
+          # provider, even for a model name the SDK's feature registry would
+          # otherwise send to the Responses API (`uses_responses_api`, same
+          # file).
+          #
+          # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES. LiteLLM's
+          # `openai/` provider with a custom base URL is the generic route for
+          # any OpenAI-compatible endpoint, so one profile shape covers every
+          # compatible default or replacement connection.
+          #
+          # Agent Canvas can also drive Claude Code, Codex and other ACP agents.
+          # Those bring their own credentials and do not use this connection.
+          #
+          # This is declared on the supplying node rather than on a workload:
+          # after ADR 0033 a workload sees three strings and cannot demand a
+          # protocol.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, from the
+          connection this node was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the agent uses by default, from the same connection.
+        from:
+          input: llm
+          member: model

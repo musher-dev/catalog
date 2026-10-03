@@ -1,0 +1,248 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: OpenHands Agent Canvas all-in-one image (agent server, automation backend, web UI and bundled editor) behind one port, with state and project volumes.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.24.0 is the latest release (2026-09-25). The standalone
+      # OpenHands/agent-canvas repository is archived. Agent Canvas now lives at
+      # the root of OpenHands/OpenHands, which builds this image from
+      # docker/Dockerfile and pushes it on every `v*` tag
+      # (.github/workflows/docker.yml). Release v1.24.0 is commit 7dc6805, and
+      # ghcr's `1.24.0` tag carries `sha-7dc6805`. The tag has no `v` prefix.
+      #
+      # The image is built FROM ghcr.io/openhands/agent-server:1.49.6-python
+      # (config/defaults.json `versions.agentServer`). Citations below to
+      # openhands-agent-server/... are to OpenHands/software-agent-sdk at
+      # v1.49.6.
+      #
+      # When bumping, re-read docker/entrypoint.sh (env vars, the session-key
+      # injection, telemetry defaults), scripts/static-server.mjs and the
+      # profiles router the seed job calls (components/seed-llm.yaml).
+      image: ghcr.io/openhands/agent-canvas:1.24.0
+    # No `command`. The image's ENTRYPOINT is
+    # `tini -- /opt/agent-canvas/entrypoint.sh`, with no CMD, and the script
+    # never reads its arguments. Anything here would be ignored, so no boot
+    # script can run before the services start. Everything is configured
+    # through env vars, and the language model through the seed job instead.
+    #
+    # The entrypoint (docker/Dockerfile, docker/entrypoint.sh, v1.24.0) starts:
+    #   - the agent server on 127.0.0.1:18000
+    #   - the automation backend on :18001
+    #   - openvscode-server on :8001
+    #   - scripts/static-server.mjs on `--host ::` port $PORT. This is the one
+    #     ingress. It serves the UI under /canvas, sends `/` to it, and routes
+    #     /api, /sockets, /alive, /health, /ready, /server_info, /docs and
+    #     /vscode to the backends.
+    #
+    # BIND. The ingress already listens on every interface (`--host ::`,
+    # dual-stack) in the image. Nothing needs to change for the platform to
+    # reach it. OH_BIND_HOST, `--public` and AGENT_CANVAS_ALLOW_LAN_SESSION_KEY
+    # do not exist at v1.24.0. They belong to the npm launcher
+    # (`npx @openhands/agent-canvas`), not to this image.
+    #
+    # BROWSER AUTH. Every /api route needs the `X-Session-API-Key` header
+    # (check_session_api_key, openhands-agent-server/.../dependencies.py), and
+    # the automation backend takes the same key. The image's ingress always
+    # passes `--session-api-key`. So static-server.mjs writes the key into the
+    # served index.html (makeConfigInjectionScript), and the browser uses it
+    # without asking. Nobody pastes a key. The npm launcher's `--public` mode,
+    # which shows a key-entry screen instead, has no switch in this image. Its
+    # only counterpart is the PUBLIC_MODE_PORT test listener, which omits the
+    # /vscode route, so it is not used.
+    #
+    # So whoever can load /canvas holds the key. The real gate is the
+    # platform's sign-in: the blueprint exposes `primary` with
+    # `access: AUTHENTICATED`, and nothing else reaches this container.
+    # Upstream has no trusted-header auth, so no viewer identity is forwarded.
+    #
+    # The key is a generated blueprint parameter rather than the entrypoint's
+    # own `api-key.txt`. The seed job needs the same value to call the API,
+    # and it is not on the data volume.
+    endpoints:
+      primary:
+        targetPort: 8000
+        protocol: HTTP
+    health:
+      readiness:
+        # /ready is the agent server's readiness route, mounted outside /api
+        # with no auth (server_details_router, openhands-agent-server/.../api.py
+        # `_add_api_routes`). It returns 503 until VS Code and tool preload have
+        # finished (`mark_initialization_complete`). It is probed through the
+        # ingress on :8000, which the entrypoint starts only after both
+        # backends have bound their ports, so a 200 means the UI is up too.
+        http:
+          endpoint: primary
+          path: /ready
+        # Three Python and Node services plus openvscode-server start before
+        # the gate opens.
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 30
+      liveness:
+        # /alive is the agent server's process check (same router). The
+        # entrypoint keeps the container running when the agent server dies
+        # and the ingress returns 502 instead. This probe is what restarts it.
+        http:
+          endpoint: primary
+          path: /alive
+        initialDelaySeconds: 180
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+    volumes:
+      # Settings, LLM and agent profiles, encrypted secrets, conversations,
+      # bash event history, the automation SQLite DB, automation storage and
+      # run workspaces. All live under ~/.openhands (docker/entrypoint.sh
+      # OPENHANDS_DIR). This is the credential-bearing volume. The image
+      # pre-creates it owned by `openhands`, so this relies on the platform
+      # mounting it writable by that user.
+      state:
+        minSizeGiB: 5
+        mountPath: /home/openhands/.openhands
+      # Code the agent reads and edits. The UI offers /projects as its
+      # implicit workspace and folder-browser root
+      # (src/hooks/query/use-resolved-workspaces.ts,
+      # src/components/features/home/workspace-dropdown/folder-browser-modal.tsx).
+      projects:
+        minSizeGiB: 10
+        mountPath: /projects
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # The ingress port, pinned to the endpoint's targetPort so a changed
+      # default in config/defaults.json (`ports.proxy`) cannot move it.
+      port:
+        schema:
+          type: string
+        default: "8000"
+        target:
+          envVarKey: PORT
+        description: Port the image's ingress listens on, the `primary` endpoint's target port.
+      # Read by docker/entrypoint.sh. When set, it becomes OH_SESSION_API_KEYS_0
+      # for the agent server and the automation backend's key, and it is the
+      # key injected into the UI. The entrypoint then writes no api-key.txt.
+      sessionAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: LOCAL_BACKEND_API_KEY
+        description: >-
+          Session API key the agent server and automation backend require on
+          every API call. The UI receives it automatically, and the seed job
+          uses it to write the LLM profile.
+      # Encrypts settings, profile API keys and secrets at rest (Config.cipher,
+      # openhands-agent-server/.../config.py). Supplied rather than left to
+      # the entrypoint, which would generate one into secret-key.txt on the
+      # very volume it protects. If that write failed on an unwritable mount,
+      # the key would change on every boot and stored secrets would stop
+      # decrypting. Upstream's Helm chart takes it from a Secret the same way
+      # (helm/agent-canvas/values.yaml `secrets.ohSecretKey`).
+      secretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: OH_SECRET_KEY
+        description: >-
+          Key the agent server encrypts settings, LLM profile credentials and
+          secrets with at rest. Changing it makes stored secrets unreadable.
+      # Conversations run as processes inside this container. `docker`
+      # would start a container per conversation through the Docker socket,
+      # which is not available here. `local` is the default (Config
+      # `conversation_runtime`) and is stated for intent.
+      conversationRuntime:
+        schema:
+          type: string
+        default: local
+        target:
+          envVarKey: OH_CONVERSATION_RUNTIME
+        description: >-
+          Where the agent server runs conversations, `local` meaning as
+          processes inside this container.
+      # TELEMETRY OFF. Release images bake the production PostHog key into
+      # ENV VITE_POSTHOG_API_KEY (docker/Dockerfile,
+      # .github/workflows/docker.yml), and the entrypoint copies it to the
+      # automation backend and the agent server unless it is empty. So all
+      # five switches below are needed, one per path:
+      #
+      #   - AGENT_CANVAS_DISABLE_TELEMETRY=1: static-server.mjs injects
+      #     window.__AGENT_CANVAS_DO_NOT_TRACK__ = true, and the frontend sends
+      #     nothing (src/services/telemetry.ts).
+      #   - VITE_POSTHOG_API_KEY="" and VITE_DO_NOT_TRACK=1: the entrypoint
+      #     then exports no AUTOMATION_POSTHOG_API_KEY, and VITE_DO_NOT_TRACK=1
+      #     makes it export DO_NOT_TRACK=1.
+      #   - DO_NOT_TRACK=1: the agent server's operator kill switch, which
+      #     overrides consent and every other setting
+      #     (openhands-agent-server/.../telemetry/policy.py).
+      #   - OH_TELEMETRY_EXPORTER=none: no PostHog exporter is configured even
+      #     before the kill switch is consulted.
+      disableTelemetry:
+        schema:
+          type: string
+        default: "1"
+        target:
+          envVarKey: AGENT_CANVAS_DISABLE_TELEMETRY
+        description: Whether the web UI's product telemetry is off, as the flag static-server.mjs parses.
+      posthogAPIKey:
+        schema:
+          type: string
+        default: ""
+        target:
+          envVarKey: VITE_POSTHOG_API_KEY
+        description: >-
+          PostHog project key passed to the backends. Empty, so the key baked
+          into the release image reaches neither the automation backend nor
+          the agent server.
+      viteDoNotTrack:
+        schema:
+          type: string
+        default: "1"
+        target:
+          envVarKey: VITE_DO_NOT_TRACK
+        description: Whether the entrypoint withholds PostHog from the automation backend and sets DO_NOT_TRACK.
+      doNotTrack:
+        schema:
+          type: string
+        default: "1"
+        target:
+          envVarKey: DO_NOT_TRACK
+        description: The agent server's telemetry kill switch, on.
+      telemetryExporter:
+        schema:
+          type: string
+        default: none
+        target:
+          envVarKey: OH_TELEMETRY_EXPORTER
+        description: Telemetry exporter the agent server uses, `none` meaning nothing is delivered.
+    outputs:
+      # The seed job reaches the API here, over the platform's private network
+      # rather than through the signed-in public edge.
+      address:
+        schema:
+          type: string
+        description: >-
+          Private host:port of the ingress, which the seed job uses to reach
+          the agent server's API.
+        from:
+          endpoint: primary
+          property: privateAddress
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL the deployment answers at. The UI is under /canvas.
+        from:
+          endpoint: primary
+          property: publicURL
