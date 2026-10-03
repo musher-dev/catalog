@@ -28,7 +28,7 @@ to storefront visitors — nominative use — and remains the property of its
 respective owner. Inclusion here is not an endorsement by those projects, and
 these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 
-All 15 items carry an icon; none currently ship screenshots.
+All 16 items carry an icon; none currently ship screenshots.
 
 | Item | Source | Method | License note |
 |---|---|---|---|
