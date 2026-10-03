@@ -1,0 +1,75 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: opencode
+  revision: 1
+  description: OpenCode coding agent on the installer's language-model connection, behind the platform's sign-in and its own generated basic-auth password.
+spec:
+  components:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the three
+      # members of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    web:
+      componentRef: ./components/opencode.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        config:
+          sizeGiB: 1
+        data:
+          sizeGiB: 5
+        workspace:
+          sizeGiB: 10
+      # Signed in, then OpenCode's own basic auth (components/opencode.yaml).
+      # The platform admits only viewers its access policy allows before
+      # anything reaches the server. No exemption is declared: OpenCode's API
+      # clients authenticate with HTTP Basic rather than a bearer token, so
+      # `BEARER` would let nothing useful through, and there are no public
+      # paths worth opening.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+      bindings:
+        serverPassword:
+          parameter: serverPassword
+        # The three members of the one connection the `llm` node holds. Wiring
+        # them from one node is what keeps them consistent: an address from one
+        # provider beside a key from another would have to be written here, in
+        # the open, rather than assembled silently.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+  parameters:
+    # The language model the agent runs on: endpoint, credential and model
+    # acquired together as one connection, defaulting to the organization's. A
+    # connection parameter binds only to a connection input, and the `llm`
+    # node's is the only one here (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # OpenCode's basic-auth password: generated at deploy and shown to the
+    # installer, who types it into the browser's sign-in dialog with the user
+    # name `opencode`. BASE64URL rather than BASE64, so it has no `+` or `/`
+    # to mistype. OpenCode compares it as a plain string
+    # (packages/opencode/src/server/auth.ts). 24 bytes is 32 characters.
+    serverPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: OpenCode password (user name opencode)
+        order: 2

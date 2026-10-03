@@ -1,0 +1,206 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: ZeroClaw agent daemon with its HTTP gateway and web dashboard behind the platform edge's sign-in, keeping config, memory and paired devices on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.8.5 is the latest stable release (2026-09-05). The ghcr tag
+      # carries the `v` prefix, and v0.8.5-debian, dist-v0.8.5, minimal-v0.8.5
+      # and default-features-v0.8.5 are siblings of it.
+      #
+      # The published image is built from Dockerfile.ci, not the root
+      # Dockerfile (.github/workflows/release-stable-manual.yml, "Build and
+      # push"). It is distroless, runs as 65534:65534, has ENTRYPOINT
+      # ["zeroclaw"] and CMD ["daemon"], and carries no HEALTHCHECK. Every
+      # published variant, the -debian one included, has the same ENTRYPOINT,
+      # so no variant can run a shell boot script (see `command` below).
+      #
+      # Distroless has no /bin/sh. The agent's shell tool spawns the configured
+      # shell with `-c` (crates/zeroclaw-config/src/platform/native.rs
+      # `build_shell_command`), so shell commands fail in this image, and the
+      # git tool has no git. File, web, memory and the other built-in tools
+      # are unaffected. The listing says so. v0.8.5-debian adds bash, curl and
+      # git (Dockerfile.ci, `base-debian`) and is the image to move to if shell
+      # access is wanted. That is a deliberate widening of what the agent can
+      # do, so it is not the default.
+      #
+      # When bumping, re-read crates/zeroclaw-config/src/env_overrides.rs: if
+      # the schema-mirror override grammar ever accepts an uppercase tail, the
+      # language model can be wired from a connection (see the block above
+      # `command`).
+      image: ghcr.io/zeroclaw-labs/zeroclaw:v0.8.5
+    # Exec form, and it keeps the image ENTRYPOINT, so this runs
+    # `zeroclaw daemon --host 0.0.0.0 --port 42617`.
+    #
+    # BIND. A fresh volume gets `Config::default()` written to it on first
+    # load (crates/zeroclaw-config/src/schema.rs `load_or_init`), and the
+    # schema default for gateway.host is 127.0.0.1 (`default_gateway_host`).
+    # The platform edge is a separate network hop, so the listener has to be
+    # on the container interface. `--host` and `--port` are the daemon's own
+    # flags (src/main.rs `Commands::Daemon`). `daemon::run` writes them over
+    # config.gateway.host and .port (crates/zeroclaw-runtime/src/daemon/mod.rs),
+    # and they survive the in-process reload that Quickstart triggers.
+    #
+    # Upstream's compose file binds through env overrides instead
+    # (ZEROCLAW_gateway__host=0.0.0.0, ZEROCLAW_gateway__allow_public_bind=true).
+    # Those names cannot be used here (see below). `allow_public_bind` is an
+    # acknowledgement, not a gate. Left false, the gateway logs one startup
+    # warning and binds anyway (crates/zeroclaw-gateway/src/lib.rs, "Security:
+    # warn on public bind"). Upstream's docs say the same
+    # (docs/book/src/setup/container.md, "Compose").
+    #
+    # WHY NO ZEROCLAW_* ENV OVERRIDES. Since v0.8.0, ZeroClaw's only env
+    # configuration surface is `ZEROCLAW_<dotted_path_with___>`. The tail must
+    # be lowercase: `apply_env_overrides` keeps only tails made of
+    # `[a-z0-9_]` (crates/zeroclaw-config/src/env_overrides.rs), because
+    # uppercase tails are reserved for the bootstrap paths ZEROCLAW_CONFIG_DIR,
+    # ZEROCLAW_DATA_DIR and ZEROCLAW_WORKSPACE. A component's envVarKey must
+    # match ^[A-Z_][A-Z0-9_]*$ (component spec §5.3), so no input can carry
+    # one of these overrides. The legacy uppercase names (API_KEY, PROVIDER,
+    # ZEROCLAW_MODEL, OPENAI_API_KEY and the like) were removed in v0.8.0
+    # (docker-compose.yml comment, Dockerfile "V0.8.0 env-var grammar"), and
+    # no provider constructor reads a native env var for an OpenAI-compatible
+    # endpoint (crates/zeroclaw-providers/src). A boot script could translate
+    # uppercase inputs, but the image has no shell and `command` cannot
+    # replace the `zeroclaw` ENTRYPOINT.
+    #
+    # THE LANGUAGE MODEL is therefore not wired from a connection. There is no
+    # `llm` node. A fresh install has no agents. The dashboard sends the first
+    # visitor to /quickstart (web/src/App.tsx, "Redirects fresh installs"),
+    # which writes the provider, agent, risk profile and runtime profile into
+    # config.toml on the volume and reloads the daemon
+    # (crates/zeroclaw-gateway/src/api_quickstart.rs). Quickstart's `custom`
+    # provider takes any OpenAI-compatible base URL
+    # (docs/book/src/providers/custom.md). Until Quickstart is done, chat
+    # turns fail with `needs_quickstart` rather than reaching any model
+    # (crates/zeroclaw-gateway/src/lib.rs `needs_quickstart_for`).
+    #
+    # ACCESS: PAIRING BEHIND THE EDGE. ZeroClaw has no trusted-header login.
+    # [gateway] has `require_pairing`, bearer `paired_tokens`,
+    # `trust_forwarded_headers` (which only keys rate limits) and TLS
+    # settings, nothing that reads an identity header (GatewayConfig in
+    # crates/zeroclaw-config/src/schema.rs). The blueprint therefore exposes
+    # `primary` with `access: AUTHENTICATED` and no `viewerIdentity`, and
+    # ZeroClaw keeps its own pairing on top:
+    #
+    #   - `require_pairing` defaults to true in the schema (`GatewayConfig::
+    #     default`). Upstream's image seeds a config with
+    #     `require_pairing = false` only in the root Dockerfile. The released
+    #     image's seed (scripts/ci/prepare_docker_context.sh) omits the key,
+    #     and an empty platform volume gets the schema default either way.
+    #   - Until the first device pairs, the gateway mints a one-time code and
+    #     serves it on the unauthenticated GET /pair/code
+    #     (crates/zeroclaw-gateway/src/lib.rs `handle_pair_code`). The
+    #     dashboard fills it in, so the first signed-in visitor pairs with one
+    #     click. Behind the edge, only someone the platform signed in can get
+    #     there first.
+    #   - Pairing returns a bearer token kept in the browser. Its hash is
+    #     persisted to gateway.paired_tokens in config.toml on the volume
+    #     (`persist_pairing_tokens`), so restarts do not unpair anyone.
+    #   - Later browsers get a code from the dashboard's Pairing page in an
+    #     already-paired browser (POST /api/pairing/initiate, bearer-gated).
+    #     `zeroclaw gateway get-paircode --new` in the container does the same
+    #     over the loopback-only /admin/paircode/new.
+    #   - `trust_forwarded_headers` stays false. Pair attempts are then
+    #     rate-limited per TCP peer, which is the platform's proxy, so all
+    #     viewers share one lockout (5 failures, 5 minutes;
+    #     crates/zeroclaw-config/src/pairing.rs). Turning it on would let a
+    #     client that can forge X-Forwarded-For dodge the lockout, and nothing
+    #     here establishes that the edge strips it on this exposure.
+    #
+    # Webhook-driven channels (Discord interactions, Slack events, WhatsApp
+    # Cloud) cannot reach /webhook through a signed-in edge. Polling channels
+    # such as Telegram only need egress (docs/book/src/setup/container.md,
+    # "Channels that poll").
+    command:
+      - daemon
+      - --host
+      - 0.0.0.0
+      - --port
+      - "42617"
+    endpoints:
+      primary:
+        targetPort: 42617
+        protocol: HTTP
+    health:
+      # GET /health is unauthenticated and answers 200 with JSON
+      # `{status:"ok", paired, require_pairing, runtime}` whenever the gateway
+      # is serving (crates/zeroclaw-gateway/src/lib.rs `handle_health`). It
+      # does not depend on a model being configured, which is right: the
+      # dashboard has to be reachable to run Quickstart. Upstream's
+      # Kubernetes sample probes the same path for both probes
+      # (deploy-k8s/deployment-sample.yaml). The compose healthcheck,
+      # `zeroclaw status --format=exit-code`, is an exec probe and needs no
+      # HTTP equivalent here.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        # A Rust binary with SQLite. Upstream gives it a 10s start period
+        # (docker-compose.yml) and a 5s readiness delay (k8s sample).
+        initialDelaySeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 6
+      liveness:
+        http:
+          endpoint: primary
+          path: /health
+        # Upstream's interval, timeout and retries (docker-compose.yml), with
+        # the first check held back past the readiness window so a first boot
+        # writing a fresh config is never restarted midway.
+        initialDelaySeconds: 60
+        periodSeconds: 60
+        timeoutSeconds: 10
+        failureThreshold: 3
+    volumes:
+      # Everything stateful lives under /zeroclaw-data: config.toml (provider
+      # credentials encrypted by the local secrets key beside it, and paired
+      # token hashes) in .zeroclaw/, per-agent workspaces and memory DBs in
+      # .zeroclaw/agents/<alias>/, and shared instance DBs (sessions, cost
+      # records) in data/ (docs/book/src/setup/container.md, "Memory
+      # persistence"). The dashboard bundle is at
+      # /usr/share/zeroclawlabs/web/dist, outside the mount, so the volume
+      # cannot hide it (Dockerfile.ci).
+      data:
+        minSizeGiB: 2
+        mountPath: /zeroclaw-data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # Both restate the image's own ENV (Dockerfile.ci), pinned here so they
+      # cannot drift from the `data` volume's mount path if the image changes.
+      #
+      # ZEROCLAW_DATA_DIR is a bootstrap variable, read before any config
+      # exists. A directory named `data` resolves the config directory to its
+      # sibling `.zeroclaw` (crates/zeroclaw-config/src/schema.rs
+      # `resolve_config_dir_for_data`), so config lands at
+      # /zeroclaw-data/.zeroclaw/config.toml, where upstream's container guide
+      # expects it.
+      dataDir:
+        schema:
+          type: string
+        default: /zeroclaw-data/data
+        target:
+          envVarKey: ZEROCLAW_DATA_DIR
+        description: >-
+          ZeroClaw's instance data directory on the `data` volume. Its config
+          directory is the sibling `.zeroclaw`.
+      # HOME anchors `~` expansion and the default config directory
+      # (~/.zeroclaw), so anything resolved from it also stays on the volume.
+      home:
+        schema:
+          type: string
+        default: /zeroclaw-data
+        target:
+          envVarKey: HOME
+        description: Home directory of the daemon's user, the `data` volume's mount path.
+      # ZEROCLAW_GATEWAY_PORT, which the image also sets, is not restated: no
+      # code at v0.8.5 reads it. The port comes from `--port` in `command`.
+    outputs: {}

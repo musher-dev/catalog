@@ -1,0 +1,90 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: zeroclaw
+spec:
+  itemType: BLUEPRINT
+  displayName: ZeroClaw
+  summary: Small, self-hosted autonomous assistant written in Rust, with a web dashboard, memory, scheduled jobs and messaging channels
+  description: |
+    ## What it is
+    ZeroClaw is a self-hosted personal-assistant runtime in a single Rust
+    binary. A long-running daemon hosts one or more agents. Each agent has
+    its own model provider, persistent memory, tools, scheduled jobs and
+    messaging channels. A web dashboard handles chat, configuration and
+    approvals. It is in the same family as OpenClaw, built to be small enough
+    to run on very little memory.
+
+    ## When to use
+    - You want an always-on assistant on infrastructure you control, with
+      config, memory and chat history kept on your deployment.
+    - You want an agent that runs scheduled jobs and answers on polling
+      channels such as Telegram, not just in a browser tab.
+    - You want a lightweight agent runtime and can pick its model provider
+      yourself, including any OpenAI-compatible endpoint.
+
+    ## What you'll be asked for
+    Nothing at install time. ZeroClaw doesn't use your organization's model
+    connection. You choose the model the first time you open the dashboard.
+
+    On your first visit, the dashboard pairs your browser (see below) and
+    opens **Quickstart**. There you pick a model provider, enter its
+    credential and model, and choose a risk profile. To use any
+    OpenAI-compatible API, including a model gateway your organization runs,
+    choose the **custom** provider and enter its base URL, ending in the
+    version segment (for example `/v1`). Quickstart saves this to the
+    deployment's volume and restarts the agent runtime in place. Until you
+    finish it, chats are refused rather than sent anywhere.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/zeroclaw-labs/zeroclaw:v0.8.5`,
+    the project's distroless image. The gateway and dashboard run on port
+    42617 behind the platform's HTTPS edge. A 5 GiB volume at
+    `/zeroclaw-data` keeps the configuration, agent memory, chat sessions and
+    paired devices across restarts. Provider credentials are stored
+    encrypted on that volume, with the key beside them.
+
+    The image has no shell, so the agent's shell tool can't run commands and
+    there is no `git`. File, web, memory, scheduling and the other built-in
+    tools work. Webhook-driven channels (Slack events, Discord interactions,
+    WhatsApp Cloud) can't reach the deployment, because every request has to
+    pass the platform's sign-in. Polling channels such as Telegram work.
+
+    ## Access and security
+    Two layers protect the dashboard. First, the platform admits only people
+    its access policy allows for this deployment. Second, ZeroClaw requires
+    each browser to pair before it can do anything. Until the first browser
+    pairs, the dashboard shows a one-time pairing code and fills it in for
+    you, so the first person through the platform's sign-in pairs with one
+    click. Open the deployment right after installing it.
+
+    Pairing gives that browser a token, kept in the browser and saved
+    (hashed) on the volume, so restarts don't unpair it. To add another
+    browser, open the **Pairing** page in one that is already paired and
+    generate a new code. You can revoke a browser from the same page. Signing
+    out of Musher does not unpair a browser, so revoke the ones you no longer
+    trust.
+
+    Every paired browser has full control: it can change the configuration,
+    read the agent's files and memory, and approve the agent's actions. The
+    agent itself acts on its own. It browses the web, reads and writes files
+    in its workspace, calls the model you chose, and runs scheduled jobs. Its
+    risk profile, which you choose in Quickstart, decides which actions need
+    your approval. **Locked Down** and **Balanced** keep it inside its
+    workspace and ask before risky actions. **YOLO** removes every approval
+    gate. Pick one with care, and limit who can open the deployment.
+
+    ZeroClaw is pre-1.0 and changes quickly between releases.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - agents
+    - assistant
+    - automation
+    - rust
+  homepageURL: https://www.zeroclaw.com
+  sourceRepoURL: https://github.com/zeroclaw-labs/zeroclaw
+  supportURL: https://docs.zeroclaw.com
+  license: MIT OR Apache-2.0
+  icon: media/icon.png

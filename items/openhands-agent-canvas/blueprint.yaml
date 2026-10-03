@@ -1,0 +1,107 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: openhands-agent-canvas
+  revision: 1
+  description: OpenHands Agent Canvas behind the platform's sign-in, with persistent state and projects, telemetry off, and the installer's language-model connection seeded as its active LLM profile.
+spec:
+  components:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the three
+      # members of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    web:
+      componentRef: ./components/agent-canvas.yaml
+      # `medium` (4 vCPU, 8 GiB) rather than `small`. One container runs the
+      # agent server and automation backend (Python), the Node ingress,
+      # openvscode-server, and every conversation's shell commands, builds and
+      # ACP agent CLIs (Claude Code, Codex) as local processes. Upstream sizes
+      # a single-user VM at 2 vCPU / 4 GB (docs/SELF_HOSTING.md, v1.24.0), and
+      # DigitalOcean's 1-Click asks for 4 GB or more. 4 GB is the floor before
+      # any of the agent's own work.
+      compute:
+        profile: general.standard.medium
+      volumes:
+        state:
+          sizeGiB: 5
+        projects:
+          sizeGiB: 20
+      # Signed in, no identity forwarded. The platform authenticates every
+      # request and WebSocket upgrade before forwarding it. That is the only
+      # gate a browser meets: the image writes the session key into the page
+      # it serves (components/agent-canvas.yaml), so anyone who can load the UI
+      # holds the key. Agent Canvas has no trusted-header login to forward an
+      # identity to, hence `NONE`.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: NONE
+      bindings:
+        sessionAPIKey:
+          parameter: sessionAPIKey
+        secretKey:
+          parameter: secretKey
+    seed-llm:
+      componentRef: ./components/seed-llm.yaml
+      # A short curl script that mostly waits.
+      compute:
+        profile: general.economy.nano
+      bindings:
+        # The web node's private address, so the job calls the API over the
+        # internal network and never through the signed-in public edge.
+        canvasAddress:
+          node: web
+          output: address
+        # The same parameter as the web node's: the job authenticates with the
+        # key the agent server was started with.
+        sessionAPIKey:
+          parameter: sessionAPIKey
+        # The three members of the one connection the `llm` node holds. Wiring
+        # them from one node is what keeps them consistent: an address from one
+        # provider beside a key from another would have to be written here, in
+        # the open, rather than assembled silently.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+  parameters:
+    # The language model the OpenHands agent runs on: endpoint, credential and
+    # model acquired together as one connection, defaulting to the
+    # organization's. A connection parameter binds only to a connection input,
+    # and the `llm` node's is the only one here (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # LOCAL_BACKEND_API_KEY. Minted at deploy and shown on the Installation
+    # tab. Browsers never need it, because the UI is handed it automatically.
+    # It is the key for the agent server's REST API, and the seed job uses
+    # it. 32 bytes of hex, the same shape the entrypoint generates itself.
+    sessionAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Session API key
+        order: 2
+    # OH_SECRET_KEY. Encrypts stored settings and credentials. It must stay
+    # the same for the life of the installation, which a generated parameter
+    # does.
+    secretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Settings encryption key
+        order: 3

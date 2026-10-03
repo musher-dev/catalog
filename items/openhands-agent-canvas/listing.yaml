@@ -1,0 +1,100 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: openhands-agent-canvas
+spec:
+  itemType: BLUEPRINT
+  displayName: OpenHands Agent Canvas
+  summary: Self-hosted control center for AI coding agents and automations, running the OpenHands agent on your organization's language model
+  description: |
+    ## What it is
+    Agent Canvas is OpenHands' web control center for AI coding agents. You
+    start and watch agent conversations, review the changes they make, open
+    the bundled VS Code editor on the same files, and schedule automations
+    that run agents on their own. It drives the OpenHands agent, and can also
+    drive Claude Code, Codex and other ACP agents, all from one browser tab on
+    top of the OpenHands Agent Server.
+
+    ## When to use
+    - You want an always-on coding agent on infrastructure you control, with
+      its workspaces, history and credentials staying on your deployment.
+    - You want to run several agents side by side, or on a schedule, and
+      review their work from one place.
+    - You want the OpenHands agent on your organization's model rather than a
+      hosted subscription.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model travel
+    together as a single connection. Anything speaking the OpenAI
+    chat-completions protocol with streaming and tool calls will do,
+    including an engine you run yourself. OpenAI's gpt-6 models don't work
+    yet, because this deployment sends chat-completions requests and those
+    models need the Responses API for tool calls.
+
+    The connection is saved as Agent Canvas's `default` LLM profile and made
+    the active one when you install, update or redeploy. A replaced
+    connection takes effect with the update that changes it. Edits you make to
+    the `default` profile, and a different active profile picked in the UI,
+    are reset at the next update. Profiles you create under other names are
+    left alone.
+
+    Claude Code, Codex and other ACP agents don't use this connection. You
+    add their credentials in Agent Canvas.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/openhands/agent-canvas:1.24.0`.
+    The agent server, automation backend, web UI and bundled OpenVSCode editor
+    share port 8000 behind the platform's HTTPS edge. Open the deployment's
+    URL and you land on the UI at `/canvas`, already connected. There's no key
+    to paste.
+
+    On your first visit Agent Canvas shows its onboarding tour. Close it with
+    **Skip for now** rather than clicking through its model step. Your model is
+    already set up, and saving that step would replace it with OpenHands'
+    suggested default.
+
+    Conversations run as processes inside the container, not in a separate
+    sandbox per conversation. Two persistent volumes keep your work: 5 GiB at
+    `/home/openhands/.openhands` holds settings, profiles, encrypted
+    credentials, conversation history and automations, and 20 GiB at
+    `/projects` holds the code the agent works on. Anything the agent puts
+    elsewhere in the container is lost on restart.
+
+    Product telemetry is off in the browser, the agent server and the
+    automation backend. The deployment runs on 4 vCPU and 8 GiB of memory.
+
+    ## Access and security
+    Signing in to Musher is what gets you in. The platform admits only people
+    its access policy allows for this deployment, and nothing else reaches
+    the container.
+
+    Agent Canvas has no user accounts here. Everyone the platform admits gets
+    the same full control: they can run the agent, change its settings and
+    credentials, and use the editor. The agent runs shell commands as the
+    container's user, with read and write access to `/projects`, the state
+    volume and the network. Nothing isolates one conversation from another.
+    Limit who can open the deployment accordingly, and give the agent only
+    credentials you're willing to expose to everyone who can.
+
+    The Installation tab shows two generated values. Browsers don't need
+    either one. The **session API key** guards the agent server's API, and the
+    UI is given it automatically. The **settings encryption key** encrypts
+    stored credentials. Changing it makes them unreadable.
+
+    Agent Canvas's own guide to reaching the server from another Agent Canvas
+    install, by registering it as a remote backend, doesn't apply here. The
+    platform's sign-in admits browsers, not API clients.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - agents
+    - coding
+    - automation
+    - openhands
+  homepageURL: https://openhands.dev
+  sourceRepoURL: https://github.com/OpenHands/OpenHands
+  supportURL: https://docs.openhands.dev
+  license: MIT
+  icon: media/icon.png

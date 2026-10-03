@@ -1,0 +1,186 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: One-shot job that writes the installation's language-model connection into Agent Canvas as its active LLM profile, through the agent server's own API.
+spec:
+  # WHY A JOB. At the pinned tags nothing in Agent Canvas reads a model from
+  # the environment:
+  #
+  #   - The agent server's config has no LLM fields (Config,
+  #     openhands-agent-server/openhands/agent_server/config.py), and
+  #     `LLM.load_from_env` (openhands-sdk/openhands/sdk/llm/llm.py) is never
+  #     called by the server (software-agent-sdk v1.49.6). The LLM_MODEL /
+  #     LLM_API_KEY example in upstream's Helm README
+  #     (helm/agent-canvas/README.md, OpenHands v1.24.0) is therefore inert.
+  #   - The model lives in LLM profiles, JSON files under ~/.openhands written
+  #     with the API key encrypted by OH_SECRET_KEY.
+  #   - The image's entrypoint ignores its arguments
+  #     (components/agent-canvas.yaml), so no boot script can write them.
+  #
+  # So this job does what the UI's own onboarding step does
+  # (src/components/features/onboarding/steps/setup-llm-step.tsx): it saves
+  # a profile and activates it, over the agent server's REST API.
+  #
+  #   POST /api/profiles/{name}           save, overwriting a profile of that name
+  #   POST /api/profiles/{name}/activate  copy it into agent_settings.llm and
+  #                                       make it settings.active_profile
+  #
+  # (save_profile and activate_profile, openhands-agent-server/.../profiles_router.py.)
+  #
+  # A JOB without a schedule runs once per rollout: at installation, on every
+  # update and on every redeploy (COMP-JOB-001). That makes the connection
+  # authoritative per rollout, not per container start. A restart alone
+  # changes nothing, because the profile persists on the `state` volume. A
+  # rotated or replaced connection arrives with the update that carries it,
+  # and that update reruns the job. v1 orders a job against nothing, so the
+  # job waits for the web node's /ready itself. A run that fails is not
+  # retried until the next rollout.
+  type: JOB
+  workload:
+    source:
+      # PINNED. The official curl image, alpine-based, so busybox sh, sed and
+      # date are present. Its /entrypoint.sh runs `exec "$@"` when the first
+      # argument is a command on PATH (etc/entrypoint.sh, curl/curl-container
+      # 8.22.0), so the `sh -c` below runs as written.
+      image: curlimages/curl:8.22.0
+    # PROFILE NAME `default`. It is the name the agent server's own seeding
+    # gives the default agent profile's `llm_profile_ref` when no LLM profile
+    # is active (SEED_PROFILE_NAME, `_seed_default_llm_profile`,
+    # openhands-agent-server/.../agent_profiles_router.py). That seeding never
+    # writes a keyless `default` itself. So whichever comes first, this job or
+    # the first browser visit, the default agent profile ends up pointing at
+    # the profile written here.
+    #
+    # MODEL NAME. OpenHands passes `model` to LiteLLM, where the part before the
+    # first `/` picks the provider. `openai/` is LiteLLM's provider for any
+    # OpenAI-compatible base URL, and it strips that one segment before
+    # sending the request. So the prefix is always added, even when the model
+    # already contains a slash: a gateway model `meta-llama/llama-3` becomes
+    # `openai/meta-llama/llama-3`, and goes out as `meta-llama/llama-3`.
+    #
+    # `api_mode: chat` pins the chat-completions endpoint. Under the default
+    # `auto`, the SDK sends some model names (gpt-5, gpt-6, codex-mini) to the
+    # Responses API (`uses_responses_api`, openhands-sdk/.../llm.py), which an
+    # OpenAI-compatible gateway may not serve. The cost: the SDK notes that
+    # gpt-6 models reject function tools on /chat/completions
+    # (RESPONSES_API_MODELS, openhands-sdk/.../utils/model_features.py), so a
+    # gpt-6 connection will not work here until connections can declare the
+    # Responses API. The base URL keeps its /v1. A trailing slash is trimmed.
+    #
+    # `include_secrets: true` stores the key in the profile, encrypted at rest
+    # by the agent server with OH_SECRET_KEY. The JSON body goes to curl on
+    # stdin, so the model credential is not in any process's argv. The
+    # session key is in a header argument, visible only inside this
+    # short-lived container. Values are escaped for `\` and `"` only. A
+    # connection member with a newline in it would fail the save visibly.
+    #
+    # Exec form: argv, no shell of the platform's own. `set -eu` plus
+    # `curl -f` turns any non-2xx into a failed run, which the platform records
+    # for the installation.
+    command:
+      - sh
+      - -c
+      - >-
+        set -eu;
+        base="http://${CANVAS_ADDRESS}";
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ));
+        until curl -fsS -o /dev/null --max-time 5 "$base/ready"; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "seed-llm: $base/ready did not answer 200 within ${READY_TIMEOUT_SECONDS}s" >&2;
+        exit 1;
+        fi;
+        sleep 10;
+        done;
+        esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; };
+        printf '{"llm":{"model":"%s%s","base_url":"%s","api_key":"%s","api_mode":"chat"},"include_secrets":true}'
+        "$LLM_MODEL_PREFIX" "$(esc "$LLM_MODEL")" "$(esc "${LLM_BASE_URL%/}")" "$(esc "$LLM_API_KEY")"
+        | curl -fsS -o /dev/null --max-time 60 -X POST
+        -H "X-Session-API-Key: ${LOCAL_BACKEND_API_KEY}"
+        -H "Content-Type: application/json"
+        --data-binary @- "$base/api/profiles/${LLM_PROFILE_NAME}";
+        curl -fsS -o /dev/null --max-time 60 -X POST
+        -H "X-Session-API-Key: ${LOCAL_BACKEND_API_KEY}"
+        "$base/api/profiles/${LLM_PROFILE_NAME}/activate";
+        echo "seed-llm: LLM profile ${LLM_PROFILE_NAME} saved and activated (${LLM_MODEL_PREFIX}${LLM_MODEL})"
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the address, the key and the three
+      # connection members. The constants carry defaults.
+      canvasAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: CANVAS_ADDRESS
+        description: >-
+          Private host:port of the Agent Canvas ingress, from the web node's
+          `address` output.
+      sessionAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: LOCAL_BACKEND_API_KEY
+        description: >-
+          Session API key the agent server requires in X-Session-API-Key, the
+          same value the web node is given.
+      profileName:
+        schema:
+          type: string
+        default: default
+        target:
+          envVarKey: LLM_PROFILE_NAME
+        description: >-
+          Name of the LLM profile this job writes and activates. A profile of
+          this name is overwritten on every rollout.
+      modelPrefix:
+        schema:
+          type: string
+        default: openai/
+        target:
+          envVarKey: LLM_MODEL_PREFIX
+        description: >-
+          LiteLLM provider prefix put in front of the connection's model name,
+          `openai/` selecting the OpenAI-compatible provider.
+      # A first install pulls a multi-gigabyte image before anything listens,
+      # hence the long wait.
+      readyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 1800
+        target:
+          envVarKey: READY_TIMEOUT_SECONDS
+        description: How long the job waits for Agent Canvas to report ready before it fails.
+      # The three inputs below carry one language-model connection. They are not
+      # supplied independently: the blueprint wires all three to the outputs of
+      # the `llm` node, which takes the connection whole (components/llm.yaml).
+      # The env var names belong to this item.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: LLM_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, ending in the
+          version segment (for example /v1), written as the profile's base_url.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: LLM_API_KEY
+        description: Bearer credential for the API above, stored encrypted in the profile.
+      llmModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: LLM_MODEL
+        description: Model the agent uses by default, written as the profile's model after the prefix.
+    outputs: {}
