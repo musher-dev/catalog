@@ -47,6 +47,7 @@ All 15 items carry an icon; none currently ship screenshots.
 | `postgres` | <https://github.com/postgres.png?size=512> | GitHub org avatar | The PostgreSQL elephant (Slonik) mark belongs to the PostgreSQL Global Development Group / PostgreSQL Community Association; nominative use. |
 | `qdrant` | <https://github.com/qdrant.png?size=512> | GitHub org avatar | Qdrant mark via the qdrant GitHub org avatar; nominative use. |
 | `redis` | <https://github.com/redis.png?size=512> | GitHub org avatar | The Redis mark belongs to Redis Ltd.; nominative use. |
+| `voicestudio` | <https://raw.githubusercontent.com/debpalash/VoiceStudio/v0.5.6/docs/logo.png> | in-repo asset | VoiceStudio logo from the debpalash/VoiceStudio repository (AGPL-3.0-licensed project); nominative use. |
 
 
 ## Swapping or updating an icon

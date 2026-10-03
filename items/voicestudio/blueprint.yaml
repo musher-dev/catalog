@@ -1,0 +1,54 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: voicestudio
+  revision: 1
+  description: VoiceStudio voice cloning, speech and transcription on CPU, behind the platform's sign-in, with its OpenAI-compatible audio API and MCP server reachable by API key.
+spec:
+  components:
+    web:
+      componentRef: ./components/voicestudio.yaml
+      # CPU ONLY. `medium` is the largest offered profile: 4 vCPU and 8 GiB,
+      # which is VoiceStudio's stated RAM minimum (docs/install/
+      # troubleshooting.md). Synthesis works but is far slower than on a GPU.
+      #
+      # When the platform offers a gpu.* profile, move to it and add
+      # `placement: { acceleratorRuntimes: [cuda] }`. The image is already
+      # the CUDA build.
+      compute:
+        profile: general.standard.medium
+      volumes:
+        data:
+          sizeGiB: 30
+      # The platform signs viewers in before forwarding, and the web UI then
+      # asks once for the API key. Requests carrying a bearer token, such as
+      # OpenAI SDK clients, MCP clients and scripts, go through for
+      # VoiceStudio to check (components/voicestudio.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          accessExemptions:
+            - BEARER
+      bindings:
+        apiKey:
+          parameter: apiKey
+        # This node's own allocated hostname, from the output the component
+        # derives from its `primary` endpoint. A node reading its own endpoint
+        # output is a discovery dependency and not a value cycle (BP-CONN-002):
+        # an endpoint address is allocated before anything runs.
+        mcpAllowedHosts:
+          node: web
+          output: publicHostname
+  parameters:
+    # Disclosed to whoever manages the installation, who enters it in the web
+    # UI and gives it to API clients. 32 bytes in BASE64URL is 43 characters,
+    # upstream's own `secrets.token_urlsafe(32)` recipe (docs/install/
+    # docker.md).
+    apiKey:
+      generator:
+        byteLength: 32
+        encoding: BASE64URL
+      ui:
+        label: API key
+        order: 1
