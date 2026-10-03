@@ -28,7 +28,7 @@ to storefront visitors — nominative use — and remains the property of its
 respective owner. Inclusion here is not an endorsement by those projects, and
 these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 
-All 14 items carry an icon; none currently ship screenshots.
+All 16 items carry an icon; none currently ship screenshots.
 
 | Item | Source | Method | License note |
 |---|---|---|---|
@@ -43,9 +43,11 @@ All 14 items carry an icon; none currently ship screenshots.
 | `n8n` | <https://github.com/n8n-io.png?size=512> | GitHub org avatar | n8n mark via the n8n-io GitHub org avatar; nominative use. |
 | `openclaw` | <https://github.com/openclaw.png?size=512> | GitHub org avatar | OpenClaw (formerly Clawdbot/Moltbot) mark via the openclaw GitHub org avatar (MIT-licensed project); nominative use. Avatar served as JPEG; converted losslessly to PNG. |
 | `open-webui` | <https://github.com/open-webui.png?size=512> | GitHub org avatar | Open WebUI mark via the open-webui GitHub org avatar; nominative use. |
+| `paperclip` | <https://github.com/paperclipai.png?size=512> | GitHub org avatar | Paperclip mark via the paperclipai GitHub org avatar (MIT-licensed project); nominative use. |
 | `postgres` | <https://github.com/postgres.png?size=512> | GitHub org avatar | The PostgreSQL elephant (Slonik) mark belongs to the PostgreSQL Global Development Group / PostgreSQL Community Association; nominative use. |
 | `qdrant` | <https://github.com/qdrant.png?size=512> | GitHub org avatar | Qdrant mark via the qdrant GitHub org avatar; nominative use. |
 | `redis` | <https://github.com/redis.png?size=512> | GitHub org avatar | The Redis mark belongs to Redis Ltd.; nominative use. |
+| `voicestudio` | <https://raw.githubusercontent.com/debpalash/VoiceStudio/v0.5.6/docs/logo.png> | in-repo asset | VoiceStudio logo from the debpalash/VoiceStudio repository (AGPL-3.0-licensed project); nominative use. |
 
 
 ## Swapping or updating an icon

@@ -1,0 +1,66 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: voicestudio
+spec:
+  itemType: BLUEPRINT
+  displayName: VoiceStudio
+  summary: Self-hosted ElevenLabs alternative — voice cloning, text-to-speech, transcription and dubbing in 646 languages
+  description: |
+    ## What it is
+    VoiceStudio is an open-source voice platform that runs every model itself,
+    with no third-party API behind it. It clones a voice from a short sample,
+    designs new voices from a description, and narrates stories and
+    audiobooks with several voices. It also dubs video into other languages
+    and transcribes audio. It bundles 16 text-to-speech and 11
+    speech-recognition engines covering 646 languages. Programs use it
+    through an OpenAI-compatible audio API, and AI agents use it through a
+    built-in MCP server.
+
+    ## When to use
+    - You want speech synthesis or voice cloning without sending text or
+      voice samples to a hosted provider.
+    - You have an app or agent already written against OpenAI's
+      `/v1/audio/speech` or `/v1/audio/transcriptions` and want a self-hosted
+      backend for it.
+    - You need transcription or dubbing in languages hosted services don't
+      cover.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/debpalash/voicestudio:0.5.6`.
+    The web UI, REST and OpenAI-compatible API, and the MCP server at `/mcp/`
+    are all on port 3900, behind the platform's HTTPS edge and sign-in.
+
+    **This deployment runs on CPU only**, with 4 vCPU and 8 GiB of memory, so
+    synthesis and transcription are much slower than on a GPU. 8 GiB is
+    VoiceStudio's stated minimum, and long dubs or heavier engines may run out
+    of memory. The first use of an engine downloads its weights. The default
+    model is about 2.4 GB, so allow several minutes for the first job. Startup
+    after an install or upgrade also takes a few minutes, because the image is
+    about 6 GB.
+
+    An API key is generated for you, and you can reveal it on the
+    deployment's Installation tab. The web UI asks for it once after the
+    platform signs you in. API and MCP clients send it as
+    `Authorization: Bearer <key>`, and those requests reach VoiceStudio
+    without a platform sign-in. The key is VoiceStudio's root credential and
+    also unlocks its settings, so give it only to clients you trust.
+
+    Product analytics are switched off. A 30 GiB volume at
+    `/app/omnivoice_data` keeps projects, voice profiles, renders and
+    downloaded models across restarts.
+
+    Clone only voices you have the owner's permission to use. Each model keeps
+    its own license, separate from VoiceStudio's AGPL-3.0.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - voice
+    - tts
+    - speech
+    - transcription
+    - voice-cloning
+  homepageURL: https://github.com/debpalash/VoiceStudio
+  sourceRepoURL: https://github.com/debpalash/VoiceStudio
+  license: AGPL-3.0-only
+  icon: media/icon.png

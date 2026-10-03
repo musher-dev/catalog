@@ -1,0 +1,71 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: paperclip
+spec:
+  itemType: BLUEPRINT
+  displayName: Paperclip
+  summary: Run a team of AI agents like a company — org chart, tickets, budgets and approval gates in one control plane
+  description: |
+    ## What it is
+    Paperclip is an open-source control plane for teams of AI agents. You
+    hire agents into an org chart with roles and reporting lines, hand them
+    work as tickets that carry goal context, wake them on a heartbeat
+    schedule, cap each one's spend with a budget, and approve risky actions
+    before they happen, all with an audit trail. It drives Claude Code,
+    Codex, OpenCode, Gemini and Hermes agents, and OpenClaw gateways, from
+    one board.
+
+    ## When to use
+    - You run several coding or operations agents and want one place to
+      assign, supervise and pay for their work.
+    - You want spending limits and human approval gates in front of what
+      agents do, not just a chat window.
+    - You already use OpenClaw or Hermes and want them to work as managed
+      employees alongside Claude Code agents.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection, and must speak the Anthropic Messages API with streaming
+    and tool calls. The address, the credential and the model travel together
+    as a single connection. It is what agents using the built-in **Claude
+    Code** adapter run on. Codex, Gemini and other adapters take their own
+    credentials, which you add in Paperclip. The connection is read at every
+    start, so rotating your organization's credential reaches the deployment
+    on its next restart.
+
+    ## Defaults
+    Two containers. The first runs `ghcr.io/paperclipai/paperclip:2026.1001.0`
+    with the board UI and API on port 3100, behind the platform's HTTPS edge and
+    sign-in. The second is a private PostgreSQL 17 server that only Paperclip
+    can reach.
+
+    Paperclip also keeps its own accounts. After the platform signs you in,
+    create a Paperclip account and choose **Claim this instance** to become its
+    admin. Do this right after deploying: the first person to claim it owns it.
+
+    Requests carrying a bearer token are passed through for Paperclip to
+    check, and so are signed routine-trigger webhooks. Bearer tokens come from
+    the `paperclipai` CLI, board API keys and remote agent gateways.
+
+    Session, agent-token and approval-signing keys are generated for you, and
+    so is the database password, which you can reveal on the deployment's
+    Installation tab. A 20 GiB volume at `/paperclip` keeps agent workspaces,
+    uploads and the master key for encrypted secrets. Back that key up along
+    with the database, because secrets can't be decrypted without it. A 10 GiB
+    volume holds the database.
+
+    Paperclip runs on 4 vCPU and 8 GiB of memory, because agent runs start
+    CLIs, git and build tools inside the same container.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - agents
+    - orchestration
+    - claude-code
+    - codex
+    - openclaw
+  homepageURL: https://paperclip.ing
+  sourceRepoURL: https://github.com/paperclipai/paperclip
+  license: MIT
+  icon: media/icon.png

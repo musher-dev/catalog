@@ -1,0 +1,251 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: Paperclip agent-orchestration server and board UI, with agent workspaces, uploads and its secrets key on one volume and its state in an external PostgreSQL.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2026.1001.0 is the latest stable release (2026-10-02). The tag
+      # on ghcr carries no `v` prefix; `latest` moves on every release, and
+      # `beta` / `nightly` / `canary` are pre-release channels.
+      #
+      # The image bundles the Claude Code, Codex, OpenCode, Gemini and Kimi
+      # CLIs that Paperclip's local adapters drive, installed at @latest when
+      # the image was built, so a bump also moves them.
+      image: ghcr.io/paperclipai/paperclip:2026.1001.0
+    # Compose DATABASE_URL from its parts, then exec the server.
+    #
+    # Bindings interpolate nothing, and the `db` node publishes only its
+    # mesh-internal `host:port`, so the connection URL is assembled here. The
+    # password is generated as HEX in the blueprint, which needs no
+    # percent-encoding inside a URL.
+    #
+    # The Anthropic base URL loses a trailing `/` and `/v1`: the Claude Code
+    # CLI appends `/v1/messages` itself, and the adapter's model listing
+    # appends `/v1/models` (packages/adapters/claude-local/src/server/
+    # models.ts), so a connection that names the version segment would
+    # otherwise be requested at /v1/v1/.... An empty value stays empty.
+    #
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT, which is
+    # `tini -- docker-entrypoint.sh`. tini stays PID 1 and reaps the
+    # git/claude/sh descendants agent runs leave behind; the entrypoint
+    # chowns /paperclip and drops to the `node` user with gosu before this
+    # runs. The final `exec` is the image's own CMD unchanged.
+    #
+    # Upstream's compose files also set `pids_limit: 2048` as a backstop
+    # against leaked agent processes. The spec has no equivalent; tini is what
+    # keeps the count down.
+    command:
+      - sh
+      - -c
+      - >-
+        export DATABASE_URL="postgres://${PG_USER}:${PG_PASSWORD}@${PG_ADDRESS}/${PG_DB}";
+        ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL%/}";
+        export ANTHROPIC_BASE_URL="${ANTHROPIC_BASE_URL%/v1}";
+        exec node --import ./server/node_modules/tsx/dist/loader.mjs server/dist/index.js
+    endpoints:
+      primary:
+        targetPort: 3100
+        protocol: HTTP
+        # Requests that reach Paperclip without a platform session, for
+        # Paperclip to judge (component §5.2, ADR 0035).
+        #
+        # `bearer`: every route checks a bearer token a request carries
+        # (server/src/app.ts, v2026.1001.0). `actorMiddleware` is mounted
+        # ahead of the Better Auth handler, the API and the static UI, and it
+        # answers 401 to any bearer that is not a board API key, an agent API
+        # key or a signed agent JWT (server/src/middleware/auth.ts). The only
+        # routes it lets a bearer past, and the connection-intent routes
+        # mounted before it, validate their own run-scoped token. This is what
+        # the `paperclipai` CLI, board API keys and remote adapters
+        # (openclaw-gateway, hermes-gateway, HTTP) call back with.
+        #
+        # `paths`: public routine triggers. Their callers (GitHub and other
+        # webhook senders) prove themselves with an HMAC signature header
+        # rather than a bearer, and the route checks it (server/src/routes/
+        # routines.ts).
+        accessExemptions:
+          bearer: true
+          paths:
+            - /api/routine-triggers/public
+    health:
+      readiness:
+        # /api/health answers once the server is listening, which is after
+        # it has connected to PostgreSQL and applied pending migrations. On a
+        # first boot the `db` node may still be initialising, in which case
+        # the server exits and is restarted, so allow about three and a half
+        # minutes.
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 18
+      liveness:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 240
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+    volumes:
+      # PAPERCLIP_HOME: the instance config, uploaded assets, the local
+      # secrets master key (instances/default/secrets/, generated on first
+      # boot — back it up with the database, since encrypted company secrets
+      # cannot be read without it) and every agent's workspace checkout.
+      data:
+        minSizeGiB: 20
+        mountPath: /paperclip
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field. The
+      # image sets the same values; restating them keeps them visible here.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVarKey: HOST
+        description: Address the server listens on inside the container.
+      home:
+        schema:
+          type: string
+        default: /paperclip
+        target:
+          envVarKey: PAPERCLIP_HOME
+        description: Directory Paperclip keeps its instance data in, the `data` volume's mount path.
+      serveUI:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: SERVE_UI
+        description: Whether the server also serves the board UI, as the literal string the server parses.
+      # `authenticated` makes every person sign in to Paperclip itself, on top
+      # of the platform's sign-in. `private` is what lets the first person to
+      # sign in claim the instance from the browser; `public` would demand the
+      # `paperclipai auth bootstrap-ceo` CLI invite instead (doc/DOCKER.md).
+      deploymentMode:
+        schema:
+          type: string
+        default: authenticated
+        target:
+          envVarKey: PAPERCLIP_DEPLOYMENT_MODE
+        description: Paperclip's deployment mode; `authenticated` requires a Paperclip account.
+      deploymentExposure:
+        schema:
+          type: string
+        default: private
+        target:
+          envVarKey: PAPERCLIP_DEPLOYMENT_EXPOSURE
+        description: >-
+          Paperclip's exposure mode; `private` allows the first signed-in
+          person to claim the instance from the browser.
+      # Without a TTY the server already applies pending migrations; stating it
+      # keeps an upgrade from depending on that fallback.
+      migrationAutoApply:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: PAPERCLIP_MIGRATION_AUTO_APPLY
+        description: Whether pending database migrations are applied at startup, as the literal string the server parses.
+      # Paperclip derives its Better Auth base URL, trusted origins, invite
+      # links and hostname allowlist from this one URL.
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: PAPERCLIP_PUBLIC_URL
+        description: Public URL people reach Paperclip at, used for sign-in callbacks, invites and the hostname allowlist.
+      # Also signs agent JWTs, since PAPERCLIP_AGENT_JWT_SECRET is unset and
+      # falls back to it (server/src/agent-auth-jwt.ts).
+      authSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: BETTER_AUTH_SECRET
+        description: Key that signs Paperclip's sign-in sessions and agent tokens.
+      toolActionSigningSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: PAPERCLIP_TOOL_ACTION_SIGNING_SECRET
+        description: >-
+          Key that signs tool-action approval requests; without it approvals
+          cannot be issued.
+      pgAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: PG_ADDRESS
+        description: Mesh-internal `host:port` of the PostgreSQL server, composed into DATABASE_URL at boot.
+      pgUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: PG_USER
+        description: Role Paperclip connects to PostgreSQL as.
+      pgPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: PG_PASSWORD
+        description: Password of the role above. It must need no percent-encoding in a URL.
+      pgDatabase:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: PG_DB
+        description: Database Paperclip keeps its state in.
+      # The model the bundled Claude Code CLI runs on, for agents using the
+      # `claude_local` adapter. The adapter starts the CLI with the server's
+      # environment merged in, so these reach it unchanged
+      # (packages/adapters/claude-local/src/server/execute.ts). A key here also
+      # puts the adapter in API billing mode rather than subscription login.
+      anthropicBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVarKey: ANTHROPIC_BASE_URL
+        description: Base URL of the Anthropic Messages API, with or without a trailing /v1.
+      anthropicAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVarKey: ANTHROPIC_API_KEY
+        description: Credential for the API above.
+      anthropicModel:
+        schema:
+          type: string
+        target:
+          envVarKey: ANTHROPIC_MODEL
+        description: Model Claude Code agents use unless an agent names its own.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL this deployment answers at, which Paperclip derives its auth and invite URLs from.
+        from:
+          endpoint: primary
+          property: publicURL

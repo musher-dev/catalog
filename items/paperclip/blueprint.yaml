@@ -1,0 +1,119 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: paperclip
+  revision: 1
+  description: Paperclip agent orchestration behind the platform's sign-in, on its own PostgreSQL, with Claude Code agents on the installer's language-model connection.
+spec:
+  components:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the three
+      # members of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    db:
+      componentRef: ./components/postgres.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only by `web`
+      # through the address it publishes.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: paperclip
+        postgresDb:
+          value: paperclip
+    web:
+      componentRef: ./components/paperclip.yaml
+      # `medium`, the largest offered profile: agent runs spawn the Claude
+      # Code / Codex CLIs, git and build tools inside this container beside
+      # the Node server.
+      compute:
+        profile: general.standard.medium
+      volumes:
+        data:
+          sizeGiB: 20
+      # The platform signs viewers in before forwarding, and Paperclip then
+      # asks for its own account: the first person to sign in claims the
+      # instance. Requests carrying a bearer token (the CLI, board API keys,
+      # remote adapters calling back) and public routine-trigger webhooks
+      # are let through for Paperclip to verify itself
+      # (components/paperclip.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          accessExemptions:
+            - BEARER
+            - PATHS
+      bindings:
+        # This node's own allocated address, from the output the component
+        # derives from its `primary` endpoint. A node reading its own endpoint
+        # output is a discovery dependency and not a value cycle (BP-CONN-002):
+        # an endpoint address is allocated before anything runs.
+        publicURL:
+          node: web
+          output: publicURL
+        authSecret:
+          parameter: authSecret
+        toolActionSigningSecret:
+          parameter: toolActionSigningSecret
+        # The same generated password the `db` node initialises its role
+        # with, and the same role and database names.
+        pgAddress:
+          node: db
+          output: address
+        pgUser:
+          value: paperclip
+        pgPassword:
+          parameter: dbPassword
+        pgDatabase:
+          value: paperclip
+        # The three members of the one connection the `llm` node holds. Wiring
+        # them from one node is what keeps them consistent.
+        anthropicBaseURL:
+          node: llm
+          output: baseURL
+        anthropicAPIKey:
+          node: llm
+          output: apiKey
+        anthropicModel:
+          node: llm
+          output: model
+  parameters:
+    # The language model Claude Code agents run on: endpoint, credential and
+    # model acquired together as one connection, defaulting to the
+    # organization's. A connection parameter binds only to a connection input,
+    # and the `llm` node's is the only one here (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # 32 bytes of hex == 64 characters, matching upstream's
+    # `openssl rand -hex 32` guidance for both keys (doc/DOCKER.md).
+    authSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    toolActionSigningSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    # HEX, not BASE64: the password is placed in DATABASE_URL unencoded, and
+    # hex needs no percent-encoding there. Disclosed to whoever manages the
+    # installation, for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 2

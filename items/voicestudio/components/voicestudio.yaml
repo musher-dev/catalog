@@ -1,0 +1,174 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: VoiceStudio voice cloning, speech synthesis, transcription and dubbing server with its web UI, OpenAI-compatible audio API and MCP server, with projects, voices and model weights on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 0.5.6 is the latest stable release (2026-09-23). The tag
+      # carries no `v` prefix; `latest` and `main` are rolling previews built
+      # from every push to main, and `stable` moves on every release.
+      #
+      # ghcr.io/debpalash/voicestudio is the canonical name since the
+      # repository's rename from OmniVoice-Studio. ghcr.io/debpalash/
+      # omnivoice-studio and palashdeb/omnivoice-studio on Docker Hub carry
+      # the same digest under the old name (.github/workflows/docker.yml).
+      #
+      # This is the CUDA build (pytorch 2.8.0, CUDA 12.8, about 5.7 GB
+      # compressed), linux/amd64 only. With no GPU attached, torch finds no
+      # device and every engine renders on the CPU. The `-rocm` tags are the
+      # AMD build and are of no use here.
+      image: ghcr.io/debpalash/voicestudio:0.5.6
+    # No `command`: the image's ENTRYPOINT is the whole server command
+    # (`python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 3900`) with
+    # no CMD, so anything set here would be appended to uvicorn's arguments.
+    endpoints:
+      primary:
+        targetPort: 3900
+        protocol: HTTP
+        # Requests carrying a bearer token reach VoiceStudio without a
+        # platform session, for VoiceStudio to judge (component §5.2, ADR
+        # 0035). This is how OpenAI SDK clients (`/v1/audio/speech`,
+        # `/v1/audio/transcriptions`), MCP clients (`/mcp/`) and scripts
+        # authenticate: with the OMNIVOICE_API_KEY below as
+        # `Authorization: Bearer`.
+        #
+        # With OMNIVOICE_API_KEY set, `BearerKeyMiddleware` (backend/main.py,
+        # v0.5.6) answers 401 on HTTP, and closes WebSockets with 1008, to
+        # every non-loopback request that does not present the key, a trusted
+        # network or an admin session. It wraps the whole app, the MCP routes
+        # included, which are registered on the same router
+        # (backend/mcp_server.py). It passes only the static SPA shell (`/`,
+        # `/index.html`, `/favicon*`, `/assets/*`) and `/health`, none of
+        # which return data, and `/api/auth/session`, whose route itself
+        # validates the key it is given.
+        #
+        # "Loopback" is the TCP peer (core/auth.py `_client_host`). Forwarded
+        # headers can rewrite it only when the peer is uvicorn's default
+        # `forwarded_allow_ips` (127.0.0.1). The platform's proxy reaches the
+        # container from a routable address, so a forwarded header can never
+        # make a remote caller look local.
+        accessExemptions:
+          bearer: true
+    health:
+      readiness:
+        # /health answers 503 {"status": "starting"} until the backend's
+        # deferred startup completes, and 200 only after that (backend/
+        # main.py, v0.5.6). Until then the startup gate answers 503 on every
+        # work route. The image's own HEALTHCHECK gives it a 120 s start
+        # period. Here a cold node also pulls a 5.7 GB image first, so allow
+        # about six minutes after the delay.
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 60
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 36
+      liveness:
+        # Generous: on a CPU, a long synthesis or transcription keeps every
+        # core busy, and /health must not be mistaken for a hang while it does.
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 420
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 6
+    volumes:
+      # OMNIVOICE_DATA_DIR. It holds the SQLite database, voice profiles,
+      # projects, renders, encrypted Hugging Face tokens, and (through HF_HOME)
+      # every model the Model Catalogue downloads. The default OmniVoice
+      # checkpoint alone is about 2.4 GB, and each extra TTS or ASR engine
+      # adds its own.
+      data:
+        minSizeGiB: 30
+        mountPath: /app/omnivoice_data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # The backend's own default bind is 127.0.0.1. Inside the container it
+      # must listen on every interface for the platform's proxy to reach it.
+      bindHost:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVarKey: OMNIVOICE_BIND_HOST
+        description: Address the backend listens on inside the container.
+      # Headless server mode, already baked into the image: it relaxes the
+      # desktop-only loopback-origin gate on /system/* and /api/settings/*,
+      # which a proxied browser could otherwise never satisfy. Those admin
+      # routes then require the API key or an admin session instead.
+      serverMode:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVarKey: OMNIVOICE_SERVER_MODE
+        description: Whether the backend runs as a headless server, as the literal string it parses.
+      dataDir:
+        schema:
+          type: string
+        default: /app/omnivoice_data
+        target:
+          envVarKey: OMNIVOICE_DATA_DIR
+        description: Directory VoiceStudio keeps its state in, the `data` volume's mount path.
+      hfHome:
+        schema:
+          type: string
+        default: /app/omnivoice_data/huggingface
+        target:
+          envVarKey: HF_HOME
+        description: Hugging Face cache directory model weights download into, on the `data` volume.
+      # Product analytics (PostHog) are opt-in from the UI. This removes the
+      # prompt and the client entirely.
+      analyticsDisabled:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVarKey: OMNIVOICE_ANALYTICS_DISABLED
+        description: Whether product analytics are disabled outright, as the literal string the backend parses.
+      # The root credential. In server mode it is required for the admin
+      # surface. It is also what every non-loopback client presents, as a
+      # bearer token or exchanged once by the web UI for a short-lived admin
+      # session cookie. One key, no per-route scopes (docs/api-auth.md).
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: OMNIVOICE_API_KEY
+        description: >-
+          VoiceStudio's API key: entered once in the web UI, and sent as a
+          bearer token by API and MCP clients.
+      # The MCP SDK's DNS-rebinding guard accepts only localhost Host headers
+      # by default, and this extends it (backend/mcp_server.py). Behind the
+      # platform's edge, the Host header is the public hostname, and its
+      # https origin is added as well.
+      mcpAllowedHosts:
+        schema:
+          type: string
+        presentationHint: HOSTNAME
+        required: false
+        target:
+          envVarKey: OMNIVOICE_MCP_ALLOWED_HOSTS
+        description: Hostname MCP clients reach /mcp/ at, accepted in addition to localhost.
+    outputs:
+      publicHostname:
+        schema:
+          type: string
+        presentationHint: HOSTNAME
+        description: >-
+          Bare public hostname this deployment answers on, with no scheme,
+          which is what the MCP Host-header allowlist wants.
+        from:
+          endpoint: primary
+          property: publicHostname
