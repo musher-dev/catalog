@@ -1,0 +1,301 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: OpenCode coding agent's server and web UI behind HTTP basic auth, on an OpenAI-compatible model, with config, sessions and a workspace home on three volumes.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.18.34 is the latest release (2026-09-30). The tag on ghcr
+      # carries no `v` prefix: packages/opencode/script/publish.ts pushes
+      # `ghcr.io/anomalyco/opencode:${version}` and `:${channel}`, and
+      # `v1.18.34` does not resolve on the registry while `1.18.34` does.
+      #
+      # The image (packages/opencode/Dockerfile, v1.18.34) is Alpine with
+      # libgcc, libstdc++, ripgrep and the compiled `opencode` binary. Its
+      # config sets ENTRYPOINT ["opencode"], no CMD, WorkingDir `/` and no
+      # USER, so it runs as root. It ships no git, bash, node or python.
+      #
+      # When bumping, re-read the auth middleware
+      # (packages/opencode/src/server/routes/instance/httpapi/middleware/authorization.ts)
+      # for the routes it exempts, and ConfigVariable.substitute
+      # (packages/opencode/src/config/variable.ts), which the model config
+      # below depends on.
+      image: ghcr.io/anomalyco/opencode:1.18.34
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT, so these are
+    # arguments to `opencode`.
+    #
+    # `serve`, not `web`. Both build the same server: each calls
+    # `Server.listen(opts)` (packages/opencode/src/cli/cmd/serve.ts and
+    # web.ts), and the router always mounts the web UI as its catch-all
+    # route (`uiRoute` in createRoutes,
+    # packages/opencode/src/server/routes/instance/httpapi/server.ts). `web`
+    # also calls `openUrl`, which runs the `open` package to launch a desktop
+    # browser. That fails harmlessly in a container, so `serve` is the same
+    # thing without the side effect.
+    #
+    # The UI is embedded in the release binary. packages/opencode/script/build.ts
+    # bundles packages/app's build unless given `--skip-embed-web-ui`, and the
+    # publish workflow does not pass it. So pages are served from the binary,
+    # not proxied from https://app.opencode.ai (the fallback in
+    # packages/opencode/src/server/shared/ui.ts).
+    #
+    # The defaults are `--hostname 127.0.0.1 --port 0`, where port 0 tries
+    # 4096 and then picks any free port (packages/opencode/src/cli/network.ts,
+    # packages/opencode/src/server/server.ts). Both are set explicitly
+    # because the platform edge is a separate network hop and needs a fixed
+    # port. Explicit flags also outrank `server.hostname` / `server.port` in
+    # a config file a user might later write.
+    #
+    # WORKING DIRECTORY. The server has no ambient project. Each request names
+    # its directory with `?directory=` or the `x-opencode-directory` header,
+    # and falls back to process.cwd()
+    # (packages/opencode/src/server/routes/instance/httpapi/middleware/workspace-routing.ts).
+    # No flag or env var changes the cwd, the workload has no working-directory
+    # field, and the ENTRYPOINT cannot be wrapped in a shell, so the cwd stays
+    # the image's `/`. The web UI's project picker starts at the server's home
+    # directory instead (`sync.data.path.home`,
+    # packages/app/src/components/dialog-select-directory.tsx). So HOME is
+    # pointed at the `workspace` volume (see the `home` input), and projects
+    # opened or cloned under `~` persist.
+    #
+    # ACCESS. The blueprint exposes `primary` with `access: AUTHENTICATED`, so
+    # the platform signs the viewer in before forwarding. OpenCode then
+    # applies its own HTTP basic auth (packages/opencode/src/server/auth.ts).
+    # With OPENCODE_SERVER_PASSWORD set, every route checks
+    # `Authorization: Basic` (or an `auth_token` query parameter carrying the
+    # same base64 pair) against OPENCODE_SERVER_USERNAME, default `opencode`,
+    # and the password. A failure answers 401 with
+    # `WWW-Authenticate: Basic realm="Secure Area"`, so a browser shows its
+    # native sign-in dialog and then resends the cached pair on same-origin
+    # fetches and event streams. Terminal WebSockets use a one-time ticket
+    # minted over an authenticated call instead. The only exempt paths are
+    # three static manifest assets (packages/opencode/src/server/shared/public-ui.ts).
+    #
+    # The password is kept even behind the platform's sign-in. Without it the
+    # server logs "server is unsecured" (serve.ts) and anyone who can reach the
+    # port gets a root shell through the agent. It is generated per
+    # installation and disclosed to the installer.
+    command:
+      - serve
+      - --hostname
+      - 0.0.0.0
+      - --port
+      - "4096"
+    endpoints:
+      primary:
+        targetPort: 4096
+        protocol: HTTP
+    health:
+      readiness:
+        # /global/health returns `{healthy: true, version}`
+        # (packages/opencode/src/server/routes/instance/httpapi/handlers/global.ts).
+        # It is in RootHttpApi, which carries the Authorization middleware
+        # (.../httpapi/api.ts), so it needs the basic-auth pair like every
+        # other route. The v2 `/api/health` is behind the same check
+        # (packages/protocol/src/api.ts). The probe therefore carries the
+        # credentials, read from the same inputs the server reads. They are
+        # sent on probe requests only, never on forwarded traffic.
+        http:
+          endpoint: primary
+          path: /global/health
+          auth:
+            basic:
+              username:
+                input: serverUsername
+              password:
+                input: serverPassword
+        # A compiled binary that opens SQLite and listens. There is no long
+        # migration or asset build before the port opens.
+        initialDelaySeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 6
+    volumes:
+      # $XDG_CONFIG_HOME. OpenCode keeps its global config in
+      # `${XDG_CONFIG_HOME}/opencode` (xdg-basedir in
+      # packages/core/src/global.ts): opencode.json written from the UI,
+      # agents, commands and plugins. On every project load it also installs
+      # `@opencode-ai/plugin` into that directory from npm, in the background
+      # (packages/opencode/src/config/config.ts), so it holds a node_modules.
+      config:
+        minSizeGiB: 1
+        mountPath: /var/lib/opencode/config
+      # $XDG_DATA_HOME. `${XDG_DATA_HOME}/opencode` holds the session
+      # database, auth.json (provider credentials added in the UI), logs,
+      # cloned repos and snapshot data (packages/core/src/global.ts).
+      data:
+        minSizeGiB: 5
+        mountPath: /var/lib/opencode/data
+      # $HOME. Where the project picker starts, so where projects live. The
+      # XDG cache and state directories default to `~/.cache` and
+      # `~/.local/state`, so they land here too: downloaded tools and the
+      # models.dev cache persist across restarts.
+      workspace:
+        minSizeGiB: 10
+        mountPath: /workspace
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # Paths, pinned to the volume mounts above. The image runs as root and
+      # sets no HOME of its own, so without these OpenCode would write to
+      # /root, which is not persisted. xdg-basedir reads the XDG variables and
+      # falls back to `$HOME/.config` and `$HOME/.local/share`. Global.Path.home
+      # is `os.homedir()`, which reads HOME.
+      home:
+        schema:
+          type: string
+        default: /workspace
+        target:
+          envVarKey: HOME
+        description: >-
+          Home directory of the agent and of the web UI's project picker, the
+          `workspace` volume's mount path.
+      xdgConfigHome:
+        schema:
+          type: string
+        default: /var/lib/opencode/config
+        target:
+          envVarKey: XDG_CONFIG_HOME
+        description: >-
+          Base directory OpenCode keeps its global config under, the `config`
+          volume's mount path.
+      xdgDataHome:
+        schema:
+          type: string
+        default: /var/lib/opencode/data
+        target:
+          envVarKey: XDG_DATA_HOME
+        description: >-
+          Base directory OpenCode keeps sessions, credentials and logs under,
+          the `data` volume's mount path.
+      # The `--print-logs` flag only sets this variable
+      # (packages/opencode/src/index.ts). Logs always go to a file under the
+      # data directory, and to stderr as well only when it is exactly "1"
+      # (packages/core/src/observability/logging.ts). Without it the
+      # platform's log view stays empty.
+      printLogs:
+        schema:
+          type: string
+        default: "1"
+        target:
+          envVarKey: OPENCODE_PRINT_LOGS
+        description: Whether OpenCode writes its logs to stderr, as the literal string it checks.
+      serverUsername:
+        schema:
+          type: string
+        default: opencode
+        target:
+          envVarKey: OPENCODE_SERVER_USERNAME
+        description: >-
+          User name for OpenCode's HTTP basic auth. It is upstream's default,
+          stated so the readiness probe and the server read one value.
+      serverPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: OPENCODE_SERVER_PASSWORD
+        description: >-
+          Password for OpenCode's HTTP basic auth, asked for by the browser
+          after the platform's sign-in.
+      # THE LANGUAGE MODEL, as inline config. OPENCODE_CONFIG_CONTENT is read
+      # on every project load and merged after the global and project config
+      # files, so it wins over both (loadInstanceState,
+      # packages/opencode/src/config/config.ts). Only the account and managed
+      # (MDM) config come later, and neither exists here.
+      #
+      # Before parsing, ConfigVariable.substitute
+      # (packages/opencode/src/config/variable.ts) replaces every
+      # `{env:VAR}` in the raw text with process.env[VAR]. It is a plain
+      # regex over the whole string, so it works in a value, in the models map
+      # key and inside `llm/{env:LLM_MODEL}` alike. No boot script is needed,
+      # and there is no shell to run one: the ENTRYPOINT is `opencode`. The
+      # credential stays in the process env and is never written to the
+      # volume. A value is spliced in unescaped, so a `"` or `\` in the URL,
+      # key or model id would break the JSON.
+      #
+      #   - provider `llm` with npm `@ai-sdk/openai-compatible`. That package
+      #     is bundled in the binary (BUNDLED_PROVIDERS,
+      #     packages/opencode/src/provider/provider.ts), so no npm download
+      #     happens. Its SDK appends /chat/completions to baseURL, so a base
+      #     ending /v1 is what it wants.
+      #   - one model, keyed and named by the connection's model id. A
+      #     config model defaults to text in and out with tool calls on.
+      #   - `model` and `small_model` both point at it. parseModel splits on
+      #     the first `/` only, so an id like `openai/gpt-4o` survives. Without
+      #     `small_model`, title generation would pick a "small" model by
+      #     family heuristics.
+      #   - `disabled_providers: ["opencode"]`. With no key, OpenCode loads its
+      #     own hosted provider's free models using the key "public"
+      #     (provider.ts, `opencode` loader). Disabling it keeps prompts and
+      #     code on the connection the installer chose. Providers a user adds
+      #     in the UI still load.
+      #   - `share: "disabled"`. The default, "manual", lets anyone publish a
+      #     session transcript to OpenCode's public share service.
+      #   - `autoupdate: false`. The image is pinned. A self-update would
+      #     not survive a restart anyway.
+      configContent:
+        schema:
+          type: string
+        default: |-
+          {
+            "$schema": "https://opencode.ai/config.json",
+            "provider": {
+              "llm": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "Language model",
+                "options": {
+                  "baseURL": "{env:LLM_BASE_URL}",
+                  "apiKey": "{env:LLM_API_KEY}"
+                },
+                "models": {
+                  "{env:LLM_MODEL}": { "name": "{env:LLM_MODEL}" }
+                }
+              }
+            },
+            "model": "llm/{env:LLM_MODEL}",
+            "small_model": "llm/{env:LLM_MODEL}",
+            "disabled_providers": ["opencode"],
+            "share": "disabled",
+            "autoupdate": false
+          }
+        target:
+          envVarKey: OPENCODE_CONFIG_CONTENT
+        description: >-
+          Inline OpenCode config declaring the language-model provider from
+          LLM_BASE_URL, LLM_API_KEY and LLM_MODEL, which OpenCode substitutes
+          at load.
+      # The three inputs below carry one language-model connection. They are not
+      # supplied independently: the blueprint wires all three to the outputs of
+      # the `llm` node, which takes the connection whole (components/llm.yaml).
+      # The env var names belong to this item. OpenCode reads no env var for a
+      # custom provider's base URL or model, so `configContent` names them.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVarKey: LLM_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API the agent sends
+          model requests to, ending in the version segment (for example /v1).
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVarKey: LLM_API_KEY
+        description: Bearer credential for the API above.
+      llmModel:
+        schema:
+          type: string
+        target:
+          envVarKey: LLM_MODEL
+        description: Model the agent uses by default.
+    outputs: {}
