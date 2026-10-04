@@ -1,0 +1,136 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: One-shot job that creates Coder's first Owner account, for the installer, through the server's own API over the private network.
+spec:
+  # WHY A JOB. Coder's first account becomes its Owner, and it is created by
+  # POST /api/v2/users/first. That route checks no credential. It answers 409
+  # once any user exists, and it ignores CODER_DISABLE_PASSWORD_AUTH
+  # (postFirstUser, coderd/users.go, v2.36.6). The `web` node lets all of /api
+  # past the platform's sign-in, because the CLI and workspace agents need it
+  # (components/coder.yaml). Exemptions are prefixes, so this one route cannot
+  # be kept back. Left alone, whoever found the URL first could make
+  # themselves Owner.
+  #
+  # So this job creates the Owner as soon as coderd answers, over the
+  # deployment's private network. Once it has, the public route answers 409. It
+  # also replaces Coder's setup page, which offers only a password form and
+  # GitHub, not the platform's OIDC (site/src/pages/SetupPage, v2.36.6).
+  #
+  # The window that remains. The job polls the private address, and it
+  # usually creates the Owner within seconds of coderd listening, before
+  # `web`'s readiness gate (30 seconds at least) opens it to the public. If the
+  # platform's private routing also waited for readiness, the gap would be the
+  # job's poll interval after readiness. Gating `web`'s readiness on
+  # /api/v2/users/first itself was rejected: if private routing does wait for
+  # readiness, the job could never reach the server and the deployment would
+  # never become ready.
+  #
+  # A JOB without a schedule runs once per rollout: at installation, on every
+  # update and on every redeploy (COMP-JOB-001). Every run after the first
+  # finds an Owner (200) and exits without changing anything, so a rotated
+  # password parameter does not reach an existing account. Change the password
+  # in Coder instead. v1 orders a job against nothing, so the job waits for
+  # /healthz itself. A failed run is not retried until the next rollout.
+  # Coder's setup page is then the fallback, behind the platform's sign-in.
+  type: JOB
+  workload:
+    source:
+      # PINNED. The official curl image, alpine-based, so busybox sh, sed and
+      # date are present. Its /entrypoint.sh runs `exec "$@"` when the first
+      # argument is a command on PATH (etc/entrypoint.sh, curl/curl-container
+      # 8.22.0), so the `sh -c` below runs as written.
+      image: curlimages/curl:8.22.0
+    # The request body is CreateFirstUserRequest (codersdk/users.go, v2.36.6).
+    # `trial: false` declines the Enterprise trial the CLI would otherwise
+    # offer. No display name: Coder validates it (`user_real_name`), and one
+    # it rejected would fail the whole request. The Owner sets it in Coder.
+    #
+    # The JSON body goes to curl on stdin, so the password is not in any
+    # process's argv. The password is BASE64URL, which needs no escaping in
+    # JSON. The email and username are escaped for `\` and `"`.
+    #
+    # Exec form: argv, no shell of the platform's own. `set -eu` plus `curl
+    # -f` turn any non-2xx into a failed run, which the platform records for
+    # the installation. That includes a 409 from losing the race described
+    # above, which then needs a look rather than silence.
+    command:
+      - sh
+      - -c
+      - >-
+        set -eu;
+        base="http://${CODER_ADDRESS}";
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ));
+        until curl -fsS -o /dev/null --max-time 5 "$base/healthz"; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "bootstrap-owner: $base/healthz did not answer within ${READY_TIMEOUT_SECONDS}s" >&2;
+        exit 1;
+        fi;
+        sleep 2;
+        done;
+        status=$(curl -sS -o /dev/null -w '%{http_code}' --max-time 10 "$base/api/v2/users/first");
+        if [ "$status" = 200 ]; then
+        echo "bootstrap-owner: Coder already has an Owner; nothing to do";
+        exit 0;
+        fi;
+        if [ "$status" != 404 ]; then
+        echo "bootstrap-owner: GET /api/v2/users/first answered $status" >&2;
+        exit 1;
+        fi;
+        esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; };
+        printf '{"email":"%s","username":"%s","password":"%s","trial":false}'
+        "$(esc "$OWNER_EMAIL")" "$(esc "$OWNER_USERNAME")" "$OWNER_PASSWORD"
+        | curl -fsS -o /dev/null --max-time 30 -X POST
+        -H "Content-Type: application/json"
+        --data-binary @- "$base/api/v2/users/first";
+        echo "bootstrap-owner: created Owner ${OWNER_USERNAME} <${OWNER_EMAIL}>"
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the address, the email and the password.
+      # The constants carry defaults.
+      coderAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: CODER_ADDRESS
+        description: Private host:port of the Coder server, from the web node's `address` output.
+      ownerEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVarKey: OWNER_EMAIL
+        description: Email address the Owner account is created with, which is also its sign-in name.
+      ownerUsername:
+        schema:
+          type: string
+        default: admin
+        target:
+          envVarKey: OWNER_USERNAME
+        description: >-
+          Coder username of the Owner account: letters, digits and single
+          hyphens, at most 32 characters.
+      # Coder requires at least 52 bits of entropy and at most 64 characters
+      # (userpassword.Validate, coderd/userpassword, v2.36.6).
+      ownerPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: OWNER_PASSWORD
+        description: Password the Owner account is created with.
+      # A first install pulls the Coder image and initialises PostgreSQL
+      # before anything listens.
+      readyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 900
+        target:
+          envVarKey: READY_TIMEOUT_SECONDS
+        description: How long the job waits for Coder to answer /healthz before it fails.
+    outputs: {}

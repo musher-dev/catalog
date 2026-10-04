@@ -1,0 +1,264 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: Coder control plane (coderd) with built-in Terraform provisioners, signing members in through the platform's OpenID Connect provider and keeping its state in an external PostgreSQL.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v2.36.6 is the current stable release (stable since
+      # 2026-09-17); v2.37.x is the mainline channel. The ghcr tag carries the
+      # `v` prefix: `2.36.6`, as the release notes spell it, does not resolve.
+      #
+      # The image is Alpine with `ENTRYPOINT ["/opt/coder", "server"]` and no
+      # CMD, runs as USER 1000 with HOME=/home/coder, and bundles terraform
+      # 1.15.5 for the built-in provisioners (scripts/Dockerfile,
+      # scripts/Dockerfile.base, v2.36.6). No `command`: the entrypoint already
+      # runs the server, and a `command` would only be appended to it as
+      # arguments, so no shell can run here to compose a value.
+      image: ghcr.io/coder/coder:v2.36.6
+    endpoints:
+      primary:
+        targetPort: 7080
+        protocol: HTTP
+        # Coder signs members in as an OpenID Connect client of the platform.
+        # It sends `<CODER_ACCESS_URL>/api/v2/users/oidc/callback` as its
+        # redirect URI (coderd/coderd.go, v2.36.6).
+        oidc:
+          redirectPaths:
+            - /api/v2/users/oidc/callback
+        # Machine traffic that never carries a platform session.
+        #
+        # `/api`: the CLI, workspace agents, and the VS Code and JetBrains
+        # extensions authenticate with Coder's own `Coder-Session-Token`
+        # header, not `Authorization: Bearer` (APITokenFromRequest,
+        # coderd/httpmw/apikey.go, v2.36.6, reads the bearer only as a
+        # fallback). A `bearer` exemption would therefore let none of them
+        # through. Coder authenticates every /api/v2 route itself except a
+        # short public set (build info, auth methods, login, the OIDC
+        # callback and first-user setup). The first-user route is the one
+        # that matters, and the blueprint's `bootstrap-owner` job closes it
+        # before anyone outside can reach it
+        # (components/bootstrap-owner.yaml).
+        #
+        # `/derp`: Coder's embedded DERP relay, over WebSocket. It forwards
+        # WireGuard packets that are encrypted end to end between the client and
+        # the workspace, so the relay carries nothing it can read.
+        #
+        # `/bin`: the static `coder` agent binaries that template init scripts
+        # download from the access URL before an agent has any credential.
+        accessExemptions:
+          paths:
+            - /api
+            - /derp
+            - /bin
+    health:
+      # /healthz answers "OK" once the HTTP server is up, outside any auth
+      # (coderd/coderd.go, v2.36.6). That is after the server has connected to
+      # PostgreSQL and applied migrations. Coder retries the database for 30
+      # seconds and then exits (ConnectToPostgres, cli/server.go). On a first
+      # boot the `db` node may still be initialising, so the budget allows for a
+      # restart or two: about three and a half minutes.
+      readiness:
+        http:
+          endpoint: primary
+          path: /healthz
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 18
+      liveness:
+        http:
+          endpoint: primary
+          path: /healthz
+        initialDelaySeconds: 240
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+    # No volume. With an external database coderd keeps no state of its own.
+    # Upstream's compose says its home volume "is not required in a
+    # production environment" (compose.yaml, v2.36.6). The Terraform provider
+    # cache under ~/.cache/coder is rebuilt on demand.
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the install form gains no field.
+      #
+      # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.36.6), which
+      # nothing outside the container could reach. 7080 is the port upstream's
+      # compose file uses.
+      httpAddress:
+        schema:
+          type: string
+        default: 0.0.0.0:7080
+        target:
+          envVarKey: CODER_HTTP_ADDRESS
+        description: Address and port the Coder HTTP server binds inside the container.
+      # Coder reads only a connection URL, and with none it downloads and runs a
+      # built-in PostgreSQL. Bindings interpolate nothing, so no URL can be put
+      # together from the `db` node's parts. This key=value DSN supplies only
+      # the SSL mode. The driver, lib/pq (Coder's coder/pq fork), fills in
+      # host, port, user, password and database from the PG* variables below
+      # before it parses the DSN (NewConnector, connector.go).
+      # escapePostgresURLUserInfo (cli/server.go) passes a DSN with no
+      # userinfo through unchanged, and the pubsub listener dials through the
+      # same driver.
+      pgConnectionURL:
+        schema:
+          type: string
+        default: sslmode=disable
+        target:
+          envVarKey: CODER_PG_CONNECTION_URL
+        description: >-
+          PostgreSQL DSN Coder connects with; only the SSL mode, since the
+          connection details arrive through the PG* variables.
+      # Browsers only ever reach this deployment over https at the platform
+      # edge, so the session cookie can be Secure.
+      secureAuthCookie:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVarKey: CODER_SECURE_AUTH_COOKIE
+        description: Whether browser session cookies carry the Secure attribute, as the literal string Coder parses.
+      telemetryEnable:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVarKey: CODER_TELEMETRY_ENABLE
+        description: Whether Coder sends anonymized usage telemetry upstream, as the literal string Coder parses.
+      oidcSignInText:
+        schema:
+          type: string
+        default: Sign in with Musher
+        target:
+          envVarKey: CODER_OIDC_SIGN_IN_TEXT
+        description: Label on the login page's OpenID Connect button.
+      # Coder hands this to workspace agents and CLI logins as the address to
+      # call back on, and builds its OIDC redirect URI from it.
+      accessURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: CODER_ACCESS_URL
+        description: Public URL that people, the CLI and workspace agents reach Coder at.
+      # The connection, as libpq environment variables. They are also present
+      # in the environment of the built-in provisioners' terraform runs.
+      # Template authors running on built-in provisioners could already read
+      # coderd's environment as the same uid, so the database is within their
+      # reach either way, as it is upstream.
+      pgHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: PGHOST
+        description: Mesh-internal hostname of the PostgreSQL server.
+      pgPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVarKey: PGPORT
+        description: Port of the PostgreSQL server on that hostname.
+      pgUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: PGUSER
+        description: Role Coder connects to PostgreSQL as.
+      pgPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: PGPASSWORD
+        description: Password of the role above.
+      pgDatabase:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: PGDATABASE
+        description: Database Coder keeps its state in.
+      # The platform's OIDC client for `primary`. Coder runs discovery against
+      # the bare issuer itself (go-oidc), so it takes the issuer, not the
+      # discovery document. The client is read at every start, so a rotated
+      # secret takes effect on the next restart. With CODER_OIDC_ALLOW_SIGNUPS
+      # left at its default `true` and no CODER_OIDC_EMAIL_DOMAIN, anyone the
+      # platform signs in gets a Coder account as a member.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVarKey: CODER_OIDC_ISSUER_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: CODER_OIDC_CLIENT_ID
+        description: Client identifier the platform registered for this endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: CODER_OIDC_CLIENT_SECRET
+        description: Client secret the platform registered for this endpoint.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL this deployment answers at, which Coder uses as its access URL.
+        from:
+          endpoint: primary
+          property: publicURL
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the Coder HTTP server, reachable only by
+          workloads in the same deployment, which the bootstrap job calls.
+        from:
+          endpoint: primary
+          property: privateAddress
+      # The client the platform registers for `primary` (component §5.2,
+      # COMP-EP-012/014). Reading these means any blueprint deploying this
+      # component must select viewerIdentity OIDC there. The blueprint binds
+      # each output back into the input of the same name.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+        from:
+          endpoint: primary
+          property: oidcIssuerURL
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret
