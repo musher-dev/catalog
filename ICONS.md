@@ -28,11 +28,12 @@ to storefront visitors — nominative use — and remains the property of its
 respective owner. Inclusion here is not an endorsement by those projects, and
 these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 
-All 20 items carry an icon; none currently ship screenshots.
+All 21 items carry an icon; none currently ship screenshots.
 
 | Item | Source | Method | License note |
 |---|---|---|---|
 | `code-server` | <https://raw.githubusercontent.com/coder/code-server/main/src/browser/media/pwa-icon-512.png> | in-repo asset | code-server product icon from the coder/code-server repository (MIT-licensed repo); nominative use. |
+| `coder` | <https://github.com/coder.png?size=512> | GitHub org avatar | Coder mark via the coder GitHub org avatar (AGPL-3.0-licensed project); nominative use. |
 | `doom` | <https://github.com/chocolate-doom.png?size=512> | GitHub org avatar | Chocolate Doom mark via the chocolate-doom GitHub org avatar (GPL-2.0-licensed project); nominative use. |
 | `flowise` | <https://github.com/FlowiseAI.png?size=512> | GitHub org avatar | Flowise mark via the FlowiseAI GitHub org avatar; nominative use. |
 | `hermes-agent` | <https://github.com/NousResearch.png?size=512> | GitHub org avatar | Hermes Agent maintainer (Nous Research) GitHub org avatar (MIT-licensed project); nominative use. |
