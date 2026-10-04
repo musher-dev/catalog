@@ -1,0 +1,118 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: coder
+  revision: 1
+  description: Coder control plane behind the platform's sign-in, on its own PostgreSQL, with an Owner account created for the installer and members signing in through the platform's OpenID Connect provider.
+spec:
+  components:
+    db:
+      componentRef: ./components/postgres.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only by `web`
+      # through the hostname and port it publishes.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: coder
+        postgresDb:
+          value: coder
+    web:
+      componentRef: ./components/coder.yaml
+      # coderd plus its three built-in provisioner daemons
+      # (CODER_PROVISIONER_DAEMONS defaults to 3), each running terraform for a
+      # workspace build in this container. Workspaces themselves run wherever
+      # their template puts them, not here.
+      compute:
+        profile: general.standard.small
+      # The platform signs viewers in, and Coder signs them in again as an
+      # OpenID Connect client of the platform, with no second password. Coder
+      # needs an email to create an account and takes the display name from
+      # `name`, so the node releases both claims. /api, /derp and /bin pass
+      # without a platform session for the CLI, workspace agents and IDE
+      # extensions, which Coder authenticates itself
+      # (components/coder.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+      bindings:
+        # This node's own allocated address and OIDC client. A node reading its
+        # own endpoint outputs is a discovery dependency and not a value cycle
+        # (BP-CONN-002): both exist before anything runs.
+        accessURL:
+          node: web
+          output: publicURL
+        oidcIssuerURL:
+          node: web
+          output: oidcIssuerURL
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        # The same generated password the `db` node initialises its role
+        # with, and the same role and database names.
+        pgHost:
+          node: db
+          output: hostname
+        pgPort:
+          node: db
+          output: port
+        pgUser:
+          value: coder
+        pgPassword:
+          parameter: dbPassword
+        pgDatabase:
+          value: coder
+    bootstrap-owner:
+      componentRef: ./components/bootstrap-owner.yaml
+      # A short curl script that mostly waits.
+      compute:
+        profile: general.economy.nano
+      bindings:
+        # The web node's private address, so the job creates the Owner over
+        # the internal network, ahead of anyone reaching the public edge.
+        coderAddress:
+          node: web
+          output: address
+        ownerEmail:
+          parameter: ownerEmail
+        ownerPassword:
+          parameter: ownerPassword
+  parameters:
+    # The installer owns the deployment: their verified email, captured once
+    # when the installation is created (BP-PARAM-011).
+    ownerEmail:
+      from: "${{ deployment.installer.email }}"
+    # Disclosed to whoever manages the installation. 24 bytes in BASE64URL is
+    # 32 characters: inside Coder's 64-character limit, far above its entropy
+    # floor, and safe in JSON without escaping.
+    ownerPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Owner password
+        order: 1
+    # HEX keeps the password free of characters a libpq parser would treat
+    # specially. Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 2

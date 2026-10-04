@@ -1,0 +1,80 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: coder
+spec:
+  itemType: BLUEPRINT
+  displayName: Coder
+  summary: Self-hosted cloud development environments for developers and their AI agents, defined in Terraform and provisioned on infrastructure you choose
+  description: |
+    ## What it is
+    Coder is an open-source control plane for cloud development environments.
+    Administrators describe workspaces as Terraform templates: a VM, a
+    container or a Kubernetes pod with a toolchain and the IDEs and apps your
+    team uses. Developers then start their own workspace from the dashboard or
+    the CLI. Each workspace runs a small agent that connects back to Coder over
+    an encrypted WireGuard tunnel. People reach their workspaces from the
+    browser (web terminal, VS Code in the browser and other apps), over SSH
+    with the `coder` CLI, or from VS Code and JetBrains desktop IDEs. Idle
+    workspaces can stop on a schedule to save cost. Coder Tasks run AI coding
+    agents in the same governed workspaces.
+
+    ## When to use
+    - You want every developer to get a consistent, reproducible environment
+      in minutes instead of setting up a laptop.
+    - You want source code and credentials to stay on your own cloud or
+      cluster rather than on personal machines.
+    - You want AI coding agents to work in isolated workspaces under the same
+      templates, quotas and audit trail as people.
+
+    ## Before you start
+    This deployment is Coder's **control plane**. Workspaces do not run here.
+    They run wherever a template provisions them: an AWS, Google Cloud, Azure
+    or DigitalOcean account, a Kubernetes cluster, or VMs you already have.
+    Give the template its credentials as template variables. Coder's Docker
+    starter template does not work, because this deployment has no Docker
+    daemon to start containers on. Workspace agents and the CLI reach Coder at
+    the deployment's public URL, so the infrastructure your workspaces run on
+    needs outbound HTTPS to it.
+
+    ## Signing in
+    An **Owner** account is created for you when the deployment first starts.
+    Its email is the one you install with, and its password is generated. Copy
+    the password from the deployment's Installation tab and sign in with your
+    email. Everyone else in your organization uses **Sign in with Musher** and
+    joins as a member. The Owner can then grant roles. While your Owner account
+    uses a password, Coder will not let you sign in to it with Musher. You can
+    switch it to single sign-on from your account settings in Coder.
+
+    To use the CLI, run `coder login <deployment URL>`. A browser opens and
+    hands the CLI a session token.
+
+    ## Defaults
+    Two containers and a one-time setup job. The first container runs
+    `ghcr.io/coder/coder:v2.36.6`, the stable release channel, with the
+    dashboard and API on port 7080 behind the platform's HTTPS edge and
+    sign-in. Requests from the CLI, workspace agents and IDE extensions pass
+    straight through to Coder, which authenticates them itself. It runs three
+    built-in Terraform provisioners for workspace builds. The second container
+    is a private PostgreSQL 17 server that only Coder can reach, holding all of
+    Coder's state on a 10 GiB volume. The database password is generated, and
+    you can reveal it on the Installation tab.
+
+    Usage telemetry to Coder is turned off. Workspace apps are served on paths
+    under the deployment's URL. Apps configured for subdomain access are
+    unavailable, because there is no wildcard domain. Premium features such as
+    audit logs, template access control, workspace proxies and AI Bridge need a
+    license from Coder.
+  category: DEVELOPER_TOOLS
+  lifecycleStage: BETA
+  tags:
+    - cloud-development-environments
+    - remote-development
+    - terraform
+    - workspaces
+    - ai-agents
+  homepageURL: https://coder.com
+  sourceRepoURL: https://github.com/coder/coder
+  supportURL: https://coder.com/docs
+  license: AGPL-3.0-only AND LicenseRef-Coder-Enterprise
+  icon: media/icon.png
