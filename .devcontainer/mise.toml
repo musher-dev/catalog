@@ -6,9 +6,9 @@
 # what a hand-placed release binary does not do. Claude Code is the exception:
 # it self-updates through its own installer (scripts/lib/base-setup.sh).
 #
-# actionlint must stay in step with .github/workflows/*.yml if a workflow ever
-# installs it itself. Two environments, one version — CI is not a mise host and
-# does not read this file.
+# yamllint must stay in step with .github/workflows/validate.yml, which installs
+# it itself, and so must actionlint if a workflow ever does. Two environments,
+# one version — CI is not a mise host and does not read this file.
 #
 # Pinned exactly rather than to a range. A range resolves the newest match
 # through the GitHub API on every run, so a degraded API takes the whole setup
@@ -20,3 +20,11 @@
 [tools]
 "actionlint"   = "1.7.11"
 "npm:lefthook" = "2.1.10"
+# yamllint is a Python tool installed through uv, which also fetches the
+# interpreter it runs on: the container has no system Python to lean on.
+"aqua:astral-sh/uv" = "0.12.18"
+"pipx:yamllint"     = "1.38.0"
+
+[settings]
+# pipx tools install through uv rather than a system pipx.
+pipx.uvx = true
