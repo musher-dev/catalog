@@ -3,7 +3,10 @@ kind: BLUEPRINT
 metadata:
   slug: coder
   revision: 1
-  description: Coder control plane behind the platform's sign-in, on its own PostgreSQL, with an Owner account created for the installer and members signing in through the platform's OpenID Connect provider.
+  description: >-
+    Coder control plane behind the platform's sign-in, on its own PostgreSQL,
+    with an Owner account created for the installer and members signing in
+    through the platform's OpenID Connect provider.
 spec:
   components:
     db:

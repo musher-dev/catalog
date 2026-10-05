@@ -3,7 +3,10 @@ kind: BLUEPRINT
 metadata:
   slug: openhands-agent-canvas
   revision: 1
-  description: OpenHands Agent Canvas behind the platform's sign-in, with persistent state and projects, telemetry off, and the installer's language-model connection seeded as its active LLM profile.
+  description: >-
+    OpenHands Agent Canvas behind the platform's sign-in, with persistent state
+    and projects, telemetry off, and the installer's language-model connection
+    seeded as its active LLM profile.
 spec:
   components:
     llm:

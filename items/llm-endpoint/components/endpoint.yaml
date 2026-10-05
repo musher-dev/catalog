@@ -24,7 +24,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 5
-  description: A language-model API addressed outside this deployment, taken whole as one connection — endpoint, credential and model together.
+  description: >-
+    A language-model API addressed outside this deployment, taken whole as one
+    connection — endpoint, credential and model together.
 spec:
   type: EXTERNAL
   contract:

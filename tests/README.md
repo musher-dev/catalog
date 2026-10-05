@@ -8,7 +8,7 @@ table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today listing `v1.0.1`,
 component `v1.6.0` and blueprint `v1.7.1`. Nothing is vendored. The schemas are
 fetched on every run from each release's exact URL:
 
-```
+```text
 https://specifications.musher.dev/<family>/v<release>/<family>.schema.json
 ```
 
@@ -54,7 +54,7 @@ a local checkout. Each of those would be a second answer to "what is the
 contract", which is the thing this suite exists to not have. If a fetch fails or
 a digest disagrees, the suite fails loudly and names the URL.
 
-### Adopting a new release
+## Adopting a new release
 
 It is one pull request, and it changes nothing else:
 
@@ -93,7 +93,7 @@ applied in order — a later-phase diagnostic is never reported before the earli
 phases pass.
 
 | File | Phase | What it checks |
-|---|---|---|
+| --- | --- | --- |
 | `spec.test.ts` | — | The bundles resolve, are byte for byte the pinned release, name their own family, and are self-contained. Fails first, so a corpus is never judged against a 404 page. |
 | `parser.test.ts` | `parser` | Every document satisfies the Musher YAML profile (core §6.1): UTF-8, one document per file, string keys, no anchors, aliases, merge keys or explicit tags, finite numbers and safe integers, and the size, depth and scalar bounds. |
 | `structural.test.ts` | `structural` | Every document validates against its family's fetched JSON Schema. |
@@ -207,7 +207,7 @@ keep true.
 ## Configuration
 
 | Variable | Default | Purpose |
-|---|---|---|
+| --- | --- | --- |
 | `MUSHER_SPEC_TIMEOUT_MS` | `15000` | Per-request timeout when fetching a schema; four times this for a conformance archive. |
 
 That is the whole of it. The timeout is the only knob because it is the only one

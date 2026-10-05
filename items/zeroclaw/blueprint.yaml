@@ -3,7 +3,10 @@ kind: BLUEPRINT
 metadata:
   slug: zeroclaw
   revision: 1
-  description: ZeroClaw agent daemon and web dashboard behind the platform's sign-in, with ZeroClaw's own device pairing on top and its model chosen in the dashboard's Quickstart.
+  description: >-
+    ZeroClaw agent daemon and web dashboard behind the platform's sign-in, with
+    ZeroClaw's own device pairing on top and its model chosen in the dashboard's
+    Quickstart.
 spec:
   components:
     # One node. There is no `llm` node: ZeroClaw v0.8.5 can only take a

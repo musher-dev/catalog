@@ -1,0 +1,22 @@
+// markdownlint rules for this repo's Markdown.
+// Read by: markdownlint-cli2, via an explicit --config path. Never
+// auto-discovered; see check:md and fmt:md in Taskfile.yml and
+// .config/lefthook.yml for the call sites.
+// Rule reference: https://github.com/DavidAnson/markdownlint/blob/main/doc/Rules.md
+{
+  "default": true,
+
+  // Prose wraps at 80, but the limit is 120 and applies to prose only. Tables
+  // and code blocks are exempt: reflowing a wide reference table or a shell
+  // one-liner to fit hurts readability more than the long line does.
+  "MD013": {
+    "line_length": 120,
+    "tables": false,
+    "code_blocks": false,
+    "headings": false
+  },
+
+  // Headings such as "Usage" may recur under different parents; siblings
+  // must still be unique, which is what this setting keeps enforcing.
+  "MD024": { "siblings_only": true }
+}

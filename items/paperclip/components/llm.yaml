@@ -14,7 +14,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: The Anthropic Messages API Paperclip's Claude Code agents send model requests to, taken whole as one connection.
+  description: >-
+    The Anthropic Messages API Paperclip's Claude Code agents send model
+    requests to, taken whole as one connection.
 spec:
   type: EXTERNAL
   contract:

@@ -3,7 +3,10 @@ kind: BLUEPRINT
 metadata:
   slug: hermes-agent
   revision: 1
-  description: Hermes Agent gateway and web dashboard on the installer's language-model connection, with the dashboard signed in through the platform's OpenID Connect provider.
+  description: >-
+    Hermes Agent gateway and web dashboard on the installer's language-model
+    connection, with the dashboard signed in through the platform's OpenID
+    Connect provider.
 spec:
   components:
     llm:

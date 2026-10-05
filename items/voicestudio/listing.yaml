@@ -5,7 +5,9 @@ metadata:
 spec:
   itemType: BLUEPRINT
   displayName: VoiceStudio
-  summary: Self-hosted ElevenLabs alternative — voice cloning, text-to-speech, transcription and dubbing in 646 languages
+  summary: >-
+    Self-hosted ElevenLabs alternative — voice cloning, text-to-speech,
+    transcription and dubbing in 646 languages
   description: |
     ## What it is
     VoiceStudio is an open-source voice platform that runs every model itself,

@@ -5,7 +5,9 @@ metadata:
 spec:
   itemType: BLUEPRINT
   displayName: ZeroClaw
-  summary: Small, self-hosted autonomous assistant written in Rust, with a web dashboard, memory, scheduled jobs and messaging channels
+  summary: >-
+    Small, self-hosted autonomous assistant written in Rust, with a web
+    dashboard, memory, scheduled jobs and messaging channels
   description: |
     ## What it is
     ZeroClaw is a self-hosted personal-assistant runtime in a single Rust

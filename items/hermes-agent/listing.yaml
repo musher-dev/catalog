@@ -5,7 +5,9 @@ metadata:
 spec:
   itemType: BLUEPRINT
   displayName: Hermes Agent
-  summary: Nous Research's self-improving AI agent, with a web dashboard and messaging gateway, running on your organization's language model
+  summary: >-
+    Nous Research's self-improving AI agent, with a web dashboard and messaging
+    gateway, running on your organization's language model
   description: |
     ## What it is
     Hermes Agent, from Nous Research, is an open-source agent that keeps

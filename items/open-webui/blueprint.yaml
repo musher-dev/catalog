@@ -3,7 +3,9 @@ kind: BLUEPRINT
 metadata:
   slug: open-webui
   revision: 8
-  description: Open WebUI behind the platform's sign-in, signing viewers in through its OpenID Connect provider, wired to the language model the installer selects.
+  description: >-
+    Open WebUI behind the platform's sign-in, signing viewers in through its
+    OpenID Connect provider, wired to the language model the installer selects.
 # Two nodes, one of which runs nothing. The language model is an EXTERNAL node
 # (`llm`) standing for the model API: it takes the connection whole — endpoint,
 # credential and model acquired together — and publishes the three members as

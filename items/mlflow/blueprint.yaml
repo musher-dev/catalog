@@ -3,7 +3,9 @@ kind: BLUEPRINT
 metadata:
   slug: mlflow
   revision: 9
-  description: MLflow tracking server behind the platform's sign-in and its own login, on local SQLite and volume-backed artifacts, both overridable at install.
+  description: >-
+    MLflow tracking server behind the platform's sign-in and its own login, on
+    local SQLite and volume-backed artifacts, both overridable at install.
 spec:
   components:
     web:

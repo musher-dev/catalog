@@ -6,6 +6,10 @@
 # Keep min_version in step with .devcontainer/mise.toml.
 min_version: 2.1.10
 
+# Without doublestar, `**/*.md` matches only files in a subdirectory, so the
+# root README.md and ICONS.md would never reach the markdown job.
+glob_matcher: doublestar
+
 # The split between the two hooks is about the network.
 #
 # `npm test` fetches the spec bundles from specifications.musher.dev on every
@@ -27,6 +31,18 @@ pre-commit:
     - name: workflow
       glob: '.github/workflows/*.{yml,yaml}'
       run: task check:workflow
+
+    - name: yaml
+      glob: '**/*.{yml,yaml}'
+      # Only what is being committed: an unrelated file elsewhere in the
+      # working tree must not block the commit. `task check:yaml` lints all.
+      run: yamllint -c .config/yaml/yamllint.yaml --strict {staged_files}
+      fail_text: "YAML lint failed. Run 'task check:yaml'; the rules are in .config/yaml/yamllint.yaml."
+
+    - name: markdown
+      glob: '**/*.md'
+      run: node_modules/.bin/markdownlint-cli2 --config .config/markdown/markdownlint.jsonc {staged_files}
+      fail_text: "Markdown lint failed. Run 'task fmt:md' for what it can fix, then 'task check:md'."
 
 pre-push:
   jobs:

@@ -2,7 +2,10 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: Coder control plane (coderd) with built-in Terraform provisioners, signing members in through the platform's OpenID Connect provider and keeping its state in an external PostgreSQL.
+  description: >-
+    Coder control plane (coderd) with built-in Terraform provisioners, signing
+    members in through the platform's OpenID Connect provider and keeping its
+    state in an external PostgreSQL.
 spec:
   type: SERVICE
   workload:
@@ -53,6 +56,10 @@ spec:
             - /api
             - /derp
             - /bin
+    # No volume. With an external database coderd keeps no state of its own.
+    # Upstream's compose says its home volume "is not required in a
+    # production environment" (compose.yaml, v2.36.6). The Terraform provider
+    # cache under ~/.cache/coder is rebuilt on demand.
     health:
       # /healthz answers "OK" once the HTTP server is up, outside any auth
       # (coderd/coderd.go, v2.36.6). That is after the server has connected to
@@ -76,10 +83,6 @@ spec:
         periodSeconds: 30
         timeoutSeconds: 5
         failureThreshold: 3
-    # No volume. With an external database coderd keeps no state of its own.
-    # Upstream's compose says its home volume "is not required in a
-    # production environment" (compose.yaml, v2.36.6). The Terraform provider
-    # cache under ~/.cache/coder is rebuilt on demand.
   contract:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an

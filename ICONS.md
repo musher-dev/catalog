@@ -31,7 +31,7 @@ these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 All 21 items carry an icon; none currently ship screenshots.
 
 | Item | Source | Method | License note |
-|---|---|---|---|
+| --- | --- | --- | --- |
 | `code-server` | <https://raw.githubusercontent.com/coder/code-server/main/src/browser/media/pwa-icon-512.png> | in-repo asset | code-server product icon from the coder/code-server repository (MIT-licensed repo); nominative use. |
 | `coder` | <https://github.com/coder.png?size=512> | GitHub org avatar | Coder mark via the coder GitHub org avatar (AGPL-3.0-licensed project); nominative use. |
 | `doom` | <https://github.com/chocolate-doom.png?size=512> | GitHub org avatar | Chocolate Doom mark via the chocolate-doom GitHub org avatar (GPL-2.0-licensed project); nominative use. |
@@ -53,7 +53,6 @@ All 21 items carry an icon; none currently ship screenshots.
 | `redis` | <https://github.com/redis.png?size=512> | GitHub org avatar | The Redis mark belongs to Redis Ltd.; nominative use. |
 | `voicestudio` | <https://raw.githubusercontent.com/debpalash/VoiceStudio/v0.5.6/docs/logo.png> | in-repo asset | VoiceStudio logo from the debpalash/VoiceStudio repository (AGPL-3.0-licensed project); nominative use. |
 | `zeroclaw` | <https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/v0.8.5/web/public/logo.png> | in-repo asset | ZeroClaw web dashboard logo from the zeroclaw-labs/zeroclaw repository (MIT OR Apache-2.0-licensed project); nominative use. |
-
 
 ## Swapping or updating an icon
 

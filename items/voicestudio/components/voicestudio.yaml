@@ -2,7 +2,10 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: VoiceStudio voice cloning, speech synthesis, transcription and dubbing server with its web UI, OpenAI-compatible audio API and MCP server, with projects, voices and model weights on one volume.
+  description: >-
+    VoiceStudio voice cloning, speech synthesis, transcription and dubbing
+    server with its web UI, OpenAI-compatible audio API and MCP server, with
+    projects, voices and model weights on one volume.
 spec:
   type: SERVICE
   workload:
