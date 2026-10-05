@@ -3,7 +3,9 @@ kind: BLUEPRINT
 metadata:
   slug: opencode
   revision: 1
-  description: OpenCode coding agent on the installer's language-model connection, behind the platform's sign-in and its own generated basic-auth password.
+  description: >-
+    OpenCode coding agent on the installer's language-model connection, behind
+    the platform's sign-in and its own generated basic-auth password.
 spec:
   components:
     llm:

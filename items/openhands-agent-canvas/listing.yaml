@@ -5,7 +5,9 @@ metadata:
 spec:
   itemType: BLUEPRINT
   displayName: OpenHands Agent Canvas
-  summary: Self-hosted control center for AI coding agents and automations, running the OpenHands agent on your organization's language model
+  summary: >-
+    Self-hosted control center for AI coding agents and automations, running the
+    OpenHands agent on your organization's language model
   description: |
     ## What it is
     Agent Canvas is OpenHands' web control center for AI coding agents. You

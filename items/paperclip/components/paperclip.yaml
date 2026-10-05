@@ -2,7 +2,10 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: Paperclip agent-orchestration server and board UI, with agent workspaces, uploads and its secrets key on one volume and its state in an external PostgreSQL.
+  description: >-
+    Paperclip agent-orchestration server and board UI, with agent workspaces,
+    uploads and its secrets key on one volume and its state in an external
+    PostgreSQL.
 spec:
   type: SERVICE
   workload:
@@ -155,7 +158,9 @@ spec:
         default: 'true'
         target:
           envVarKey: PAPERCLIP_MIGRATION_AUTO_APPLY
-        description: Whether pending database migrations are applied at startup, as the literal string the server parses.
+        description: >-
+          Whether pending database migrations are applied at startup, as the
+          literal string the server parses.
       # Paperclip derives its Better Auth base URL, trusted origins, invite
       # links and hostname allowlist from this one URL.
       publicURL:
@@ -165,7 +170,9 @@ spec:
         required: true
         target:
           envVarKey: PAPERCLIP_PUBLIC_URL
-        description: Public URL people reach Paperclip at, used for sign-in callbacks, invites and the hostname allowlist.
+        description: >-
+          Public URL people reach Paperclip at, used for sign-in callbacks,
+          invites and the hostname allowlist.
       # Also signs agent JWTs, since PAPERCLIP_AGENT_JWT_SECRET is unset and
       # falls back to it (server/src/agent-auth-jwt.ts).
       authSecret:

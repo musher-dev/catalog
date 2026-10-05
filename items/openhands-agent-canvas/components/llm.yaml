@@ -16,7 +16,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: The language-model API the OpenHands agent in Agent Canvas sends model requests to, taken whole as one connection.
+  description: >-
+    The language-model API the OpenHands agent in Agent Canvas sends model
+    requests to, taken whole as one connection.
 spec:
   type: EXTERNAL
   contract:

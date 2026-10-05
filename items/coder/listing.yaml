@@ -5,7 +5,9 @@ metadata:
 spec:
   itemType: BLUEPRINT
   displayName: Coder
-  summary: Self-hosted cloud development environments for developers and their AI agents, defined in Terraform and provisioned on infrastructure you choose
+  summary: >-
+    Self-hosted cloud development environments for developers and their AI
+    agents, defined in Terraform and provisioned on infrastructure you choose
   description: |
     ## What it is
     Coder is an open-source control plane for cloud development environments.

@@ -2,7 +2,10 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: Hermes Agent's messaging gateway and web dashboard in one container, signing viewers in through the platform's OpenID Connect provider, with all agent state on one volume.
+  description: >-
+    Hermes Agent's messaging gateway and web dashboard in one container, signing
+    viewers in through the platform's OpenID Connect provider, with all agent
+    state on one volume.
 spec:
   type: SERVICE
   workload:
@@ -144,6 +147,16 @@ spec:
       # The web dashboard: chat (the full TUI in the browser), sessions,
       # config, API keys, messaging channels, cron, skills and the gateway's
       # start/stop controls.
+      #
+      # NOT EXPOSED: the gateway's OpenAI-compatible API server (:8642). It
+      # authenticates every route with a bearer key (`_check_auth`,
+      # gateway/platforms/api_server.py), so it could take a BEARER exemption.
+      # But a component has one readiness probe, and every PUBLIC HTTP
+      # endpoint needs one that polls it (ERR_READINESS_REQUIRED), so only
+      # the dashboard can be public. The API server is left as the image
+      # configures it: on 127.0.0.1, with a key the cont-init hook generates
+      # into /opt/data/.env (docker/stage2-hook.sh), serving only the
+      # dashboard's in-container calls such as cron forwarding.
       primary:
         targetPort: 9119
         protocol: HTTP
@@ -165,15 +178,6 @@ spec:
         oidc:
           redirectPaths:
             - /auth/callback
-      # NOT EXPOSED: the gateway's OpenAI-compatible API server (:8642). It
-      # authenticates every route with a bearer key (`_check_auth`,
-      # gateway/platforms/api_server.py), so it could take a BEARER exemption.
-      # But a component has one readiness probe, and every PUBLIC HTTP
-      # endpoint needs one that polls it (ERR_READINESS_REQUIRED), so only
-      # the dashboard can be public. The API server is left as the image
-      # configures it: on 127.0.0.1, with a key the cont-init hook generates
-      # into /opt/data/.env (docker/stage2-hook.sh), serving only the
-      # dashboard's in-container calls such as cron forwarding.
     health:
       readiness:
         # /api/health is the dashboard's liveness route. It answers

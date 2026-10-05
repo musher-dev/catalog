@@ -2,7 +2,10 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: OpenCode coding agent's server and web UI behind HTTP basic auth, on an OpenAI-compatible model, with config, sessions and a workspace home on three volumes.
+  description: >-
+    OpenCode coding agent's server and web UI behind HTTP basic auth, on an
+    OpenAI-compatible model, with config, sessions and a workspace home on three
+    volumes.
 spec:
   type: SERVICE
   workload:

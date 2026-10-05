@@ -2,7 +2,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: One-shot job that writes the installation's language-model connection into Agent Canvas as its active LLM profile, through the agent server's own API.
+  description: >-
+    One-shot job that writes the installation's language-model connection into
+    Agent Canvas as its active LLM profile, through the agent server's own API.
 spec:
   # WHY A JOB. At the pinned tags nothing in Agent Canvas reads a model from
   # the environment:

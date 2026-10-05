@@ -2,7 +2,10 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: ZeroClaw agent daemon with its HTTP gateway and web dashboard behind the platform edge's sign-in, keeping config, memory and paired devices on one volume.
+  description: >-
+    ZeroClaw agent daemon with its HTTP gateway and web dashboard behind the
+    platform edge's sign-in, keeping config, memory and paired devices on one
+    volume.
 spec:
   type: SERVICE
   workload:
@@ -194,6 +197,9 @@ spec:
           directory is the sibling `.zeroclaw`.
       # HOME anchors `~` expansion and the default config directory
       # (~/.zeroclaw), so anything resolved from it also stays on the volume.
+      #
+      # ZEROCLAW_GATEWAY_PORT, which the image also sets, is not restated: no
+      # code at v0.8.5 reads it. The port comes from `--port` in `command`.
       home:
         schema:
           type: string
@@ -201,6 +207,4 @@ spec:
         target:
           envVarKey: HOME
         description: Home directory of the daemon's user, the `data` volume's mount path.
-      # ZEROCLAW_GATEWAY_PORT, which the image also sets, is not restated: no
-      # code at v0.8.5 reads it. The port comes from `--port` in `command`.
     outputs: {}

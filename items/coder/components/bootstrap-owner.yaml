@@ -2,7 +2,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: One-shot job that creates Coder's first Owner account, for the installer, through the server's own API over the private network.
+  description: >-
+    One-shot job that creates Coder's first Owner account, for the installer,
+    through the server's own API over the private network.
 spec:
   # WHY A JOB. Coder's first account becomes its Owner, and it is created by
   # POST /api/v2/users/first. That route checks no credential. It answers 409
