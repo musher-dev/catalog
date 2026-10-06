@@ -1,0 +1,136 @@
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: LiteLLM proxy with its database and cache, issuing virtual keys and recording spend in front of many model providers.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # Plain vX.Y.Z is LiteLLM's stable tag. From v1.84.0 it stopped
+      # publishing `-stable` / `-stable.patch.N` tags; pre-releases carry
+      # -rc.N / -dev.N instead
+      # (docs.litellm.ai/blog/cleaner-release-versions).
+      image: ghcr.io/berriai/litellm:v1.103.2
+    endpoints:
+      primary:
+        targetPort: 4000
+        protocol: HTTP
+    health:
+      readiness:
+        # With a database configured, proxy_cli.run_server builds DATABASE_URL
+        # and applies the Prisma migrations BEFORE uvicorn binds 4000
+        # (proxy/proxy_cli.py, v1.103.2), so on a first deploy nothing
+        # answers until the whole migration chain has run against an empty
+        # database. /health/readiness is public and reports the database too:
+        # it answers 503 while the database is unreachable
+        # (proxy/health_endpoints/_health_endpoints.py, v1.103.2).
+        http:
+          endpoint: primary
+          path: /health/readiness
+        initialDelaySeconds: 120
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+  contract:
+    inputs:
+      masterKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: LITELLM_MASTER_KEY
+        # Presented exactly as generated. v1.103.2 compares it to the request's
+        # key with secrets.compare_digest (proxy/auth/user_api_key_auth.py) and
+        # adds no prefix. With the database below it is also the admin
+        # dashboard's password, for the username `admin`.
+        description: >-
+          Admin token for the proxy API and password of the dashboard's `admin`
+          user, presented exactly as generated.
+      # Encrypts the provider credentials LiteLLM stores in the database.
+      # Upstream's guidance is to set it once and never change it: rotating it
+      # after a credential is saved makes every saved credential unreadable
+      # (proxy/common_utils/encrypt_decrypt_utils.py).
+      saltKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: LITELLM_SALT_KEY
+        description: >-
+          Key LiteLLM encrypts stored provider credentials with. Never rotate
+          it once a credential is saved.
+      # The four parts of the database URL, rather than one DSN. A component
+      # template reads only endpoint properties (COMP-REF-001), so nothing can
+      # compose a URL carrying the password. LiteLLM assembles it itself:
+      # with no DATABASE_URL and no config file, run_server calls
+      # construct_database_url_from_env_vars (proxy/utils.py, v1.103.2),
+      # which percent-encodes the username, password and database name and
+      # uses the host verbatim, so `host:port` is what it wants.
+      databaseHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: DATABASE_HOST
+        description: Mesh-internal `host:port` of the Postgres server LiteLLM keeps its state in.
+      databaseUsername:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: DATABASE_USERNAME
+        description: Role LiteLLM connects to Postgres as.
+      databasePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: DATABASE_PASSWORD
+        description: Password of the Postgres role above.
+      databaseName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVarKey: DATABASE_NAME
+        description: Postgres database LiteLLM applies its schema to and keeps its state in.
+      # Model definitions live in the database rather than in a config file,
+      # which this container has no way to receive, so models added from the
+      # dashboard survive a redeploy.
+      storeModelInDB:
+        schema:
+          type: string
+        default: 'True'
+        target:
+          envVarKey: STORE_MODEL_IN_DB
+        description: >-
+          Whether model definitions are stored in the database, as the literal
+          string the image parses.
+      # The default, DEV, is the one value that makes the CLI call
+      # load_dotenv() on start (proxy/proxy_cli.py, v1.103.2), reading a stray
+      # .env out of the working directory.
+      mode:
+        schema:
+          type: string
+        default: PRODUCTION
+        target:
+          envVarKey: LITELLM_MODE
+        description: LiteLLM's run mode; PRODUCTION reads no .env file.
+      # Read only once caching is switched on. No environment variable reaches
+      # that switch (`litellm_settings.cache`): it is set once from the
+      # dashboard or with POST /config/update, and STORE_MODEL_IN_DB keeps it
+      # in the database for every start. LiteLLM then connects with REDIS_URL
+      # alone (_redis.py, v1.103.2).
+      redisURL:
+        schema:
+          type: string
+        presentationHint: CONNECTION_STRING
+        required: true
+        target:
+          envVarKey: REDIS_URL
+        description: URL of the Redis server LiteLLM shares its cache and rate-limit state through.
+    outputs: {}

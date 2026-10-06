@@ -1,0 +1,85 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: litellm-stack
+  revision: 1
+  description: LiteLLM proxy with its own Postgres for virtual keys, teams and spend, and its own Redis for shared cache and rate limits.
+# Three nodes. Producers first: map order is graph order, and the two nodes the
+# wires come from read before the node they arrive at.
+spec:
+  components:
+    db:
+      componentRef: ./components/postgres.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only from this deployment.
+      bindings:
+        postgresPassword:
+          parameter: databasePassword
+        postgresUser:
+          value: litellm
+        postgresDb:
+          value: litellm
+    cache:
+      componentRef: ./components/redis.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 5
+    web:
+      componentRef: ./components/litellm.yaml
+      # The single-container `litellm` item runs on general.economy.nano because
+      # a stateless proxy is mostly idle sockets. This one is not: the first
+      # boot runs the Prisma migrations, and every request afterwards carries a
+      # key lookup and a spend write.
+      compute:
+        profile: general.standard.small
+      # PUBLIC, not behind the platform's sign-in. Its callers are API
+      # clients holding a LiteLLM key, and none of them holds a viewer session.
+      exposure:
+        primary: PUBLIC
+      bindings:
+        masterKey:
+          parameter: masterKey
+        saltKey:
+          parameter: saltKey
+        # The role and database `db` is initialised with, and one generated
+        # password shared by both ends: one parameter, so the two always agree.
+        databaseHost:
+          node: db
+          output: address
+        databaseUsername:
+          value: litellm
+        databasePassword:
+          parameter: databasePassword
+        databaseName:
+          value: litellm
+        redisURL:
+          node: cache
+          output: redisURL
+  parameters:
+    masterKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Master key
+        order: 1
+    saltKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Salt key
+        order: 2
+    databasePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 3
