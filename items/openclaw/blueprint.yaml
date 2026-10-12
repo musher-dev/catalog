@@ -2,7 +2,7 @@ specVersion: v1
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 8
+  revision: 9
   description: >-
     OpenClaw agent gateway on the installer's language-model connection, reached
     through the platform's sign-in with the viewer's identity forwarded, with
