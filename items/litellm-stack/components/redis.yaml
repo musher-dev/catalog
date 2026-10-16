@@ -2,27 +2,44 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: Redis in-memory data store with append-only persistence on one volume, publishing its private address and a redis:// URL.
+  description: >-
+    Redis in-memory data store behind a password, with append-only persistence
+    on one volume, publishing its private address, hostname and port.
 spec:
   type: SERVICE
   workload:
     source:
       image: redis:8.8.3-alpine
-    # Exec form, no shell: `command` replaces the image's CMD and keeps its
-    # ENTRYPOINT, which is what Docker and Compose mean by the same word.
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT,
+    # docker-entrypoint.sh, which is what Docker and Compose mean by the same
+    # word.
     #
-    # NO AUTHENTICATION. There is no `requirepass`, and the official image
-    # compiles protected-mode off (alpine/Dockerfile:83-88 in
-    # docker-library-redis v8.8.3), so any workload that can reach the private
-    # endpoint can read and write every key. Adding a password needs a shell
-    # to put an input into argv. A `sh -c` command would also skip the
-    # entrypoint's `redis-server` branch, which drops root and chowns /data,
-    # so it is left for a change that also gives consumers a way to take the
-    # password.
+    # The password reaches the workload the only way an input can, as an
+    # environment variable, and Redis reads none. So a shell writes
+    # REDIS_PASSWORD into the server's configuration, on stdin rather than in
+    # argv: argv is readable by anyone on the host through /proc, and would show
+    # the password in `ps`.
+    #
+    # The shell then execs docker-entrypoint.sh again, now with `redis-server`
+    # first. That is the branch which chowns /data, drops root through setpriv
+    # and appends a `--loadmodule` per bundled module
+    # (alpine/docker-entrypoint.sh in docker-library-redis v8.8.3). Started as a
+    # bare `sh -c`, the entrypoint sees `sh` first and skips all three.
+    #
+    # redis-server reads its configuration from stdin when `-` is its first or
+    # last argument (server.c), and the entrypoint appends after the last one,
+    # so `-` comes first. An empty REDIS_PASSWORD leaves `requirepass` with no
+    # value, which Redis refuses at startup: the server never runs open.
+    #
+    # The image compiles protected-mode off (alpine/Dockerfile:83-88), so the
+    # password is the only check a client meets.
     command:
-      - redis-server
-      - --appendonly
-      - "yes"
+      - sh
+      - -c
+      - |
+        exec docker-entrypoint.sh redis-server - --appendonly yes <<EOF
+        requirepass $REDIS_PASSWORD
+        EOF
     endpoints:
       primary:
         targetPort: 6379
@@ -32,29 +49,50 @@ spec:
         minSizeGiB: 5
         mountPath: /data
   contract:
-    inputs: {}
+    inputs:
+      # Redis splits a configuration line on whitespace and treats a quote as
+      # the start of a quoted word, so the alphabet is the one HEX, BASE64 and
+      # BASE64URL share, which needs neither.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVarKey: REDIS_PASSWORD
+        description: >-
+          Password a client must present (AUTH) before Redis serves it. At
+          least 16 letters, digits or `._~+/=-`, with no spaces or quotes.
     outputs:
       address:
         schema:
           type: string
         description: >-
-          Mesh-internal `host:port` of the cache endpoint (for example
-          `cache-myapp.internal:6379`), resolvable only by workloads in the same
-          deployment. Wire it into a consuming component's input to point that
-          workload at this cache.
+          Mesh-internal `host:port` of the cache endpoint, resolvable only by
+          workloads in the same deployment. Wire it into a consuming
+          component's input to point that workload at this cache.
         from:
           endpoint: primary
           property: privateAddress
-      # LiteLLM reads one Redis URL, and a template is the one way a
-      # component composes a value from its own address (COMP-REF-001). No
-      # credential goes in it: the server runs with no requirepass, and the
-      # endpoint is never exposed, so only this deployment's workloads reach it.
-      redisURL:
+      # No redis:// URL output. A component template reads only endpoint
+      # properties (COMP-REF-001), so no URL can carry the password, and one
+      # without it would be refused. A consumer takes the hostname and the port,
+      # and the blueprint binds the same password to both ends.
+      hostname:
         schema:
           type: string
-        presentationHint: CONNECTION_STRING
         description: >-
-          redis:// URL of the cache endpoint, resolvable only by workloads in the
-          same deployment, for clients that take one URL rather than an address.
+          Mesh-internal hostname of the cache endpoint, resolvable only by
+          workloads in the same deployment.
         from:
-          template: "redis://${{ self.endpoints.primary.privateAddress }}"
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the cache endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

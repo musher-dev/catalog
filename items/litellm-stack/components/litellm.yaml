@@ -2,7 +2,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 1
-  description: LiteLLM proxy with its database and cache, issuing virtual keys and recording spend in front of many model providers.
+  description: >-
+    LiteLLM proxy with its database and cache, issuing virtual keys and
+    recording spend in front of many model providers.
 spec:
   type: SERVICE
   workload:
@@ -123,14 +125,41 @@ spec:
       # Read only once caching is switched on. No environment variable reaches
       # that switch (`litellm_settings.cache`): it is set once from the
       # dashboard or with POST /config/update, and STORE_MODEL_IN_DB keeps it
-      # in the database for every start. LiteLLM then connects with REDIS_URL
-      # alone (_redis.py, v1.103.2).
-      redisURL:
+      # in the database for every start.
+      #
+      # The three parts of the Redis connection, rather than one URL. A
+      # component template reads only endpoint properties (COMP-REF-001), so
+      # no URL can carry the password, and REDIS_URL would lose it anyway: when
+      # a URL is set, _get_redis_client_logic drops the host, port and
+      # password it found in the environment (_redis.py, v1.103.2). With no
+      # URL it maps each REDIS_* variable to the redis-py argument of the same
+      # name, and coerces the port to an integer.
+      redisHost:
         schema:
           type: string
-        presentationHint: CONNECTION_STRING
         required: true
         target:
-          envVarKey: REDIS_URL
-        description: URL of the Redis server LiteLLM shares its cache and rate-limit state through.
+          envVarKey: REDIS_HOST
+        description: >-
+          Mesh-internal hostname of the Redis server LiteLLM shares its cache and
+          rate-limit state through.
+      redisPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVarKey: REDIS_PORT
+        description: Port of that Redis server.
+      # The schema the cache's own password input declares: one generated
+      # parameter fills both, so both ends describe the same value.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVarKey: REDIS_PASSWORD
+        description: Password LiteLLM presents to that Redis server.
     outputs: {}

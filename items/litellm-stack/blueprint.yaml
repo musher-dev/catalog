@@ -3,7 +3,9 @@ kind: BLUEPRINT
 metadata:
   slug: litellm-stack
   revision: 1
-  description: LiteLLM proxy with its own Postgres for virtual keys, teams and spend, and its own Redis for shared cache and rate limits.
+  description: >-
+    LiteLLM proxy with its own Postgres for virtual keys, teams and spend, and
+    its own password-protected Redis for shared cache and rate limits.
 # Three nodes. Producers first: map order is graph order, and the two nodes the
 # wires come from read before the node they arrive at.
 spec:
@@ -30,6 +32,10 @@ spec:
       volumes:
         data:
           sizeGiB: 5
+      # No exposure: PRIVATE, like `db`, and behind a password as well.
+      bindings:
+        redisPassword:
+          parameter: cachePassword
     web:
       componentRef: ./components/litellm.yaml
       # The single-container `litellm` item runs on general.economy.nano because
@@ -58,9 +64,16 @@ spec:
           parameter: databasePassword
         databaseName:
           value: litellm
-        redisURL:
+        # The cache's hostname and port, and the same generated password the
+        # `cache` node starts Redis with: one parameter, as with the database.
+        redisHost:
           node: cache
-          output: redisURL
+          output: hostname
+        redisPort:
+          node: cache
+          output: port
+        redisPassword:
+          parameter: cachePassword
   parameters:
     masterKey:
       generator:
@@ -83,3 +96,11 @@ spec:
       ui:
         label: Database password
         order: 3
+    # HEX, because Redis reads the password as one word of its configuration.
+    cachePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Cache password
+        order: 4

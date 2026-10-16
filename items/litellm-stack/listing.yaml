@@ -31,11 +31,12 @@ spec:
     with a 10 GiB volume; `cache` runs `redis:8.8.3-alpine` with
     append-only persistence on a 5 GiB volume; `web` runs
     `ghcr.io/berriai/litellm:v1.103.2` on port 4000 behind the platform's
-    HTTPS edge. The database address, credentials and the Redis URL are
-    wired between the nodes, so nothing is typed at install. The three
+    HTTPS edge. The database and cache addresses and their credentials are
+    wired between the nodes, so nothing is typed at install. The four
     secrets the stack runs on — the master key, the credential-encryption
-    salt key and the database password — are auto-generated at deploy;
-    copy them from the deployment's Installation tab. LiteLLM applies its
+    salt key, the database password and the cache password — are
+    auto-generated at deploy; copy them from the deployment's Installation
+    tab. Redis refuses any client without that password. LiteLLM applies its
     own schema to the empty database on first boot, which is why the first
     deploy takes a few minutes longer than a restart.
 
@@ -46,8 +47,8 @@ spec:
     default: LiteLLM has no environment variable for the switch, so turn
     it on once — from the dashboard, or with a single POST to
     `/config/update`. Either way the setting is written to Postgres and
-    applies on every start, using the Redis URL already in the
-    environment.
+    applies on every start, using the Redis address and password already
+    in the environment.
 
     Rotating the salt key after any provider credential has been saved
     makes those credentials unreadable. Treat it as fixed.
