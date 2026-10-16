@@ -36,8 +36,8 @@ spec:
     deployed, it answers health checks and authenticates the master key but
     **serves no models**. The admin dashboard's sign-in also needs the
     database, so the UI cannot be used. Virtual keys, teams, budgets and
-    spend tracking need the database-backed build this catalog does not ship yet
-    ([catalog#16](https://github.com/musher-dev/catalog/issues/16)).
+    spend tracking need a database too: deploy **LiteLLM Stack** instead,
+    the same proxy with its own Postgres and Redis.
   category: AI_ML
   lifecycleStage: BETA
   tags:

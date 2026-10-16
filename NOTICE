@@ -23,7 +23,7 @@ Marks reproduced in this repository:
   - Flowise (items/flowise/media/)
   - Label Studio (items/label-studio/media/)
   - Langflow (items/langflow/media/)
-  - LiteLLM (items/litellm/media/)
+  - LiteLLM (items/litellm/media/, items/litellm-stack/media/)
   - Meilisearch (items/meilisearch/media/)
   - MLflow (items/mlflow/media/)
   - n8n (items/n8n/media/)
