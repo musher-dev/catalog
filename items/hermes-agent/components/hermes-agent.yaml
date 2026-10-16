@@ -90,7 +90,7 @@ spec:
     # the credential of its built-in OpenAI provider.
     # The scrub is defence in depth only: those commands run as the same user
     # as the gateway and can read its environment and the volume. The
-    # dashboard's Chat tab starts `hermes --tui` with secrets kept
+    # dashboard's chat view starts `hermes --tui` with secrets kept
     # (`build_subprocess_env(scrub_secrets=False)`,
     # hermes_cli/web_server_chat.py), so it resolves `key_env` either way.
     #
