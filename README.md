@@ -338,7 +338,8 @@ Every item is validated against an **exact release of each family** of
 Families release independently, so they sit at different numbers — component and
 blueprint are past `1.0.0` because
 [ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
-made inputs the only way into a component, which was breaking for both. Nothing is vendored. The schemas are fetched from their exact release
+made inputs the only way into a component, which was breaking for both.
+Nothing is vendored. The schemas are fetched from their exact release
 URLs at `specifications.musher.dev`, and the release's conformance corpus from
 its GitHub release assets. Every byte is checked against the digest the release
 records, so the corpus is judged against exactly the contract it names, and

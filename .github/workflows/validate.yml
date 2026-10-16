@@ -42,5 +42,14 @@ jobs:
       - name: Lint the workflows
         uses: rhysd/actionlint@main
 
+      # Same pin as .devcontainer/mise.toml, which CI does not read.
+      - name: Lint the YAML
+        run: |
+          pipx install yamllint==1.38.0
+          git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint -c .config/yaml/yamllint.yaml --strict
+
+      - name: Lint the Markdown
+        run: node_modules/.bin/markdownlint-cli2 --config .config/markdown/markdownlint.jsonc "**/*.md" "#node_modules"
+
       - name: Validate the corpus
         run: npm test

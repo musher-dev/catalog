@@ -1,0 +1,79 @@
+# The language model the OpenCode agent runs on, as a node this platform does
+# not run (component spec §5.6). A copy of the `llm-endpoint` item's building
+# block: a repo-local componentRef cannot leave its item directory, so a
+# blueprint that needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
+# node declares three ordinary string inputs and the blueprint wires them to the
+# three outputs below, so the endpoint, the credential and the model always come
+# from one acquired connection rather than three independently supplied values.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The language-model API the OpenCode agent sends model requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection the agent runs on: endpoint, credential and
+          model, acquired together.
+        connection:
+          # Streaming and tool calls, both unconditionally. This is read from
+          # the source at v1.18.34, not observed against a mock server.
+          #
+          # The `web` node declares a custom provider whose npm package is
+          # `@ai-sdk/openai-compatible` (components/opencode.yaml). OpenCode
+          # bundles that package in its binary (BUNDLED_PROVIDERS,
+          # packages/opencode/src/provider/provider.ts), so it calls
+          # POST {baseURL}/chat/completions with the key as a bearer token. The
+          # agent loop calls the AI SDK's `streamText`
+          # (packages/opencode/src/session/llm.ts), and provider.ts sets
+          # `includeUsage` for this package, so requests ask for streamed usage
+          # too. A model declared in config defaults to `tool_call: true`
+          # (same file, "extend database from config"), and the agent's
+          # built-in tools (shell, read, edit, grep and others) are sent on
+          # every turn. A model without tool calling cannot do the agent's work.
+          #
+          # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES. The
+          # openai-compatible package speaks only chat completions, and it
+          # accepts the widest range of compatible defaults and replacement
+          # connections, including engines run on your own hardware.
+          #
+          # This is declared on the supplying node rather than on `web`: after
+          # ADR 0033 a workload sees three strings and cannot demand a protocol.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, from the
+          connection this node was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the agent uses by default, from the same connection.
+        from:
+          input: llm
+          member: model

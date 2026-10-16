@@ -1,0 +1,87 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: opencode
+spec:
+  itemType: BLUEPRINT
+  displayName: OpenCode
+  summary: Open-source AI coding agent in your browser, running on your organization's language model
+  description: |
+    ## What it is
+    OpenCode is an open-source AI coding agent. You describe a change in a
+    chat, and the agent reads your code, edits files and runs shell commands
+    to make it. This deployment runs OpenCode's server with its built-in web
+    UI, so you work in a browser tab instead of a local terminal.
+
+    ## When to use
+    - You want a coding agent that runs on infrastructure you control, with
+      sessions and code staying on your deployment.
+    - You want to point an agent at your organization's model, including one
+      you host yourself, rather than a vendor's subscription.
+    - You want an always-on workspace you can reach from any machine, where a
+      long agent run keeps going after you close the tab.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model name travel
+    together as a single connection. Anything speaking the OpenAI
+    chat-completions protocol with streaming and tool calls will do,
+    including an engine you run yourself. The model must support tool calls,
+    because that is how the agent edits files and runs commands.
+
+    The connection is applied each time OpenCode starts, so a rotated
+    credential or a replaced connection takes effect on the next restart.
+    You can still add other providers in OpenCode's settings.
+
+    ## Defaults
+    Single-container deployment of `ghcr.io/anomalyco/opencode:1.18.34`,
+    with the web UI and API on port 4096 behind the platform's HTTPS edge.
+    Three persistent volumes:
+    - 10 GiB at `/workspace`, the agent's home directory. The project picker
+      opens here, so clone or create your projects under it.
+    - 5 GiB at `/var/lib/opencode/data` for sessions, provider credentials
+      you add in the UI, and logs.
+    - 1 GiB at `/var/lib/opencode/config` for OpenCode's global settings.
+
+    OpenCode's own hosted models are turned off, so prompts and code go only
+    to the model you chose or providers you add yourself. Session sharing is
+    turned off too, so a session can't be published to a public link.
+
+    The official image is minimal: OpenCode, ripgrep and a basic `sh` on
+    Alpine Linux. It has **no git, Node.js or Python**. The agent can install
+    packages with `apk add`, for example `apk add git`, but anything installed
+    outside `/workspace` is lost on restart.
+
+    ## Access and security
+    Getting in takes two sign-ins. First the platform signs you in and admits
+    only people its access policy allows for this deployment. Then your
+    browser shows its own sign-in dialog for OpenCode's password. The user
+    name is `opencode`, and the password is on the deployment's Installation
+    tab. Your browser usually remembers it until you close it.
+
+    The OpenCode password stays on even behind the platform's sign-in.
+    Without it, anyone who could reach the server would have the agent's full
+    access.
+
+    The agent runs shell commands as root inside the container and can read
+    and change anything in it, `/workspace` included. Anyone who gets past
+    both sign-ins has that same access, including any credentials stored on
+    the volumes.
+    Treat the deployment as a shared shell account and limit who can open it.
+
+    Tools that talk to the OpenCode server from outside the browser, such as
+    `opencode attach` on your laptop, can't get through the platform's
+    sign-in. Use the web UI.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - agents
+    - coding
+    - developer-tools
+    - terminal
+  homepageURL: https://opencode.ai
+  sourceRepoURL: https://github.com/anomalyco/opencode
+  supportURL: https://opencode.ai/docs
+  license: MIT
+  icon: media/icon.png

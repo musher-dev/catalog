@@ -1,0 +1,34 @@
+# yamllint rules for this repo's YAML (catalog items, workflows, taskfile, hooks).
+# Read by: yamllint, via an explicit -c path. Never auto-discovered; see
+# check:yaml in Taskfile.yml and .config/lefthook.yml for the call sites.
+# Rule reference: https://yamllint.readthedocs.io/en/stable/rules.html
+
+extends: default
+
+rules:
+  # Workflows carry SHA pins with a version comment, and single-line shell
+  # commands that cannot be wrapped without breaking them.
+  line-length:
+    max: 120
+    allow-non-breakable-words: true
+    allow-non-breakable-inline-mappings: true
+
+  # GitHub Actions requires the key `on:`, which YAML 1.1 reads as boolean
+  # true. Every workflow would fail this rule for doing the only correct thing.
+  truthy:
+    check-keys: false
+
+  # `---` is optional noise in single-document files; be consistent by not
+  # requiring it.
+  document-start: disable
+
+  # Both sequence-indent styles are readable and the ecosystem is split.
+  # Accept either, consistently within a file.
+  indentation:
+    spaces: 2
+    indent-sequences: consistent
+
+  comments:
+    min-spaces-from-content: 1
+
+  comments-indentation: enable

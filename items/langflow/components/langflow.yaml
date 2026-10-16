@@ -2,7 +2,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 8
-  description: Langflow visual flow builder for LLM applications, signing viewers in from the platform's signed assertion, with its database on one volume.
+  description: >-
+    Langflow visual flow builder for LLM applications, signing viewers in from
+    the platform's signed assertion, with its database on one volume.
 spec:
   type: SERVICE
   workload:

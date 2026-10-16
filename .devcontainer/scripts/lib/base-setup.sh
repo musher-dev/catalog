@@ -160,7 +160,7 @@ base_install_claude() {
 # Returns:
 #   0 if all tools found, 1 if any are missing
 base_verify_tools() {
-  local tools=(gh task node npm lefthook actionlint shellcheck)
+  local tools=(gh task node npm lefthook actionlint shellcheck yamllint)
   [[ "${MUSHER_INSTALL_CLAUDE:-1}" == "0" ]] || tools+=(claude)
   verify_tools "${tools[@]}"
 }

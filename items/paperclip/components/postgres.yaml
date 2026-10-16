@@ -1,0 +1,85 @@
+# The PostgreSQL server Paperclip keeps its state in. A copy of the `postgres`
+# item's component (items/postgres/components/postgres.yaml, revision 7): a
+# repo-local componentRef cannot leave its item directory, so a blueprint that
+# needs one carries its own. Keep the two in step when bumping the image.
+#
+# Upstream's full-stack compose (docker/docker-compose.yml, v2026.1001.0) runs
+# Paperclip beside postgres:17-alpine; this pins the same major.
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: PostgreSQL relational database with a single persistent data volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      image: postgres:17.11-alpine
+    endpoints:
+      primary:
+        targetPort: 5432
+        protocol: TCP
+    volumes:
+      data:
+        minSizeGiB: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including this one. It carries a default, so no blueprint has to
+      # wire it and the install form gains no field.
+      #
+      # Unlike the three below, PGDATA is read on every boot: it is where the
+      # entrypoint looks for the cluster, not just where it would create one.
+      # A subdirectory of the mount, not the mount itself, because initdb
+      # refuses a directory it does not own and the volume root may carry
+      # lost+found.
+      pgdata:
+        schema:
+          type: string
+        default: /var/lib/postgresql/data/pgdata
+        target:
+          envVarKey: PGDATA
+        description: Directory PostgreSQL keeps its data files in.
+      # The three inputs below are read by the image's docker-entrypoint.sh
+      # only while it initialises an EMPTY data directory. Once PGDATA holds a
+      # cluster they are ignored, so changing any of them later does not change
+      # the database: use ALTER ROLE / CREATE DATABASE instead.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVarKey: POSTGRES_PASSWORD
+        description: >-
+          Password the database superuser is created with on first boot; copy
+          it from the deployment's Installation tab.
+      postgresUser:
+        schema:
+          type: string
+        default: postgres
+        required: false
+        target:
+          envVarKey: POSTGRES_USER
+        description: Role the database is initialised with and clients connect as.
+      postgresDb:
+        schema:
+          type: string
+        default: app
+        required: false
+        target:
+          envVarKey: POSTGRES_DB
+        description: Database created on first boot for the application to use.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the database endpoint (for example
+          `db-myapp.internal:5432`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's input to point that
+          workload at this database.
+        from:
+          endpoint: primary
+          property: privateAddress

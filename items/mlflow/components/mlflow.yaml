@@ -2,7 +2,9 @@ specVersion: v1
 kind: COMPONENT
 metadata:
   revision: 10
-  description: MLflow tracking server with its own login, its metadata store, user store and proxied artifacts on one volume.
+  description: >-
+    MLflow tracking server with its own login, its metadata store, user store
+    and proxied artifacts on one volume.
 spec:
   type: SERVICE
   workload:
@@ -29,6 +31,9 @@ spec:
     # The script writes that file onto the volume from the inputs below, on
     # every start, then execs the server. The admin username and password
     # come from MLFLOW_AUTH_ADMIN_*, which take precedence over the file.
+    # The printf format is one single-quoted shell word; folding it would put
+    # a space inside the file it writes.
+    # yamllint disable rule:line-length
     command:
       - sh
       - -c
@@ -37,6 +42,7 @@ spec:
         printf '[mlflow]\ndefault_permission = %s\ndatabase_uri = %s\nauthorization_function = mlflow.server.auth:authenticate_request_basic_auth\n'
         "$MLFLOW_AUTH_DEFAULT_PERMISSION" "$MLFLOW_AUTH_DATABASE_URI" > "$MLFLOW_AUTH_CONFIG_PATH";
         exec mlflow server --app-name basic-auth
+    # yamllint enable rule:line-length
     endpoints:
       primary:
         targetPort: 5000

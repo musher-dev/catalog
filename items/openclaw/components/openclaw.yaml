@@ -1,18 +1,20 @@
 specVersion: v1
 kind: COMPONENT
 metadata:
-  revision: 8
-  description: OpenClaw agent gateway and Control UI behind the platform edge's sign-in, with its config, sessions and credentials on two volumes.
+  revision: 9
+  description: >-
+    OpenClaw agent gateway and Control UI behind the platform edge's sign-in,
+    with its config, sessions and credentials on two volumes.
 spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 2026.9.7 is the latest stable release (2026-09-30). The tag on
+      # PINNED. 2026.10.2 is the latest stable release (2026-10-12). The tag on
       # ghcr carries no `v` prefix.
       #
       # This item previously sat on 2026.7.1 because it relied on
       # `gateway.controlUi.dangerouslyDisableDeviceAuth`, which 2026.8.x made
-      # inert: at 2026.9.7 `shouldSkipControlUiPairing`
+      # inert: at 2026.10.2 `shouldSkipControlUiPairing`
       # (src/gateway/server/ws-connection/connect-policy.ts) returns only
       # "tailscale-device", "auth-none" or null, and `doctor --fix` deletes the
       # key as retired. Browsers are admitted here by trusted-proxy auth with
@@ -20,9 +22,11 @@ spec:
       #
       # When bumping, re-read the pairing plan
       # (src/gateway/server/ws-connection/connect-pairing-approval-plan.ts) for
-      # the trusted-proxy auto-approve lane, and docker-entrypoint.mjs (see
-      # below) for any change to which commands it passes through.
-      image: ghcr.io/openclaw/openclaw:2026.9.7
+      # the trusted-proxy auto-approve lane, docker-entrypoint.mjs (see below)
+      # for any change to which commands it passes through, and
+      # src/gateway/server-http.ts for which probe routes are answered before
+      # proxy attribution (see the block above `readiness`).
+      image: ghcr.io/openclaw/openclaw:2026.10.2
     # Converge config through OpenClaw's own `config set` CLI, then exec the
     # gateway.
     #
@@ -38,7 +42,7 @@ spec:
     # boot.
     #
     # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
-    # CONFIG-FILE-ONLY: no env var sets it. At 2026.9.7 a non-loopback bind
+    # CONFIG-FILE-ONLY: no env var sets it. At 2026.10.2 a non-loopback bind
     # with the Control UI on refuses to start without it or
     # `gateway.publicOrigin` (src/gateway/server-runtime-config.ts). Since
     # 2026.9.7 an omitted allowlist defaults to `[gateway.publicOrigin]`, but
@@ -86,7 +90,7 @@ spec:
     # `viewerIdentityHeader` and `trustedProxyCIDRs` outputs below and bound
     # back into this node's inputs. Nothing here defaults or guesses them.
     #
-    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.9.7) accepts that
+    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.10.2) accepts that
     # header only when:
     #
     #   1. the TCP peer is inside `gateway.trustedProxies`, else
@@ -179,21 +183,41 @@ spec:
         protocol: HTTP
     health:
       readiness:
-        # /startupz is upstream's orchestrator gate (docs/install/docker.md,
-        # v2026.9.7): 503 while startup, migrations included, is still settling,
-        # then 200. /readyz also turns 503 on plugin reloads and failed channels,
-        # which suits monitoring better than routing.
+        # /healthz, not upstream's /startupz or /readyz: under trusted-proxy
+        # auth the platform's probe cannot reach either of those.
+        #
+        # The platform probes over the published port with no forwarding
+        # headers, so this container sees the probe arrive from the same peer
+        # as forwarded traffic, which `trustedProxies` covers (BP-ACCESS-004).
+        # At 2026.10.2, src/gateway/server-http.ts answers only the live
+        # routes (/health, /healthz) before proxy attribution. /startupz and
+        # /readyz from a trusted peer whose forwarding headers name no
+        # non-loopback client are `unattributable-proxy`, answered 403
+        # `proxy_attribution_required` (src/gateway/ingress-attribution.ts),
+        # though docs/gateway/health.md calls every probe unauthenticated. A
+        # /startupz readiness probe therefore never passes, and probe `auth`
+        # cannot help because attribution runs first.
+        # musher-dev/specifications#184 tracks the platform side; move back to
+        # /startupz once probes are attributable.
+        #
+        # What this proves: the HTTP listener is up, which happens only after
+        # the boot command's doctor and `config set` have finished. Startup
+        # sidecars and agent-database inspection may still be settling. Until
+        # they do, the gateway serves the Control UI and answers RPCs with a
+        # retryable UNAVAILABLE, so a viewer who arrives that early waits
+        # rather than fails.
         http:
           endpoint: primary
-          path: /startupz
-        # Node boot, doctor and SQLite migrations run before the gate opens.
+          path: /healthz
+        # Node boot, doctor and SQLite migrations run before anything listens.
         initialDelaySeconds: 45
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
       liveness:
-        # Probe routes are answered before the Control UI and need no auth, so
-        # /healthz returns JSON `{ok:true,status:"live"}`, never the UI shell.
+        # The live routes are answered before the Control UI, auth and proxy
+        # attribution, so /healthz returns JSON `{ok:true,status:"live"}`,
+        # never the UI shell.
         http:
           endpoint: primary
           path: /healthz

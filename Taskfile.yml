@@ -19,6 +19,9 @@ vars:
   SHELL_SOURCES: .devcontainer/scripts
   ENV_FILE: .devcontainer/.env
   ENV_EXAMPLE: .devcontainer/.env.example
+  YAML_CONFIG: .config/yaml/yamllint.yaml
+  MD_CONFIG: .config/markdown/markdownlint.jsonc
+  MARKDOWNLINT: node_modules/.bin/markdownlint-cli2
 
 tasks:
   default:
@@ -44,6 +47,8 @@ tasks:
       - task: check:catalog
       - task: check:shell
       - task: check:workflow
+      - task: check:yaml
+      - task: check:md
 
   # ===========================================================================
   # Validation
@@ -80,9 +85,12 @@ tasks:
   # ===========================================================================
   # Linting
   #
-  # Both linters are pinned in .devcontainer/mise.toml (actionlint) or as a
-  # devcontainer Feature (shellcheck), so a container has them and a bare
-  # checkout may not. Each skips with a note rather than failing the run.
+  # actionlint and yamllint are pinned in .devcontainer/mise.toml, and
+  # shellcheck as a devcontainer Feature, so a container has them and a bare
+  # checkout may not. Each of those skips with a note rather than failing the
+  # run. markdownlint-cli2 is an npm devDependency, so `npm ci` brings it
+  # everywhere the suite runs. Both new linters read their config by explicit
+  # path from .config/, never by discovery.
   # ===========================================================================
 
   check:shell:
@@ -105,6 +113,23 @@ tasks:
       - '! command -v actionlint'
     cmds:
       - actionlint
+
+  check:yaml:
+    desc: Lint the YAML against .config/yaml/yamllint.yaml (warnings fail)
+    status:
+      - '! command -v yamllint'
+    cmds:
+      - git ls-files -z '*.yml' '*.yaml' | xargs -0 yamllint -c {{.YAML_CONFIG}} --strict
+
+  check:md:
+    desc: Lint the Markdown against .config/markdown/markdownlint.jsonc
+    cmds:
+      - '{{.MARKDOWNLINT}} --config {{.MD_CONFIG}} "**/*.md" "#node_modules"'
+
+  fmt:md:
+    desc: Apply the Markdown fixes markdownlint can make itself
+    cmds:
+      - '{{.MARKDOWNLINT}} --fix --config {{.MD_CONFIG}} "**/*.md" "#node_modules"'
 
   # ===========================================================================
   # Setup internals

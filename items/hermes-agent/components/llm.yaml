@@ -1,0 +1,75 @@
+# The language model the Hermes agent runs on, as a node this platform does
+# not run (component spec §5.6). A copy of the `llm-endpoint` item's building
+# block: a repo-local componentRef cannot leave its item directory, so a
+# blueprint that needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
+# node declares three ordinary string inputs and the blueprint wires them to the
+# three outputs below, so the endpoint, the credential and the model always come
+# from one acquired connection rather than three independently supplied values.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The language-model API the Hermes agent sends model requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection the agent runs on: endpoint, credential and
+          model, acquired together.
+        connection:
+          # Streaming and tool calls, both unconditionally. Read from the
+          # source at v2026.9.24, not observed against a running deployment.
+          # Hermes is an agent loop: the chat-completions transport attaches
+          # the agent's tool definitions to the request (`api_kwargs["tools"]`
+          # in agent/transports/chat_completions.py), and the agent core
+          # prefers streaming for every turn, subagents included, unless
+          # `model.streaming` is turned off (cli-config.yaml.example). The
+          # boot command in hermes-agent.yaml pins the route to `api_mode:
+          # chat_completions`, so requests go to POST
+          # {baseURL}/chat/completions.
+          #
+          # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES. Hermes can
+          # speak both, but its custom-endpoint route (`provider: custom`,
+          # website/docs/integrations/providers.md) is the OpenAI-compatible
+          # one, and that protocol accepts the widest range of compatible
+          # defaults and replacement connections.
+          #
+          # This is declared on the supplying node rather than on `web`: after
+          # ADR 0033 a workload sees three strings and cannot demand a protocol.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, from the
+          connection this node was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the agent uses by default, from the same connection.
+        from:
+          input: llm
+          member: model
