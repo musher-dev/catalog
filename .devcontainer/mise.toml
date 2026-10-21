@@ -24,6 +24,10 @@
 # interpreter it runs on: the container has no system Python to lean on.
 "aqua:astral-sh/uv" = "0.12.18"
 "pipx:yamllint"     = "1.38.0"
+# Codex, the coding agent the container offers beside Claude Code; its login
+# lives on the codex-config volume. npm's package, because Node is already here
+# as a Feature.
+"npm:@openai/codex" = "0.143.0"
 
 [settings]
 # pipx tools install through uv rather than a system pipx.

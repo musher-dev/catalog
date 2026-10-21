@@ -3,7 +3,8 @@
 #
 # Runs once after the container is created. Sets up config and cache
 # directories, installs the pinned CLIs and Claude Code, then installs this
-# repository's own dependencies.
+# repository's own dependencies. post-attach.sh finishes the GitHub credential
+# once an editor attaches.
 #
 # Usage: Called automatically by devcontainer.json postCreateCommand.
 set -euo pipefail

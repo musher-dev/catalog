@@ -8,7 +8,7 @@
 // absent.
 //
 // Kept: Node for the test suite, Task as the runner, shellcheck and actionlint
-// for the scripts and workflows, gh for release work, and Claude Code.
+// for the scripts and workflows, gh for release work, Claude Code and Codex.
 {
   "name": "Musher Catalog",
 
@@ -50,16 +50,36 @@
   // Loaded at `docker run` time so shells and `task` runs see the same values.
   "runArgs": ["--env-file", "${localWorkspaceFolder}/.devcontainer/.env"],
 
-  // Named volumes, so a `gh auth login` and a Claude sign-in survive a rebuild.
+  // One volume per purpose, each unique to this container, so the gh, Claude
+  // Code and Codex logins and sessions, shell history and the download caches
+  // survive a rebuild. Each target's parent already exists in the image, so
+  // Docker creates no root-owned directory on the way; post-create takes
+  // ownership of the volumes themselves.
   "mounts": [
-    "source=musher-catalog-${devcontainerId}-gh-config,target=/home/vscode/.config/gh,type=volume",
-    "source=musher-catalog-${devcontainerId}-claude-config,target=/home/vscode/.claude,type=volume"
+    "source=musher-${devcontainerId}-gh-config,target=/home/vscode/.config/gh,type=volume",
+    "source=musher-${devcontainerId}-claude-config,target=/home/vscode/.claude,type=volume",
+    "source=musher-${devcontainerId}-codex-config,target=/home/vscode/.codex,type=volume",
+    "source=musher-${devcontainerId}-shell-history,target=/home/vscode/.shell-history,type=volume",
+    "source=musher-${devcontainerId}-cache,target=/home/vscode/.cache,type=volume"
   ],
 
   "containerEnv": {
     // mise's manifest lives under .devcontainer/, not the repo root.
     "MISE_GLOBAL_CONFIG_FILE": "${containerWorkspaceFolder}/.devcontainer/mise.toml",
     "MISE_TRUSTED_CONFIG_PATHS": "${containerWorkspaceFolder}",
+
+    // Claude keeps .claude.json beside its config dir, so without this it
+    // lands in ~/ — outside the claude volume — and is lost on every rebuild.
+    "CLAUDE_CONFIG_DIR": "/home/vscode/.claude",
+
+    // Every Claude Code session starts at max effort. An env var because the
+    // settings file's effortLevel has no "max"; it also outranks /effort, so
+    // start a lighter session as `CLAUDE_CODE_EFFORT_LEVEL=auto claude`.
+    "CLAUDE_CODE_EFFORT_LEVEL": "max",
+
+    // Node's REPL history joins the shell's on its volume; post-create points
+    // zsh and bash there.
+    "NODE_REPL_HISTORY": "/home/vscode/.shell-history/node_repl_history",
 
     "XDG_CACHE_HOME": "/home/vscode/.cache",
     "NPM_CONFIG_CACHE": "/home/vscode/.cache/npm",
@@ -68,7 +88,12 @@
   },
 
   "remoteEnv": {
-    "PATH": "/home/vscode/.local/share/mise/shims:/home/vscode/.local/bin:${containerEnv:PATH}"
+    "PATH": "/home/vscode/.local/share/mise/shims:/home/vscode/.local/bin:${containerEnv:PATH}",
+
+    // The host's GH_TOKEN, when it exports one: the first credential
+    // lib/github-auth.sh offers gh. Not GH_TOKEN itself, which would override
+    // gh's stored login on every call.
+    "MUSHER_HOST_GH_TOKEN": "${localEnv:GH_TOKEN}"
   },
 
   // Host-side: creates .devcontainer/.env from the template and strips CRLF so
@@ -86,6 +111,9 @@
     "setup": ["bash", ".devcontainer/scripts/post-create.sh"]
   },
   "postStartCommand": ["bash", ".devcontainer/scripts/startup.sh"],
+  // post-attach finishes the GitHub credential once VS Code has copied the
+  // host's ~/.gitconfig, which happens only after post-create.
+  "postAttachCommand": ["bash", ".devcontainer/scripts/post-attach.sh"],
 
   "customizations": {
     "vscode": {
@@ -98,7 +126,9 @@
         "eamodio.gitlens",
         "bierner.markdown-mermaid",
         "github.copilot",
-        "github.copilot-chat"
+        "github.copilot-chat",
+        // Claude Code's editor integration; the CLI comes from post-create.
+        "anthropic.claude-code"
       ],
       "settings": {
         "editor.formatOnSave": true,
