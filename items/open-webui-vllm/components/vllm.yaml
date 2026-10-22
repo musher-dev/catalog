@@ -1,0 +1,222 @@
+# The language model of this deployment, run by the platform on a GPU rather
+# than reached through a connection the organization configured. It publishes
+# the three outputs the open-webui item's EXTERNAL `llm` node forwards from its
+# connection, under the same names and types, so a node that calls the model
+# wires to this one exactly as it wires to that one (catalog#26).
+specVersion: v1
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    vLLM serving Qwen3-4B-Instruct-2507 on one NVIDIA GPU through an
+    OpenAI-compatible API with streaming and tool calls, publishing its private
+    base URL, its API key and the model's name.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.31.0 (2026-10-05) is the newest vLLM release at least two
+      # weeks old. The `-cu129` tag is its CUDA 12.9.1 build; the bare tag is
+      # the CUDA 13.0.2 build (.buildkite/release-pipeline.yaml at v0.31.0),
+      # and CUDA 13 needs an R580 driver. host-config installs R580 only on a
+      # GPU host whose image brings no driver, and keeps a vendor image's own
+      # driver from branch 570 on (nvidia_driver_min_branch). A CUDA 12.9
+      # runtime runs natively from R575, and on R570 under CUDA's minor-version
+      # compatibility. Both builds carry kernels for sm_75 to sm_120. The
+      # linux/amd64 image is 11.0 GB compressed, in one 6.5 GB layer and 39
+      # smaller ones.
+      image: vllm/vllm-openai:v0.31.0-cu129
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT, `vllm serve`
+    # (docker/Dockerfile at v0.31.0), so the list below is serve's arguments.
+    # The image runs as root, so the Hugging Face cache and vLLM's compile cache
+    # live under /root/.cache, in the container's own writable layer.
+    #
+    # The model is Qwen/Qwen3-4B-Instruct-2507 (Apache-2.0, not gated), pinned
+    # to a Hugging Face commit; the tokenizer follows the same revision
+    # (vllm/config/model.py). It is Qwen3's non-thinking instruct model, so a
+    # reply is plain content with no reasoning block to separate out. Its chat
+    # template asks for each tool call as a JSON object of `name` and
+    # `arguments` between <tool_call> tags, which the `hermes` parser reads,
+    # streaming included (vllm/tool_parsers/hermes_tool_parser.py).
+    #
+    # --enable-auto-tool-choice is what makes vLLM parse a tool call out of a
+    # request whose tool_choice is "auto", which is what any request carrying
+    # tools defaults to (entrypoints/openai/chat_completion/protocol.py,
+    # parser/abstract_parser.py). Open WebUI v0.11.4 sends its built-in tools
+    # with every chat unless an admin sets a model's function calling to
+    # legacy (the open-webui item's components/llm.yaml), so without the flag a
+    # tool call would reach it as raw markup in the reply.
+    #
+    # --max-model-len 32768, of the model's 262144, is sized for the smallest
+    # card the node accepts, 24 GB (blueprint.yaml). The weights are 8.04 GB
+    # (7.5 GiB) in bfloat16. A token of KV cache is 144 KiB (36 layers, 8 KV
+    # heads of 128, key and value, 2 bytes each), so one full-length sequence
+    # needs 4.5 GiB. An L4 or an A10 gives CUDA about 22 GiB, and 0.90 of it
+    # leaves about 10 GiB of KV cache once the weights and about 2 GiB of
+    # activations and CUDA graphs are in: room for two full-length sequences
+    # at once, or many ordinary chats. 65536 would leave room for one.
+    #
+    # --gpu-memory-utilization 0.90, below v0.31.0's default of 0.92
+    # (vllm/config/cache.py). The card is this node's alone: the host agent
+    # hands the container only the card it was allocated. But 32768 tokens
+    # already fit with room to spare at 0.90, and the other 2%, about 0.45 GiB
+    # of a 24 GB card, stays free for memory vLLM's profile does not see, such
+    # as the CUDA context it creates first. The fraction is of the whole card,
+    # so a larger card gives the KV cache more room, not the model a longer
+    # context.
+    #
+    # --disable-access-log-for-endpoints keeps the probes below, a request every
+    # ten to thirty seconds, out of the access log.
+    command:
+      - Qwen/Qwen3-4B-Instruct-2507
+      - --revision
+      - cdbee75f17c01a7cc42f958dc650907174af0554
+      - --max-model-len
+      - '32768'
+      - --gpu-memory-utilization
+      - '0.90'
+      - --enable-auto-tool-choice
+      - --tool-call-parser
+      - hermes
+      - --disable-access-log-for-endpoints
+      - /health
+    endpoints:
+      # vLLM's default --port. With --host unset it binds every IPv4 interface
+      # (vllm/entrypoints/launchers/launcher.py). The blueprint leaves it
+      # PRIVATE: only this deployment's own nodes reach it.
+      primary:
+        targetPort: 8000
+        protocol: HTTP
+    health:
+      # /health answers 200 while the engine is alive and 503 once it has died
+      # (vllm/entrypoints/serve/instrumentator/health.py), and needs no
+      # credential: the API key guards only paths under /v1, /v2, /inference
+      # and /cohere (serve/middleware/authenticate.py).
+      #
+      # Nothing listens on 8000 until the model is ready. vLLM binds the port
+      # first but listens on it only once the engine has downloaded the weights
+      # from Hugging Face, which a new container always does since no volume
+      # keeps them, then loaded them, profiled memory, compiled the model and
+      # captured its CUDA graphs (entrypoints/launchers/launcher.py). Every
+      # probe until then is connection-refused, so the startup probe carries
+      # the whole wait: a first attempt after 60 s, then one every 10 s for 180
+      # attempts, about 31 minutes in all. A start that exhausts it is
+      # restarted in place, which keeps the container's writable layer, so the
+      # next attempt resumes the download rather than starting it again.
+      # Readiness and liveness begin once startup has passed. A later start of
+      # the same container finds the weights and the compile cache already
+      # there and takes a minute or two.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 60
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 180
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      # A server that stops answering /health for 90 s is restarted. The API
+      # server answers it apart from the engine, which runs in a process of its
+      # own, so a long generation does not hold it up.
+      liveness:
+        http:
+          endpoint: primary
+          path: /health
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the two constants after the key. They carry defaults,
+      # so no blueprint has to wire them and no install form gains a field.
+      #
+      # The key reaches vLLM as VLLM_API_KEY, which it reads when no --api-key
+      # is given (vllm/entrypoints/serve/middleware/register.py), so it never
+      # sits in argv, where `ps` and the container's configuration would show
+      # it. vLLM reads an empty VLLM_API_KEY as no key at all and then serves
+      # /v1 to anyone, so the schema refuses a short one.
+      #
+      # The key guards /v1, /v2, /inference and /cohere only
+      # (serve/middleware/authenticate.py). Other routes answer without it,
+      # /invocations among them, which serves the same model. The endpoint
+      # therefore stays PRIVATE: the key is a second check behind the private
+      # network, never the only one.
+      apiKey:
+        schema:
+          type: string
+          minLength: 16
+        sensitive: true
+        required: true
+        target:
+          envVarKey: VLLM_API_KEY
+        description: >-
+          Bearer token vLLM requires on every /v1 request, and the value this
+          node publishes as its `apiKey` output.
+      # vLLM's API server waits this long for the engine to report ready, then
+      # exits (vllm/v1/engine/core_client.py). The wait covers the weights
+      # download, so v0.31.0's default of 600 s would end a first start on a
+      # slow link. An hour is past the startup probe's 31 minutes, so the probe
+      # always decides first, and its restart keeps what was downloaded.
+      engineReadyTimeoutSeconds:
+        schema:
+          type: integer
+          minimum: 1
+        default: 3600
+        target:
+          envVarKey: VLLM_ENGINE_READY_TIMEOUT_S
+        description: >-
+          Seconds vLLM waits on a start for its engine to download, load and
+          compile the model before it gives up.
+      # vLLM reports anonymous usage statistics to stats.vllm.ai unless told
+      # not to (vllm/usage/usage_lib.py). huggingface_hub reads the same
+      # variable as an opt-out of its own telemetry.
+      doNotTrack:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVarKey: DO_NOT_TRACK
+        description: >-
+          Whether vLLM's usage statistics and Hugging Face Hub telemetry are
+          off, as the literal string both parse.
+    outputs:
+      # The three members an OpenAI-compatible connection carries, under the
+      # names and types the open-webui item's EXTERNAL `llm` node publishes
+      # them with, so a consumer cannot tell this node from that one.
+      #
+      # vLLM serves the OpenAI API under /v1, and a client appends
+      # /chat/completions and /models to the base URL.
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of vLLM's OpenAI-compatible API on the deployment's private
+          network, resolvable only by workloads in the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateHostname }}:${{ self.endpoints.primary.privatePort }}/v1"
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer token for the API above.
+        from:
+          input: apiKey
+      # vLLM serves the model under its Hugging Face id, since the command sets
+      # no --served-model-name. That id is what GET /v1/models lists and what a
+      # request names, so it stays equal to the command's first argument.
+      model:
+        schema:
+          type: string
+        description: Model the API above serves, as /v1/models lists it.
+        from:
+          value: Qwen/Qwen3-4B-Instruct-2507

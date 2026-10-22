@@ -1,0 +1,84 @@
+specVersion: v1
+kind: LISTING
+metadata:
+  slug: open-webui-vllm
+spec:
+  itemType: BLUEPRINT
+  displayName: Open WebUI + vLLM
+  summary: >-
+    Self-hosted, multi-user chat with an open model on your own GPU — Open WebUI
+    in front of vLLM, with no outside model API and nothing to type at install
+  description: |
+    ## What it is
+    Open WebUI, the self-hosted multi-user chat interface, with its language
+    model running inside the same deployment. [vLLM](https://docs.vllm.ai)
+    serves Qwen3-4B-Instruct-2507, an open model from Alibaba's Qwen team, on
+    a GPU, through the same OpenAI-compatible API Open WebUI talks to anywhere
+    else. Prompts, documents and replies stay in your deployment, and no model
+    provider account is involved. A four-billion-parameter model is quick and
+    capable for everyday chat, summaries and tool use, though well short of
+    the largest hosted models.
+
+    ## When to use
+    - You want a private chat assistant whose model runs on your deployment's
+      own GPU, with no per-token bill from a model provider.
+    - Your prompts and documents must not be sent to a hosted model API.
+    - You want Open WebUI's document chat and tool calling backed by a model
+      you run yourself.
+
+    ## What you'll be asked for
+    Nothing. The two secrets the deployment runs on, Open WebUI's session
+    signing key and the API key Open WebUI presents to vLLM, are generated
+    for you, and you can reveal them on the deployment's Installation tab.
+
+    ## Before you install
+    The model runs on GPU compute: one NVIDIA GPU with at least 24 GB of
+    memory, beside 8 vCPU and 32 GiB of RAM (`gpu.economy.small`). GPU
+    compute must be open in a region before the model can be placed. The chat
+    interface runs on ordinary CPU compute, possibly in another region, and
+    reaches the model over the deployment's private network.
+
+    The first start takes a while. The GPU host pulls the vLLM image, about
+    11 GB, then vLLM downloads the model's weights, about 8 GB, from Hugging
+    Face, loads them and compiles the model for the card. Allow 15 to 30
+    minutes before the model answers; until then Open WebUI has no model to
+    offer. The weights are not kept on a volume, so every new model container
+    downloads them again: after a redeploy, an update, a rotated key or a move
+    to another host. A restart of the same container keeps them.
+
+    ## Defaults
+    Two nodes. `llm` runs `vllm/vllm-openai:v0.31.0-cu129`, serving
+    `Qwen/Qwen3-4B-Instruct-2507` with a 32,768-token context, streaming and
+    tool calls, so Open WebUI's built-in tools and any you add work with it.
+    Its API is private to the deployment and requires the generated key.
+
+    `web` runs `ghcr.io/open-webui/open-webui:v0.11.4` as the Open WebUI
+    listing does: the web UI on port 8080 behind the platform's HTTPS edge and
+    sign-in, with Open WebUI signing people in through the platform's OpenID
+    Connect provider, so there is no second password and the first person to
+    sign in becomes the admin. The chat-completion, model and embedding APIs
+    stay reachable without signing in, for clients holding an Open WebUI API
+    key. An 8 GiB volume at `/app/backend/data` keeps accounts, chats and
+    uploaded documents across restarts.
+
+    Open WebUI saves the model's address, key and name the first time it
+    starts, and uses that saved copy from then on. If you rotate the vLLM API
+    key, enter the new one under **Admin Settings → Connections** as well.
+
+    vLLM's usage statistics are switched off. Qwen3-4B-Instruct-2507 is
+    licensed Apache-2.0, as vLLM is; Open WebUI keeps its own license.
+  category: AI_ML
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - chat
+    - gpu
+    - vllm
+    - self-hosted
+    - openai-compatible
+  homepageURL: https://openwebui.com
+  sourceRepoURL: https://github.com/open-webui/open-webui
+  supportURL: https://docs.openwebui.com
+  license: LicenseRef-Open-WebUI AND Apache-2.0
+  icon: media/icon.png

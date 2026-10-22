@@ -28,7 +28,7 @@ to storefront visitors — nominative use — and remains the property of its
 respective owner. Inclusion here is not an endorsement by those projects, and
 these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 
-All 21 items carry an icon; none currently ship screenshots.
+23 of the 24 items carry an icon (`llm-endpoint` ships none); none currently ship screenshots.
 
 | Item | Source | Method | License note |
 | --- | --- | --- | --- |
@@ -48,6 +48,7 @@ All 21 items carry an icon; none currently ship screenshots.
 | `opencode` | <https://raw.githubusercontent.com/anomalyco/opencode/v1.18.34/packages/ui/src/assets/favicon/web-app-manifest-512x512.png> | in-repo asset | OpenCode web-app icon from the anomalyco/opencode repository (MIT-licensed project); nominative use. |
 | `openhands-agent-canvas` | <https://raw.githubusercontent.com/OpenHands/OpenHands/v1.24.0/public/android-chrome-512x512.png> | in-repo asset | OpenHands mark (raised-hands icon) from the OpenHands/OpenHands repository (MIT-licensed repo); nominative use. |
 | `open-webui` | <https://github.com/open-webui.png?size=512> | GitHub org avatar | Open WebUI mark via the open-webui GitHub org avatar; nominative use. |
+| `open-webui-vllm` | <https://github.com/open-webui.png?size=512> | GitHub org avatar | The same Open WebUI mark as `open-webui`; nominative use. |
 | `paperclip` | <https://github.com/paperclipai.png?size=512> | GitHub org avatar | Paperclip mark via the paperclipai GitHub org avatar (MIT-licensed project); nominative use. |
 | `postgres` | <https://github.com/postgres.png?size=512> | GitHub org avatar | The PostgreSQL elephant (Slonik) mark belongs to the PostgreSQL Global Development Group / PostgreSQL Community Association; nominative use. |
 | `qdrant` | <https://github.com/qdrant.png?size=512> | GitHub org avatar | Qdrant mark via the qdrant GitHub org avatar; nominative use. |

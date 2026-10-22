@@ -1,0 +1,111 @@
+specVersion: v1
+kind: BLUEPRINT
+metadata:
+  slug: open-webui-vllm
+  revision: 1
+  description: >-
+    Open WebUI behind the platform's sign-in, chatting with an open model that
+    vLLM serves on a GPU node of the same deployment, over its private network.
+# The open-webui item with its language model brought inside the deployment.
+# There, `llm` is an EXTERNAL node standing for an API the organization
+# configured. Here it is a SERVICE the platform runs on a GPU: vLLM serving an
+# open model. It publishes the same three outputs, baseURL, apiKey and model,
+# so `web` and its bindings are the open-webui item's, unchanged. That is the
+# substitution catalog#26 asks an item to prove: a self-hosted engine in place
+# of the external node, with nothing else in the blueprint moving.
+#
+# The two nodes need not share a host or a region. `web` runs on CPU compute
+# and `llm` on GPU compute, and `web` reaches `llm` by its private name.
+#
+# The install form is two generated secrets and nothing to type: Open WebUI's
+# session signing key, and the API key `web` presents to vLLM.
+spec:
+  components:
+    llm:
+      componentRef: ./components/vllm.yaml
+      # One NVIDIA GPU, with 8 vCPU and 32 GiB of memory. The profile names no
+      # card, and the model's context is sized for 24 GB (components/vllm.yaml),
+      # so the node pins a card with at least that much: a GPU region may also
+      # sell 16 GB cards, the V100 among them, which vLLM v0.31.0 carries no
+      # kernels for. `cuda`, because the image is a CUDA build.
+      compute:
+        profile: gpu.economy.small
+        placement:
+          acceleratorRuntimes:
+            - cuda
+          minAcceleratorMemoryGiB: 24
+      # No volumes: a new container downloads the weights on its first start
+      # (components/vllm.yaml). No exposure: the endpoint is PRIVATE, reachable
+      # only from this deployment, the one place its API is used.
+      bindings:
+        apiKey:
+          parameter: llmAPIKey
+    web:
+      componentRef: ./components/open-webui.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 8
+      # The platform signs viewers in, and Open WebUI signs them in again as an
+      # OpenID Connect client of the platform, with no second password. It
+      # creates accounts with an email and a display name, so the node
+      # releases both claims. The chat-completion API is exempt for API-key
+      # clients (components/open-webui.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: AUTHENTICATED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+      bindings:
+        webuiSecretKey:
+          parameter: webuiSecretKey
+        # The platform's OIDC client for this node's own `primary` endpoint. A
+        # node reading its own endpoint outputs is a discovery dependency and
+        # not a value cycle (BP-CONN-002).
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        oidcDiscoveryURL:
+          node: web
+          output: oidcDiscoveryURL
+        oidcRedirectURI:
+          node: web
+          output: oidcRedirectURI
+        # The three outputs of the `llm` node: the same three, under the same
+        # names, that the open-webui item's external node publishes from its
+        # connection.
+        openaiApiBaseURL:
+          node: llm
+          output: baseURL
+        openaiApiKey:
+          node: llm
+          output: apiKey
+        defaultModels:
+          node: llm
+          output: model
+  parameters:
+    webuiSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: WebUI secret key
+        order: 1
+    # The key vLLM requires, bound to the `llm` node alone. It reaches `web` as
+    # that node's apiKey output, so one generated value fills both ends.
+    llmAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: vLLM API key
+        order: 2
