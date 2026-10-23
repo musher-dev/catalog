@@ -28,7 +28,7 @@ Marks reproduced in this repository:
   - MLflow (items/mlflow/media/)
   - n8n (items/n8n/media/)
   - OpenClaw (items/openclaw/media/)
-  - Open WebUI (items/open-webui/media/)
+  - Open WebUI (items/open-webui/media/, items/open-webui-vllm/media/)
   - PostgreSQL (items/postgres/media/)
   - Qdrant (items/qdrant/media/)
   - Redis (items/redis/media/)
