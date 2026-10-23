@@ -38,16 +38,17 @@ spec:
     interface runs on ordinary CPU compute, possibly in another region, and
     reaches the model over the deployment's private network.
 
-    The first start takes a while. The GPU host pulls the vLLM image, about
-    11 GB, then vLLM downloads the model's weights, about 8 GB, from Hugging
-    Face, loads them and compiles the model for the card. Allow 15 to 30
-    minutes before the model answers; until then Open WebUI has no model to
+    The first start takes a while. The GPU host pulls the vLLM image,
+    a 9 GB download that unpacks to about 23 GB, then vLLM downloads the
+    model's weights, about 8 GB, from Hugging Face, loads them and compiles
+    the model for the card. Allow about 20 minutes, and up to 45 on a slow
+    download, before the model answers; until then Open WebUI has no model to
     offer. The weights are not kept on a volume, so every new model container
     downloads them again: after a redeploy, an update, a rotated key or a move
     to another host. A restart of the same container keeps them.
 
     ## Defaults
-    Two nodes. `llm` runs `vllm/vllm-openai:v0.31.0-cu129`, serving
+    Two nodes. `llm` runs `vllm/vllm-openai:v0.31.0`, serving
     `Qwen/Qwen3-4B-Instruct-2507` with a 32,768-token context, streaming and
     tool calls, so Open WebUI's built-in tools and any you add work with it.
     Its API is private to the deployment and requires the generated key.

@@ -16,16 +16,20 @@ spec:
   workload:
     source:
       # PINNED. v0.31.0 (2026-10-05) is the newest vLLM release at least two
-      # weeks old. The `-cu129` tag is its CUDA 12.9.1 build; the bare tag is
-      # the CUDA 13.0.2 build (.buildkite/release-pipeline.yaml at v0.31.0),
-      # and CUDA 13 needs an R580 driver. host-config installs R580 only on a
-      # GPU host whose image brings no driver, and keeps a vendor image's own
-      # driver from branch 570 on (nvidia_driver_min_branch). A CUDA 12.9
-      # runtime runs natively from R575, and on R570 under CUDA's minor-version
-      # compatibility. Both builds carry kernels for sm_75 to sm_120. The
-      # linux/amd64 image is 11.0 GB compressed, in one 6.5 GB layer and 39
-      # smaller ones.
-      image: vllm/vllm-openai:v0.31.0-cu129
+      # weeks old. The bare tag is its CUDA 13.0.2 build, and `-cu129` its
+      # CUDA 12.9.1 one (.buildkite/release-pipeline.yaml at v0.31.0). CUDA 13
+      # needs NVIDIA driver 580, which the GPU hosts have: host-config installs
+      # branch 580 where a host's image brings none, and the vendor GPU image
+      # of the 2026-10-23 pilot brought 580.126.09. On that
+      # host the bare build ran this component's command and environment
+      # unchanged. The `-cu129` build does not start on any host: its
+      # torchcodec 0.17.0 needs CUDA 13's libnvrtc.so.13, the image ships only
+      # CUDA 12.9's, and vLLM exits about 12 s in. The bare build carries
+      # kernels for sm_75 to sm_120. Its linux/amd64 image is 9.0 GB compressed,
+      # in one 5.2 GB layer and 39 smaller ones, and 23.1 GB unpacked. The
+      # pilot's host pulled it in 97 s, well inside the host agent's 10-minute
+      # pull timeout.
+      image: vllm/vllm-openai:v0.31.0
     # `command` replaces the image's CMD and keeps its ENTRYPOINT, `vllm serve`
     # (docker/Dockerfile at v0.31.0), so the list below is serve's arguments.
     # The image runs as root, so the Hugging Face cache and vLLM's compile cache
@@ -99,13 +103,17 @@ spec:
       # keeps them, then loaded them, profiled memory, compiled the model and
       # captured its CUDA graphs (entrypoints/launchers/launcher.py). Every
       # probe until then is connection-refused, so the startup probe carries
-      # the whole wait: a first attempt after 60 s, then one every 10 s for 180
-      # attempts, about 31 minutes in all. A start that exhausts it is
-      # restarted in place, which keeps the container's writable layer, so the
-      # next attempt resumes the download rather than starting it again.
-      # Readiness and liveness begin once startup has passed. A later start of
-      # the same container finds the weights and the compile cache already
-      # there and takes a minute or two.
+      # the whole wait: a first attempt after 60 s, then one every 10 s for 264
+      # attempts, about 45 minutes in all. On the 2026-10-23 pilot's GPU host
+      # a first start passed it after 19 min 42 s: 17 minutes downloading the
+      # weights from Hugging Face, without a token, at about 8 MB/s, and two
+      # and a half minutes for everything else. 45 minutes
+      # leaves room for a download at under half that speed. A start that
+      # exhausts it is restarted in place, which keeps the container's writable
+      # layer, so the next attempt resumes the download rather than starting it
+      # again. Readiness and liveness begin once startup has passed. A later
+      # start of the same container finds the weights and the compile cache
+      # already there and takes a minute or two.
       startup:
         http:
           endpoint: primary
@@ -114,7 +122,7 @@ spec:
         periodSeconds: 10
         timeoutSeconds: 5
         successThreshold: 1
-        failureThreshold: 180
+        failureThreshold: 264
       readiness:
         http:
           endpoint: primary
@@ -164,7 +172,7 @@ spec:
       # vLLM's API server waits this long for the engine to report ready, then
       # exits (vllm/v1/engine/core_client.py). The wait covers the weights
       # download, so v0.31.0's default of 600 s would end a first start on a
-      # slow link. An hour is past the startup probe's 31 minutes, so the probe
+      # slow link. An hour is past the startup probe's 45 minutes, so the probe
       # always decides first, and its restart keeps what was downloaded.
       engineReadyTimeoutSeconds:
         schema:
