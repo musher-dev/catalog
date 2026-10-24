@@ -6,11 +6,13 @@
 # branch ruleset that turns one into blanket review — that pairing does not
 # exist here.)
 #
-# This file keeps an owner of its own, so who reviews changes only with that
-# owner's say. The last matching pattern wins, so it follows the catch-all.
+# This file and the CI configuration (.github/) keep an owner of their own, so
+# a change to who reviews, or to how CI checks the catalog, goes through that
+# owner. The last matching pattern wins, so they follow the catch-all.
 #
 # GitHub silently ignores an owner without write access, so verify access when
 # adding one.
 
 *            @amiralis1365
 /CODEOWNERS  @justinmerrell
+/.github/    @justinmerrell
