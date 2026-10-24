@@ -6,16 +6,11 @@
 # branch ruleset that turns one into blanket review — that pairing does not
 # exist here.)
 #
+# This file keeps an owner of its own, so who reviews changes only with that
+# owner's say. The last matching pattern wins, so it follows the catch-all.
+#
 # GitHub silently ignores an owner without write access, so verify access when
 # adding one.
 
-*   @justinmerrell
-
-# Tooling, workflows, catalog items and the test suite. The last matching
-# pattern wins, so these override the catch-all above rather than adding to it.
-
-/.config/         @amiralis1365
-/.devcontainer/   @amiralis1365
-/.github/         @amiralis1365
-/items/           @amiralis1365
-/tests/           @amiralis1365
+*            @amiralis1365
+/CODEOWNERS  @justinmerrell
