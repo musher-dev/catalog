@@ -1,11 +1,11 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: qdrant
   revision: 6
   description: Qdrant vector database with an authenticated, publicly reachable HTTP API.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/qdrant.yaml
       compute:

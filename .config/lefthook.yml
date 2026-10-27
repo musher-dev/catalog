@@ -10,13 +10,12 @@ min_version: 2.1.10
 # root README.md and ICONS.md would never reach the markdown job.
 glob_matcher: doublestar
 
-# The split between the two hooks is about the network.
+# The split between the two hooks is about scope.
 #
-# `npm test` fetches the spec bundles from specifications.musher.dev on every
-# run — that is the point of it — so it cannot be a pre-commit job: a commit on a
-# train would fail for a reason that has nothing to do with the commit. Pre-commit
-# holds the checks that are local and fast; pre-push holds the one that is
-# neither.
+# Pre-commit holds the checks that look only at what is staged. `npm test`
+# reads only the vendored specification releases, so it needs no network, but
+# it judges the whole corpus and the whole conformance corpus whatever was
+# staged, so it runs before a push rather than on every commit.
 pre-commit:
   parallel: true
   jobs:

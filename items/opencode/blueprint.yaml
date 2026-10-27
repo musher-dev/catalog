@@ -1,13 +1,13 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: opencode
   revision: 1
   description: >-
-    OpenCode coding agent on the installer's language-model connection, behind
+    OpenCode coding agent on the deployer's language-model connection, behind
     the platform's sign-in and its own generated basic-auth password.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml
       # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
@@ -36,7 +36,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
       bindings:
         serverPassword:
           parameter: serverPassword
@@ -64,7 +64,7 @@ spec:
         label: Language model
         order: 1
     # OpenCode's basic-auth password: generated at deploy and shown to the
-    # installer, who types it into the browser's sign-in dialog with the user
+    # deployer, who types it into the browser's sign-in dialog with the user
     # name `opencode`. BASE64URL rather than BASE64, so it has no `+` or `/`
     # to mistype. OpenCode compares it as a plain string
     # (packages/opencode/src/server/auth.ts). 24 bytes is 32 characters.

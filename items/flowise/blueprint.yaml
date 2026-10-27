@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: flowise
@@ -7,7 +7,7 @@ metadata:
     Flowise behind the platform's sign-in, with its chat and flow APIs reachable
     and a generated credential-encryption key.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/flowise.yaml
       compute:
@@ -16,12 +16,12 @@ spec:
         data:
           sizeGiB: 5
       # The platform signs viewers in before forwarding, which also limits the
-      # first-run admin sign-up to people allowed into the installation. The
+      # first-run admin sign-up to people allowed into the deployment. The
       # prediction, embed and webhook routes are exempt (components/flowise.yaml).
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           accessExemptions:
             - PATHS
       bindings:

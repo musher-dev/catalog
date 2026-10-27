@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 8
@@ -21,7 +21,7 @@ spec:
         # with no assertion, even from a signed-in browser, so nothing the UI
         # itself calls is listed. That includes /api/v1/mcp, which the MCP
         # settings page shares with MCP clients.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /api/v1/run
             - /api/v1/webhook
@@ -48,13 +48,13 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       autoLogin:
         schema:
           type: string
         default: 'false'
         target:
-          envVarKey: LANGFLOW_AUTO_LOGIN
+          envVar: LANGFLOW_AUTO_LOGIN
         description: >-
           Whether Langflow signs every visitor in without credentials, as the
           literal string the image parses.
@@ -63,7 +63,7 @@ spec:
           type: string
         default: /app/langflow
         target:
-          envVarKey: LANGFLOW_CONFIG_DIR
+          envVar: LANGFLOW_CONFIG_DIR
         description: Directory Langflow keeps its configuration and database in.
       # Without this the SQLite DB lands in the package install dir and is
       # LOST on container recreation — the volume only persisted config
@@ -73,7 +73,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: LANGFLOW_SAVE_DB_IN_CONFIG_DIR
+          envVar: LANGFLOW_SAVE_DB_IN_CONFIG_DIR
         description: >-
           Whether the database is written into the configuration directory
           above, as the literal string the image parses.
@@ -91,7 +91,7 @@ spec:
         default: admin
         required: true
         target:
-          envVarKey: LANGFLOW_SUPERUSER
+          envVar: LANGFLOW_SUPERUSER
         description: Initial admin username for the Langflow UI
       superuserPassword:
         schema:
@@ -99,7 +99,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LANGFLOW_SUPERUSER_PASSWORD
+          envVar: LANGFLOW_SUPERUSER_PASSWORD
         description: >-
           Password the initial admin account is created with. Changing it after
           the first boot has no effect; change it in Langflow.
@@ -109,7 +109,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LANGFLOW_SECRET_KEY
+          envVar: LANGFLOW_SECRET_KEY
         description: Key used to encrypt API keys and secrets stored in flows
       # External authentication (lfx/services/settings/auth.py,
       # services/auth/external.py, v1.12.4). Langflow tries its own session
@@ -123,7 +123,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_ENABLED
+          envVar: LANGFLOW_EXTERNAL_AUTH_ENABLED
         description: >-
           Whether Langflow accepts the platform's signed viewer assertion, as
           the literal string the image parses.
@@ -132,37 +132,37 @@ spec:
           type: string
         default: musher
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_PROVIDER
+          envVar: LANGFLOW_EXTERNAL_AUTH_PROVIDER
         description: Provider key Langflow records on the accounts it provisions from the assertion.
       externalAuthAlgorithms:
         schema:
           type: string
         default: RS256
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_ALGORITHMS
+          envVar: LANGFLOW_EXTERNAL_AUTH_ALGORITHMS
         description: Signature algorithms Langflow accepts on the assertion; the platform signs RS256.
       assertionHeader:
         schema:
           type: string
         required: true
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_TOKEN_HEADER
+          envVar: LANGFLOW_EXTERNAL_AUTH_TOKEN_HEADER
         description: Request header the platform carries the signed viewer assertion in.
       assertionIssuer:
         schema:
           type: string
         required: true
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_ISSUER
+          envVar: LANGFLOW_EXTERNAL_AUTH_ISSUER
         description: Issuer the assertion must name.
       # Unique to this endpoint, so an assertion minted for any other
-      # installation is rejected here.
+      # deployment is rejected here.
       assertionAudience:
         schema:
           type: string
         required: true
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_AUDIENCE
+          envVar: LANGFLOW_EXTERNAL_AUTH_AUDIENCE
         description: Audience the assertion must name.
       # Langflow refuses a key set URL that is not https, and the platform
       # publishes an absolute https one.
@@ -172,7 +172,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: LANGFLOW_EXTERNAL_AUTH_JWKS_URL
+          envVar: LANGFLOW_EXTERNAL_AUTH_JWKS_URL
         description: URL of the key set the assertion's signature is verified against.
     outputs:
       # Platform facts of the `primary` allocation (component §5.2, COMP-EP-012).

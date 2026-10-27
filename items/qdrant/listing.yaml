@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: qdrant
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Qdrant
   summary: Rust vector database for similarity search and RAG retrieval on CPU hardware
-  description: |
+  overview: |
     ## What it is
     Qdrant is an open-source vector database written in Rust. It serves
     similarity search, recommendation, and RAG retrieval workloads at
@@ -37,7 +37,7 @@ spec:
     collections, inspect points, and run queries from the browser. Paste the
     deployment's API key into the dashboard's key field before it can read
     anything.
-  category: INFRASTRUCTURE
+  category: DATABASES
   lifecycleStage: STABLE
   tags:
     - vector-database
@@ -46,7 +46,7 @@ spec:
     - rag
     - ai
   homepageURL: https://qdrant.tech
-  sourceRepoURL: https://github.com/qdrant/qdrant
+  sourceRepositoryURL: https://github.com/qdrant/qdrant
   supportURL: https://qdrant.tech/documentation
   license: Apache-2.0
   icon: media/icon.png

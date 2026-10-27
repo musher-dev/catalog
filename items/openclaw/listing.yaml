@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: openclaw
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: OpenClaw
   summary: Self-hosted AI agent gateway with a browser Control UI, running on your organization's language model
-  description: |
+  overview: |
     ## What it is
     OpenClaw (formerly Clawdbot/Moltbot) is a self-hosted AI agent gateway.
     It puts a language model behind a browser-based Control UI with stateful
@@ -79,7 +79,7 @@ spec:
     - gateway
     - automation
   homepageURL: https://openclaw.ai
-  sourceRepoURL: https://github.com/openclaw/openclaw
+  sourceRepositoryURL: https://github.com/openclaw/openclaw
   supportURL: https://docs.openclaw.ai
   license: MIT
   icon: media/icon.png

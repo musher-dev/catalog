@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -55,7 +55,7 @@ spec:
         # Requests that reach Paperclip without a platform session, for
         # Paperclip to judge (component §5.2, ADR 0035).
         #
-        # `bearer`: every route checks a bearer token a request carries
+        # `bearerToken`: every route checks a bearer token a request carries
         # (server/src/app.ts, v2026.1001.0). `actorMiddleware` is mounted
         # ahead of the Better Auth handler, the API and the static UI, and it
         # answers 401 to any bearer that is not a board API key, an agent API
@@ -69,8 +69,8 @@ spec:
         # webhook senders) prove themselves with an HMAC signature header
         # rather than a bearer, and the route checks it (server/src/routes/
         # routines.ts).
-        accessExemptions:
-          bearer: true
+        exemptibleRequests:
+          bearerToken: true
           paths:
             - /api/routine-triggers/public
     health:
@@ -107,28 +107,28 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field. The
+      # blueprint has to wire them and the deploy form gains no field. The
       # image sets the same values; restating them keeps them visible here.
       host:
         schema:
           type: string
         default: 0.0.0.0
         target:
-          envVarKey: HOST
+          envVar: HOST
         description: Address the server listens on inside the container.
       home:
         schema:
           type: string
         default: /paperclip
         target:
-          envVarKey: PAPERCLIP_HOME
+          envVar: PAPERCLIP_HOME
         description: Directory Paperclip keeps its instance data in, the `data` volume's mount path.
       serveUI:
         schema:
           type: string
         default: 'true'
         target:
-          envVarKey: SERVE_UI
+          envVar: SERVE_UI
         description: Whether the server also serves the board UI, as the literal string the server parses.
       # `authenticated` makes every person sign in to Paperclip itself, on top
       # of the platform's sign-in. `private` is what lets the first person to
@@ -139,14 +139,14 @@ spec:
           type: string
         default: authenticated
         target:
-          envVarKey: PAPERCLIP_DEPLOYMENT_MODE
+          envVar: PAPERCLIP_DEPLOYMENT_MODE
         description: Paperclip's deployment mode; `authenticated` requires a Paperclip account.
       deploymentExposure:
         schema:
           type: string
         default: private
         target:
-          envVarKey: PAPERCLIP_DEPLOYMENT_EXPOSURE
+          envVar: PAPERCLIP_DEPLOYMENT_EXPOSURE
         description: >-
           Paperclip's exposure mode; `private` allows the first signed-in
           person to claim the instance from the browser.
@@ -157,7 +157,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: PAPERCLIP_MIGRATION_AUTO_APPLY
+          envVar: PAPERCLIP_MIGRATION_AUTO_APPLY
         description: >-
           Whether pending database migrations are applied at startup, as the
           literal string the server parses.
@@ -169,7 +169,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: PAPERCLIP_PUBLIC_URL
+          envVar: PAPERCLIP_PUBLIC_URL
         description: >-
           Public URL people reach Paperclip at, used for sign-in callbacks,
           invites and the hostname allowlist.
@@ -181,7 +181,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: BETTER_AUTH_SECRET
+          envVar: BETTER_AUTH_SECRET
         description: Key that signs Paperclip's sign-in sessions and agent tokens.
       toolActionSigningSecret:
         schema:
@@ -189,7 +189,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: PAPERCLIP_TOOL_ACTION_SIGNING_SECRET
+          envVar: PAPERCLIP_TOOL_ACTION_SIGNING_SECRET
         description: >-
           Key that signs tool-action approval requests; without it approvals
           cannot be issued.
@@ -198,14 +198,14 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: PG_ADDRESS
+          envVar: PG_ADDRESS
         description: Mesh-internal `host:port` of the PostgreSQL server, composed into DATABASE_URL at boot.
       pgUser:
         schema:
           type: string
         required: true
         target:
-          envVarKey: PG_USER
+          envVar: PG_USER
         description: Role Paperclip connects to PostgreSQL as.
       pgPassword:
         schema:
@@ -213,14 +213,14 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: PG_PASSWORD
+          envVar: PG_PASSWORD
         description: Password of the role above. It must need no percent-encoding in a URL.
       pgDatabase:
         schema:
           type: string
         required: true
         target:
-          envVarKey: PG_DB
+          envVar: PG_DB
         description: Database Paperclip keeps its state in.
       # The model the bundled Claude Code CLI runs on, for agents using the
       # `claude_local` adapter. The adapter starts the CLI with the server's
@@ -232,20 +232,20 @@ spec:
           type: string
         presentationHint: ENDPOINT_URL
         target:
-          envVarKey: ANTHROPIC_BASE_URL
+          envVar: ANTHROPIC_BASE_URL
         description: Base URL of the Anthropic Messages API, with or without a trailing /v1.
       anthropicAPIKey:
         schema:
           type: string
         sensitive: true
         target:
-          envVarKey: ANTHROPIC_API_KEY
+          envVar: ANTHROPIC_API_KEY
         description: Credential for the API above.
       anthropicModel:
         schema:
           type: string
         target:
-          envVarKey: ANTHROPIC_MODEL
+          envVar: ANTHROPIC_MODEL
         description: Model Claude Code agents use unless an agent names its own.
     outputs:
       publicURL:

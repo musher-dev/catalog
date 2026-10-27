@@ -1,13 +1,13 @@
 # Validates the catalog corpus against musher-dev/specifications.
 #
 # The suite is pinned to one exact release per family (RELEASES in
-# tests/lib/spec-schemas.ts). It fetches those releases' schemas from
-# specifications.musher.dev and their conformance corpora from the GitHub
-# release assets, and checks every byte against a recorded SHA-256. Pinned bytes never
-# change, so nothing here runs on a schedule: a verdict changes only with a
+# tests/lib/spec-schemas.ts). It reads those releases' archives, vendored under
+# vendor/specifications/, and checks every byte against a recorded SHA-256
+# before using a schema or a conformance case. Vendored bytes change only with a
+# commit, so nothing here runs on a schedule: a verdict changes only with a
 # commit to this repository, including the one that adopts a new release.
 #
-# No credential is involved: both origins are public and the suite reads no token.
+# No credential and no network access are involved: the suite reads no token.
 name: validate
 
 on:

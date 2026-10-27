@@ -1,9 +1,9 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
   description: >-
-    One-shot job that writes the installation's language-model connection into
+    One-shot job that writes the deployment's language-model connection into
     Agent Canvas as its active LLM profile, through the agent server's own API.
 spec:
   # WHY A JOB. At the pinned tags nothing in Agent Canvas reads a model from
@@ -30,7 +30,7 @@ spec:
   #
   # (save_profile and activate_profile, openhands-agent-server/.../profiles_router.py.)
   #
-  # A JOB without a schedule runs once per rollout: at installation, on every
+  # A JOB without a schedule runs once per rollout: at deployment, on every
   # update and on every redeploy (COMP-JOB-001). That makes the connection
   # authoritative per rollout, not per container start. A restart alone
   # changes nothing, because the profile persists on the `state` volume. A
@@ -79,7 +79,7 @@ spec:
     #
     # Exec form: argv, no shell of the platform's own. `set -eu` plus
     # `curl -f` turns any non-2xx into a failed run, which the platform records
-    # for the installation.
+    # for the deployment.
     command:
       - sh
       - -c
@@ -115,7 +115,7 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: CANVAS_ADDRESS
+          envVar: CANVAS_ADDRESS
         description: >-
           Private host:port of the Agent Canvas ingress, from the web node's
           `address` output.
@@ -125,7 +125,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LOCAL_BACKEND_API_KEY
+          envVar: LOCAL_BACKEND_API_KEY
         description: >-
           Session API key the agent server requires in X-Session-API-Key, the
           same value the web node is given.
@@ -134,7 +134,7 @@ spec:
           type: string
         default: default
         target:
-          envVarKey: LLM_PROFILE_NAME
+          envVar: LLM_PROFILE_NAME
         description: >-
           Name of the LLM profile this job writes and activates. A profile of
           this name is overwritten on every rollout.
@@ -143,7 +143,7 @@ spec:
           type: string
         default: openai/
         target:
-          envVarKey: LLM_MODEL_PREFIX
+          envVar: LLM_MODEL_PREFIX
         description: >-
           LiteLLM provider prefix put in front of the connection's model name,
           `openai/` selecting the OpenAI-compatible provider.
@@ -154,7 +154,7 @@ spec:
           type: integer
         default: 1800
         target:
-          envVarKey: READY_TIMEOUT_SECONDS
+          envVar: READY_TIMEOUT_SECONDS
         description: How long the job waits for Agent Canvas to report ready before it fails.
       # The three inputs below carry one language-model connection. They are not
       # supplied independently: the blueprint wires all three to the outputs of
@@ -166,7 +166,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: LLM_BASE_URL
+          envVar: LLM_BASE_URL
         description: >-
           Base URL of the OpenAI-compatible chat-completions API, ending in the
           version segment (for example /v1), written as the profile's base_url.
@@ -176,13 +176,13 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LLM_API_KEY
+          envVar: LLM_API_KEY
         description: Bearer credential for the API above, stored encrypted in the profile.
       llmModel:
         schema:
           type: string
         required: true
         target:
-          envVarKey: LLM_MODEL
+          envVar: LLM_MODEL
         description: Model the agent uses by default, written as the profile's model after the prefix.
     outputs: {}

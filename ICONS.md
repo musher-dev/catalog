@@ -15,6 +15,13 @@ Media paths are **item-relative**, must live under that item's own `media/`
 directory, must not contain `..`, and must use a supported extension
 (`.png`, `.jpg`, `.jpeg`, `.webp`). Every declared path must exist on disk.
 
+Listing v2 also bounds every file
+([listing v2 §5](https://github.com/musher-dev/specifications/blob/main/specifications/listing/v2/spec.md#media)):
+an icon is at most 1 MiB, square, and at least 256 px a side; a screenshot or
+overview image is at most 5 MiB and at most 4096 px a side. `npm test` checks
+the sizes (`ERR_MEDIA_TOO_LARGE`); the dimensions are an `admission` rule
+(`ERR_MEDIA_DIMENSIONS`) the platform decides at sync.
+
 A listing without an `icon:` key ships no icon. Two screenshots must not declare
 the same item-relative path — `media/desktop/overview.png` and
 `media/mobile/overview.png` are two gallery entries, not a collision.
@@ -34,7 +41,7 @@ All 21 items carry an icon; none currently ship screenshots.
 | --- | --- | --- | --- |
 | `code-server` | <https://raw.githubusercontent.com/coder/code-server/main/src/browser/media/pwa-icon-512.png> | in-repo asset | code-server product icon from the coder/code-server repository (MIT-licensed repo); nominative use. |
 | `coder` | <https://github.com/coder.png?size=512> | GitHub org avatar | Coder mark via the coder GitHub org avatar (AGPL-3.0-licensed project); nominative use. |
-| `doom` | <https://github.com/chocolate-doom.png?size=512> | GitHub org avatar | Chocolate Doom mark via the chocolate-doom GitHub org avatar (GPL-2.0-licensed project); nominative use. |
+| `doom` | <https://github.com/chocolate-doom.png?size=512> | GitHub org avatar, resampled from its native 221 px to 256 px, the listing v2 minimum | Chocolate Doom mark via the chocolate-doom GitHub org avatar (GPL-2.0-licensed project); nominative use. |
 | `flowise` | <https://github.com/FlowiseAI.png?size=512> | GitHub org avatar | Flowise mark via the FlowiseAI GitHub org avatar; nominative use. |
 | `hermes-agent` | <https://github.com/NousResearch.png?size=512> | GitHub org avatar | Hermes Agent maintainer (Nous Research) GitHub org avatar (MIT-licensed project); nominative use. |
 | `label-studio` | <https://github.com/HumanSignal.png?size=512> | GitHub org avatar | Label Studio maintainer (HumanSignal) GitHub org avatar; nominative use. |

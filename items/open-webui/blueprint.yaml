@@ -1,11 +1,11 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: open-webui
   revision: 8
   description: >-
     Open WebUI behind the platform's sign-in, signing viewers in through its
-    OpenID Connect provider, wired to the language model the installer selects.
+    OpenID Connect provider, wired to the language model the deployer selects.
 # Two nodes, one of which runs nothing. The language model is an EXTERNAL node
 # (`llm`) standing for the model API: it takes the connection whole — endpoint,
 # credential and model acquired together — and publishes the three members as
@@ -17,12 +17,12 @@ metadata:
 # from one node and `baseURL` from another would be visible here rather than
 # silent.
 #
-# The install form is still two fields: the model the chat UI talks to, and Open
+# The deploy form is still two fields: the model the chat UI talks to, and Open
 # WebUI's own generated signing key. The `llm` node adds none — it reads the
 # connection the organization already configured, so a fresh deployment answers
 # chats without a key being pasted into it.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml
       # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
@@ -45,7 +45,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: OIDC
           viewerClaims:
             - EMAIL
@@ -57,7 +57,7 @@ spec:
           parameter: webuiSecretKey
         # The platform's OIDC client for this node's own `primary` endpoint. A
         # node reading its own endpoint outputs is a discovery dependency and
-        # not a value cycle (BP-CONN-002).
+        # not a value cycle (BP-BIND-002).
         oidcClientID:
           node: web
           output: oidcClientID

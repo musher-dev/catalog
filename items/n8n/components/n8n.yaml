@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 11
@@ -19,10 +19,10 @@ spec:
         # production, test and waiting webhooks and forms, workflow MCP
         # triggers, the public API (every route checks X-N8N-API-KEY or a
         # bearer token), and the instance MCP server, whose handler checks its
-        # own bearer token (modules/mcp/mcp.controller.ts). Not `bearer`:
+        # own bearer token (modules/mcp/mcp.controller.ts). Not `bearerToken`:
         # /rest and the editor's pages check a session cookie, never a bearer
         # token.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /webhook
             - /webhook-test
@@ -59,7 +59,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # n8n builds webhook URLs from N8N_PROTOCOL + N8N_HOST; the platform
       # fronts every public endpoint with HTTPS, so pin the protocol.
@@ -68,7 +68,7 @@ spec:
           type: string
         default: https
         target:
-          envVarKey: N8N_PROTOCOL
+          envVar: N8N_PROTOCOL
         description: Scheme n8n builds its webhook URLs with.
       # One TLS-terminating proxy hop (the gateway) sits in front of n8n; this
       # makes n8n trust X-Forwarded-* from it (docs.n8n.io
@@ -78,7 +78,7 @@ spec:
           type: string
         default: '1'
         target:
-          envVarKey: N8N_PROXY_HOPS
+          envVar: N8N_PROXY_HOPS
         description: >-
           How many reverse-proxy hops n8n trusts X-Forwarded-* from, as the
           literal string the image parses.
@@ -88,7 +88,7 @@ spec:
         presentationHint: HOSTNAME
         required: false
         target:
-          envVarKey: N8N_HOST
+          envVar: N8N_HOST
         description: Public hostname n8n uses for webhook URLs.
       # N8N_WEBHOOK_URL, not WEBHOOK_URL. 2.41.6 lists WEBHOOK_URL as
       # deprecated ("Use N8N_WEBHOOK_URL instead, which sets the base URL for
@@ -102,7 +102,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: false
         target:
-          envVarKey: N8N_WEBHOOK_URL
+          envVar: N8N_WEBHOOK_URL
         description: >-
           Full public base URL n8n registers test and production webhooks
           under. Without it n8n composes protocol://host:port and leaks the
@@ -114,7 +114,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: false
         target:
-          envVarKey: N8N_EDITOR_BASE_URL
+          envVar: N8N_EDITOR_BASE_URL
         description: >-
           Public URL of the n8n editor, used in emails and OAuth/SAML
           redirects.
@@ -129,7 +129,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: N8N_INSTANCE_OWNER_MANAGED_BY_ENV
+          envVar: N8N_INSTANCE_OWNER_MANAGED_BY_ENV
         description: >-
           Whether n8n takes its owner account from the environment, as the
           literal string the image parses.
@@ -139,7 +139,7 @@ spec:
         presentationHint: EMAIL
         required: true
         target:
-          envVarKey: N8N_INSTANCE_OWNER_EMAIL
+          envVar: N8N_INSTANCE_OWNER_EMAIL
         description: Email address of the owner account n8n creates and signs in with.
       # A hash, never the password: n8n stores the value as the password hash
       # and rejects anything not matching /^\$2[aby]\$\d{2}\$[./A-Za-z0-9]{53}$/.
@@ -153,7 +153,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: N8N_INSTANCE_OWNER_PASSWORD_HASH
+          envVar: N8N_INSTANCE_OWNER_PASSWORD_HASH
         description: bcrypt hash of the owner account's password.
       timezone:
         schema:
@@ -162,7 +162,7 @@ spec:
         default: UTC
         required: false
         target:
-          envVarKey: GENERIC_TIMEZONE
+          envVar: GENERIC_TIMEZONE
         description: IANA timezone for scheduled workflows
     outputs:
       publicHostname:

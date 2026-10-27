@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: zeroclaw
@@ -8,7 +8,7 @@ metadata:
     ZeroClaw's own device pairing on top and its model chosen in the dashboard's
     Quickstart.
 spec:
-  components:
+  nodes:
     # One node. There is no `llm` node: ZeroClaw v0.8.5 can only take a
     # provider from config.toml or from lowercase ZEROCLAW_* env overrides,
     # and a component input cannot carry a lowercase env key. The model is set
@@ -30,13 +30,13 @@ spec:
       # it. ZeroClaw has no trusted-header login, so `viewerIdentity` would
       # publish a header nothing reads. ZeroClaw's own pairing still applies
       # behind the edge: each browser pairs once and holds a revocable bearer
-      # token. No `accessExemptions`: the component declares none, so
-      # webhook-driven channels cannot reach the gateway, and the listing says
-      # so.
+      # token. No `accessExemptions`: the component offers no
+      # `exemptibleRequests`, so webhook-driven channels cannot reach the
+      # gateway, and the listing says so.
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
   # No parameters. Both inputs are constants with defaults, nothing here is
   # secret, and ZeroClaw generates its own pairing code and secrets key on
   # first boot.
