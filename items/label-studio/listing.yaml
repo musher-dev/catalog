@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: label-studio
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Label Studio
   summary: Open-source data labeling for text, image, audio, video, and time-series datasets
-  description: |
+  overview: |
     ## What it is
     Label Studio is an open-source data labeling platform supporting text,
     images, audio, video, time-series, and multi-modal datasets. Build
@@ -24,16 +24,16 @@ spec:
     ## Defaults
     Single-container deployment of `heartexlabs/label-studio:1.23.2` with
     the web UI on port 8080 behind the platform's HTTPS edge and the
-    platform's sign-in: only people allowed into this installation reach the
+    platform's sign-in: only people allowed into this deployment reach the
     app. The REST API (`/api`) stays reachable without signing in, for SDK
     and script clients, and Label Studio still requires an access token
     there. SQLite-backed — suitable for personal and small-team labeling.
-    The admin account is created on first boot with the installer's verified
+    The admin account is created on first boot with the deployer's verified
     email and an auto-generated password, shown on the deployment's
     Installation tab. After that, change the password in Label Studio's
     account settings: editing the parameter later does not update the
     account. A deployment first installed with a typed admin email gains a
-    second admin, under the installer's email, when it upgrades. Open
+    second admin, under the deployer's email, when it upgrades. Open
     self-signup is disabled — invite
     annotators by link. The public URL, and the origins the sign-in form
     is accepted from, are both taken from this deployment's own https
@@ -47,7 +47,7 @@ spec:
     S3-compatible storage, and URL imports must be reachable at public
     addresses, because requests to private or local network addresses are
     blocked.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: STABLE
   tags:
     - labeling
@@ -55,7 +55,7 @@ spec:
     - training-data
     - ml
   homepageURL: https://labelstud.io
-  sourceRepoURL: https://github.com/HumanSignal/label-studio
+  sourceRepositoryURL: https://github.com/HumanSignal/label-studio
   supportURL: https://labelstud.io/guide
   license: Apache-2.0
   icon: media/icon.png

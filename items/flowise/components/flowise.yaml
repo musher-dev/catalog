@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 7
@@ -19,10 +19,10 @@ spec:
         # key where one is assigned, except vector/upsert, which always needs
         # an API key (utils/constants.ts, index.ts, flowise@3.1.4).
         #
-        # Not `bearer`. A request carrying any bearer token would then pass
+        # Not `bearerToken`. A request carrying any bearer token would then pass
         # sign-in on every route, and the whitelist also holds
         # account/register, the route that makes its first caller the admin.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /api/v1/prediction
             - /api/v1/public-chatflows
@@ -61,7 +61,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # All four sit under the volume mounted below, which is what makes the
       # database, the encryption key, uploaded blobs and the logs survive a
@@ -71,28 +71,28 @@ spec:
           type: string
         default: /root/.flowise
         target:
-          envVarKey: DATABASE_PATH
+          envVar: DATABASE_PATH
         description: Directory Flowise keeps its SQLite database in.
       secretKeyPath:
         schema:
           type: string
         default: /root/.flowise
         target:
-          envVarKey: SECRETKEY_PATH
+          envVar: SECRETKEY_PATH
         description: Directory Flowise keeps its credential encryption key in.
       blobStoragePath:
         schema:
           type: string
         default: /root/.flowise/storage
         target:
-          envVarKey: BLOB_STORAGE_PATH
+          envVar: BLOB_STORAGE_PATH
         description: Directory Flowise stores uploaded files in.
       logPath:
         schema:
           type: string
         default: /root/.flowise/logs
         target:
-          envVarKey: LOG_PATH
+          envVar: LOG_PATH
         description: Directory Flowise writes its logs to.
       flowiseSecretKey:
         schema:
@@ -100,7 +100,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: FLOWISE_SECRETKEY_OVERWRITE
+          envVar: FLOWISE_SECRETKEY_OVERWRITE
         description: Key used to encrypt credentials stored in flows; keeps them
           decryptable across restarts
     outputs: {}

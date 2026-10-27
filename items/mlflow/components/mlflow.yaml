@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 10
@@ -12,7 +12,7 @@ spec:
       # The -full build, not the bare one. The bare image is
       # `pip install mlflow==$VERSION` (docker/Dockerfile, v3.16.1), and core
       # mlflow carries no psycopg2, PyMySQL, boto3 or google-cloud-storage, so
-      # the Postgres, S3 and GCS stores the install form offers would fail at
+      # the Postgres, S3 and GCS stores the deploy form offers would fail at
       # boot. docker/Dockerfile.full installs
       # mlflow[extras,azure,db,gateway,genai,auth] from the same base, for 369 MB
       # compressed against 291 MB (linux/amd64).
@@ -53,7 +53,7 @@ spec:
         # blueprint may let them past the platform's sign-in, because no client
         # holds a viewer session. MLflow's own basic auth still checks every one.
         # The browser UI calls /ajax-api, which stays behind sign-in.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /api
             - /get-artifact
@@ -83,13 +83,13 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       host:
         schema:
           type: string
         default: 0.0.0.0
         target:
-          envVarKey: MLFLOW_HOST
+          envVar: MLFLOW_HOST
         description: Address the MLflow server binds inside the container.
       # A string, not an integer: the literal is what the image reads, and the
       # endpoint below names the port this has to agree with.
@@ -98,7 +98,7 @@ spec:
           type: string
         default: '5000'
         target:
-          envVarKey: MLFLOW_PORT
+          envVar: MLFLOW_PORT
         description: Port the MLflow server listens on inside the container.
       # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
       # protection) whose default allowlist rejects gateway traffic on the
@@ -113,7 +113,7 @@ spec:
           type: string
         default: '*'
         target:
-          envVarKey: MLFLOW_SERVER_ALLOWED_HOSTS
+          envVar: MLFLOW_SERVER_ALLOWED_HOSTS
         description: Host headers the MLflow server accepts.
       # Sensitive, because a Postgres or MySQL URI carries its password inline.
       # NOT `sensitive`, and that is a decision rather than an oversight.
@@ -122,7 +122,7 @@ spec:
       # path on the volume below, carrying no credential. Marking it sensitive
       # would forbid that default outright: a sensitive contract takes no
       # authored literal, from this document or from the blueprint's parameter
-      # (COMP-VAL-005, §11), and the item would ask every installer to type a
+      # (COMP-VAL-005, §11), and the item would ask every deployer to type a
       # URI before it could start. The value the item actually ships is not a
       # secret, so it is not marked as one.
       #
@@ -130,7 +130,7 @@ spec:
       # embeds a password, and a value supplied here is handled like any other
       # setting — it reaches resolution records, previews and logs in the
       # clear. The description below says so, the listing says so, and the
-      # install form's examples say so, because the alternative is a user
+      # deploy form's examples say so, because the alternative is a user
       # discovering it afterwards. A deployment that cannot accept that should
       # give MLflow a database role whose credential is scoped to it.
       backendStoreURI:
@@ -140,7 +140,7 @@ spec:
         default: sqlite:////mlflow/mlflow.db
         required: true
         target:
-          envVarKey: MLFLOW_BACKEND_STORE_URI
+          envVar: MLFLOW_BACKEND_STORE_URI
         description: >-
           SQLAlchemy URI for the tracking metadata store. Defaults to local
           SQLite on this deployment's volume. A Postgres or MySQL URI embeds a
@@ -156,7 +156,7 @@ spec:
         # clients never interpret the path against their own filesystem
         # (https://mlflow.org/docs/latest/self-hosting/architecture/tracking-server/).
         target:
-          envVarKey: MLFLOW_ARTIFACTS_DESTINATION
+          envVar: MLFLOW_ARTIFACTS_DESTINATION
         description: Where the tracking server stores proxied run artifacts. Default
           uses the local volume; production should use s3:// or gs://.
       # MLflow's own login. The admin is created only the first time the auth
@@ -168,7 +168,7 @@ spec:
           type: string
         default: admin
         target:
-          envVarKey: MLFLOW_AUTH_ADMIN_USERNAME
+          envVar: MLFLOW_AUTH_ADMIN_USERNAME
         description: Username of the admin account MLflow creates on first start.
       authAdminPassword:
         schema:
@@ -177,7 +177,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: MLFLOW_AUTH_ADMIN_PASSWORD
+          envVar: MLFLOW_AUTH_ADMIN_PASSWORD
         description: >-
           Password the admin account is created with on first start; MLflow
           requires more than 12 characters. Copy it from the deployment's
@@ -190,21 +190,21 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: MLFLOW_FLASK_SERVER_SECRET_KEY
+          envVar: MLFLOW_FLASK_SERVER_SECRET_KEY
         description: Key the MLflow server signs its CSRF tokens with.
       authConfigPath:
         schema:
           type: string
         default: /mlflow/basic_auth.ini
         target:
-          envVarKey: MLFLOW_AUTH_CONFIG_PATH
+          envVar: MLFLOW_AUTH_CONFIG_PATH
         description: Path the start script writes MLflow's auth config file to, on the volume.
       authDatabaseURI:
         schema:
           type: string
         default: sqlite:////mlflow/basic_auth.db
         target:
-          envVarKey: MLFLOW_AUTH_DATABASE_URI
+          envVar: MLFLOW_AUTH_DATABASE_URI
         description: SQLAlchemy URI of the user and permission store, on the volume by default.
       # READ lets every MLflow user see every experiment, and only its owner
       # or an admin change it: the upstream default.
@@ -214,7 +214,7 @@ spec:
           enum: [READ, EDIT, MANAGE, NO_PERMISSIONS]
         default: READ
         target:
-          envVarKey: MLFLOW_AUTH_DEFAULT_PERMISSION
+          envVar: MLFLOW_AUTH_DEFAULT_PERMISSION
         description: Permission every MLflow user holds on resources they did not create.
       # This deployment's own origin, bound from the output below. Without it
       # the UI cannot write. MLflow rejects any POST, PUT, PATCH or DELETE to
@@ -231,7 +231,7 @@ spec:
           type: string
         required: false
         target:
-          envVarKey: MLFLOW_SERVER_CORS_ALLOWED_ORIGINS
+          envVar: MLFLOW_SERVER_CORS_ALLOWED_ORIGINS
         description: >-
           Comma-separated browser origins allowed to change state through the
           API. Must match the Origin header exactly — scheme included, no

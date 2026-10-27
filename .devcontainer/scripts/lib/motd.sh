@@ -88,8 +88,8 @@ _motd_spec_source() {
   echo ""
   echo "  ${_BOLD}Validating against${_RESET}"
   echo "  ${_DIM}${sep}${_RESET}"
-  echo "  specifications.musher.dev/<family>/v1"
-  echo "  ${_DIM}public origin, fetched at run time; no token, no cache, no fallback${_RESET}"
+  echo "  musher-dev/specifications core, component, blueprint, listing v2.0.0"
+  echo "  ${_DIM}vendored release archives, digest-checked; no network, no fallback${_RESET}"
 }
 
 _motd_quickref() {

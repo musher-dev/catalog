@@ -1,18 +1,20 @@
 /**
  * The `semantic` validation phase — the rules JSON Schema cannot express.
  *
- * Core spec §6 splits validation into four phases and forbids reporting a
+ * Core spec §6 splits validation into five phases and forbids reporting a
  * later-phase diagnostic before the earlier ones pass. `parser` is
- * yaml-profile.ts and `structural` is the fetched bundle; this module is the
+ * yaml-profile.ts and `structural` is the vendored bundle; this module is the
  * third: reference resolution, path containment, and uniqueness across
  * collections — everything that needs a second document or the filesystem, and
  * nothing that needs the network.
  *
- * `capability` is deliberately absent. Whether a Compute Profile is offered,
- * whether a published component exists, and whether a version is monotonic are
- * all decided against the platform catalog, and an implementation MUST NOT
- * report a rule it has not been given the means to check.
+ * `admission` is deliberately absent. Whether a Compute Profile is offered,
+ * whether a catalog component exists, whether a revision increases, whether a
+ * licence is one SPDX publishes and how large an image is are all decided
+ * against the platform, and an implementation MUST NOT report a rule it has
+ * not been given the means to check. `resolution` needs a deployment.
  */
+import fs from 'node:fs';
 import path from 'node:path';
 
 import {
@@ -24,7 +26,7 @@ import {
   type LoadedDocument,
 } from './catalog.ts';
 import { declaredMediaPaths, mediaPathPatternFrom } from './media.ts';
-import { scanDescription } from './markdown.ts';
+import { scanOverview } from './markdown.ts';
 import { rel } from './paths.ts';
 import { loadSchema, validatorFor } from './spec-schemas.ts';
 
@@ -34,24 +36,24 @@ const diag = (code: string, where: string, message: string): Diagnostic => ({ co
 
 /* ------------------------------------------------------------------ shapes */
 
-/** HTTP family — the protocols whose PUBLIC endpoint publishes a URL (component spec §5.2). */
-const HTTP_FAMILY = new Set(['HTTP', 'HTTPS', 'WS', 'GRPC']);
-/** L4 — the protocols whose PUBLIC endpoint publishes a `host:port` address. */
-const L4_FAMILY = new Set(['TCP', 'UDP']);
+/** URL-addressed — the protocols whose PUBLIC endpoint publishes a URL (component spec §5.2). */
+const URL_ADDRESSED = new Set(['HTTP', 'HTTPS', 'WS', 'GRPC']);
+/** Port-addressed — the protocols whose PUBLIC endpoint publishes a `host:port` address. */
+const PORT_ADDRESSED = new Set(['TCP', 'UDP']);
 
 /**
- * The protocols a sign-in and a request header exist on — the only ones whose
- * exposure may be AUTHENTICATED (BP-NODE-007) and whose endpoint publishes the
- * viewer identity properties (COMP-EP-012). Narrower than HTTP_FAMILY: gRPC is
- * left out.
+ * HTTP-routed — the protocols a sign-in and a request header exist on, the
+ * only ones whose exposure may be RESTRICTED (BP-NODE-007) and whose endpoint
+ * publishes the viewer identity properties (COMP-EP-012). Narrower than
+ * URL_ADDRESSED: gRPC is left out.
  */
-const VIEWER_IDENTITY_FAMILY = new Set(['HTTP', 'HTTPS', 'WS']);
+const HTTP_ROUTED = new Set(['HTTP', 'HTTPS', 'WS']);
 
-/** The protocols a probe may address — component spec §5.4, COMP-EP-002. */
-const PROBE_FAMILY = new Set(['HTTP', 'HTTPS']);
+/** HTTP probe — the protocols a probe may address, component spec §5.4, COMP-EP-002. */
+const HTTP_PROBE = new Set(['HTTP', 'HTTPS']);
 
 /**
- * Every address property an endpoint publishes, and the protocol family each
+ * Every endpoint property an endpoint publishes, and the protocol set each
  * one needs (component spec §5.2, COMP-EP-004). A private property is published
  * by every endpoint, whatever it speaks.
  */
@@ -109,13 +111,14 @@ const OIDC_CLIENT_PROPERTIES = new Set(['oidcIssuerURL', 'oidcClientID', 'oidcCl
 const VIEWER_IDENTITY_MODES = new Set(['NONE', 'HEADER', 'ASSERTION', 'OIDC']);
 
 /**
- * The closed namespace set core spec §5.2 reserves, as ADR 0031 §5 re-spells it:
- * `config` became `variables`, `params` became `parameters`, and `connections`
- * was added. Two positions are open, and each admits a different subset —
- * a component's output template admits `self` alone (COMP-REF-001), and a
- * blueprint parameter's `from` admits `variables`, `deployment` and
- * `connections` alone (BP-REF-001). Everything else here is reserved so it can never become a name
- * an author addresses, and writing one is CORE-REF-003 rather than CORE-REF-002.
+ * The closed namespace set core spec §5.2 reserves for placeholders. Core v2
+ * renamed `output` to `nodes`. Two positions are open, and each permits a
+ * different subset — a component's output template permits `self` alone
+ * (COMP-PLACEHOLDER-001), and a blueprint parameter's `from` permits
+ * `variables`, `deployment` and `connections` alone (BP-PLACEHOLDER-001).
+ * Everything else here is reserved so it can never become a name an author
+ * addresses, and writing one is CORE-PLACEHOLDER-003 rather than
+ * CORE-PLACEHOLDER-002.
  */
 const RESERVED_NAMESPACES = new Set([
   'self',
@@ -125,14 +128,17 @@ const RESERVED_NAMESPACES = new Set([
   'deployment',
   'environment',
   'organization',
-  'output',
+  'nodes',
 ]);
 
-/** The namespaces a blueprint parameter's `from` may name — BP-REF-001. */
-const PARAMETER_SOURCE_NAMESPACES = new Set(['variables', 'deployment', 'connections']);
+/** The namespaces a blueprint parameter's `from` may name — BP-PLACEHOLDER-001. */
+const PARAMETER_ORIGIN_NAMESPACES = new Set(['variables', 'deployment', 'connections']);
 
-/** The three facts the `deployment` namespace defines — BP-PARAM-011. */
-const DEPLOYMENT_FACTS = new Set(['installer.identity', 'installer.email', 'installer.name']);
+/**
+ * The three facts the `deployment` namespace defines — BP-PARAM-011. Each is
+ * about the deployment's creator, captured once when the deployment is created.
+ */
+const DEPLOYMENT_FACTS = new Set(['creator.identity', 'creator.email', 'creator.name']);
 
 const record = (value: unknown): Record<string, unknown> => (isRecord(value) ? value : {});
 const specOf = (doc: LoadedDocument | null | undefined): Record<string, unknown> => record(doc?.value?.['spec']);
@@ -144,11 +150,11 @@ export type NodeBinding = {
   name: string;
   node: Record<string, unknown>;
   reference: string;
-  form: 'repo-local' | 'published' | 'unrecognised';
-  /** Repo-local only, and only once it resolves to a document inside the root. */
+  form: 'item-local' | 'catalog' | 'unrecognised';
+  /** Item-local only, and only once it resolves to a document inside the root. */
   componentPath: string | null;
   component: Record<string, unknown> | null;
-  /** True where the reference was repo-local and could not be read. */
+  /** True where the reference was item-local and could not be read. */
   unreadable: boolean;
 };
 
@@ -156,9 +162,9 @@ export type SemanticContext = {
   item: Item;
   documents: ItemDocuments;
   nodes: NodeBinding[];
-  /** Media-path grammar, read out of the fetched listing bundle. */
+  /** Media-path grammar, read out of the vendored listing bundle. */
   isMediaPath: (value: string) => boolean;
-  /** ComponentInput property defaults, read out of the fetched component bundle. */
+  /** ComponentInput property defaults, read out of the vendored component bundle. */
   inputDefaults: Record<string, unknown>;
   /**
    * Component documents that fail the parser or the component schema, by
@@ -175,9 +181,9 @@ export function buildContext(
   inputDefaults: Record<string, unknown>,
   invalidComponents: ReadonlySet<string> = new Set(),
 ): SemanticContext {
-  const components = record(specOf(documents.blueprint)['components']);
+  const graph = record(specOf(documents.blueprint)['nodes']);
 
-  const nodes: NodeBinding[] = Object.entries(components).map(([name, raw]) => {
+  const nodes: NodeBinding[] = Object.entries(graph).map(([name, raw]) => {
     const node = record(raw);
     const reference = typeof node['componentRef'] === 'string' ? node['componentRef'] : '';
 
@@ -189,7 +195,7 @@ export function buildContext(
         name,
         node,
         reference,
-        form: 'repo-local',
+        form: 'item-local',
         componentPath,
         component: loaded?.value ? record(loaded.value) : null,
         unreadable: !loaded?.value,
@@ -197,8 +203,8 @@ export function buildContext(
     }
 
     if (/^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/.test(reference)) {
-      // Resolving this needs the catalog, which needs the network. `capability`.
-      return { name, node, reference, form: 'published', componentPath: null, component: null, unreadable: true };
+      // Resolving this needs the catalog, which needs the platform. `admission`.
+      return { name, node, reference, form: 'catalog', componentPath: null, component: null, unreadable: true };
     }
 
     return { name, node, reference, form: 'unrecognised', componentPath: null, component: null, unreadable: true };
@@ -209,7 +215,7 @@ export function buildContext(
 
 /**
  * The whole context for one item, as every suite builds it. The media-path
- * grammar and the component-input defaults are read back out of the fetched
+ * grammar and the component-input defaults are read back out of the vendored
  * bundles rather than restated here, so the two places this phase needs them
  * cannot drift from what the spec publishes.
  */
@@ -239,17 +245,20 @@ export async function contextForItem(item: Item): Promise<SemanticContext> {
 /** Every rule in this phase, in the order the suites report them. */
 export const SEMANTIC_CHECKS: readonly ((context: SemanticContext) => Diagnostic[])[] = [
   checkIdentity,
+  checkItemFiles,
   checkItemType,
+  checkComponentCount,
   checkComponentReferences,
   checkMedia,
-  checkDescription,
-  checkEnvKeys,
+  checkOverview,
+  checkEnvVars,
   checkMounts,
   checkSchedule,
   checkHealthProbes,
   checkInputOrigins,
   checkOutputOrigins,
-  checkSecretLiterals,
+  checkUnusedInputs,
+  checkSensitiveLiterals,
   checkNodeCompute,
   checkVolumeAllocations,
   checkExposure,
@@ -318,6 +327,43 @@ export function checkItemType(context: SemanticContext): Diagnostic[] {
   ];
 }
 
+/**
+ * CORE-ITEM-002 — core spec §4.1. Every YAML file of the item outside `media/`
+ * parses under the YAML profile, because deciding whether it is a component
+ * document reads it. The parser phase reports what is wrong with the file; this
+ * reports that the item holds it.
+ */
+export function checkItemFiles(context: SemanticContext): Diagnostic[] {
+  const { documents } = context;
+  const files = [documents.listing, documents.blueprint, ...documents.components.values()];
+  return files
+    .filter((doc): doc is LoadedDocument => doc !== null && (doc.parserDiagnostics.length > 0 || doc.value === undefined))
+    .map((doc) => diag('ERR_INVALID_YAML', `${doc.label} /`, `${rel(doc.path)} does not parse under the YAML profile`));
+}
+
+/** Whether a loaded document is a component document: it parses, and declares `kind: COMPONENT`. */
+const isComponentDocument = (doc: LoadedDocument): boolean => doc.value?.['kind'] === 'COMPONENT';
+
+/**
+ * LIST-ITEM-002 — listing spec §3. A component item holds exactly one
+ * component document: a YAML file under the item root, outside `media/`, that
+ * parses with `kind: COMPONENT`.
+ */
+export function checkComponentCount(context: SemanticContext): Diagnostic[] {
+  const listing = context.documents.listing;
+  if (!listing?.value || specOf(listing)['itemType'] !== 'COMPONENT') return [];
+
+  const count = [...context.documents.components.values()].filter(isComponentDocument).length;
+  if (count === 1) return [];
+  return [
+    diag(
+      'ERR_COMPONENT_COUNT',
+      `${listing.label} /spec/itemType`,
+      `a component item holds exactly one component document, and this one holds ${count}`,
+    ),
+  ];
+}
+
 /* -------------------------------------------------------------- references */
 
 /** Blueprint spec §4.1 and BP-ID-003. */
@@ -329,9 +375,9 @@ export function checkComponentReferences(context: SemanticContext): Diagnostic[]
   const referenced = new Set<string>();
 
   for (const binding of context.nodes) {
-    const where = `${documents.blueprint.label} /spec/components/${binding.name}/componentRef`;
+    const where = `${documents.blueprint.label} /spec/nodes/${binding.name}/componentRef`;
 
-    if (binding.form === 'published') continue; // capability — not decidable offline
+    if (binding.form === 'catalog') continue; // admission — not decidable offline
     if (binding.form === 'unrecognised') {
       found.push(diag('ERR_INVALID_VALUE', where, `${JSON.stringify(binding.reference)} matches neither reference form`));
       continue;
@@ -377,12 +423,12 @@ export function checkComponentReferences(context: SemanticContext): Diagnostic[]
   // BP-ID-003. A component nothing references is not deployed, not checked
   // against any node, and not visible to a reader working out what the item
   // contains. The diagnostic anchors at the mapping that should have named it.
-  for (const componentPath of documents.components.keys()) {
-    if (!referenced.has(componentPath)) {
+  for (const [componentPath, doc] of documents.components) {
+    if (!referenced.has(componentPath) && isComponentDocument(doc)) {
       found.push(
         diag(
           'ERR_UNREFERENCED_COMPONENT',
-          `${documents.blueprint.label} /spec/components`,
+          `${documents.blueprint.label} /spec/nodes`,
           `${rel(componentPath)} is referenced by no node`,
         ),
       );
@@ -399,7 +445,7 @@ const isDescribed = (entry: unknown): boolean => {
 
 /**
  * Component spec §5, "What publication requires" — the first obligation a
- * component misses, or null when it meets them all. Each is `capability` for
+ * component misses, or null when it meets them all. Each is `admission` for
  * the component alone; blueprint BP-REF-003 makes it semantic for a node
  * deploying one. The component's own `metadata.description` is exempt.
  */
@@ -428,7 +474,15 @@ function publicationGap(component: Record<string, unknown>): string | null {
 
 /* ------------------------------------------------------------------- media */
 
-/** LIST-MEDIA-001, LIST-MEDIA-002, LIST-MEDIA-003. */
+/**
+ * LIST-MEDIA-004 — listing spec §5. The size bound of each media role, read
+ * from file metadata and never by decoding. Dimensions are LIST-MEDIA-005, an
+ * `admission` rule this suite does not decide.
+ */
+export const MEDIA_BYTES = { icon: 1024 * 1024, screenshot: 5 * 1024 * 1024, image: 5 * 1024 * 1024 } as const;
+type MediaRole = keyof typeof MEDIA_BYTES;
+
+/** LIST-MEDIA-001, LIST-MEDIA-002, LIST-MEDIA-003, LIST-MEDIA-004. */
 export function checkMedia(context: SemanticContext): Diagnostic[] {
   const { item, documents } = context;
   const listing = documents.listing;
@@ -438,7 +492,7 @@ export function checkMedia(context: SemanticContext): Diagnostic[] {
   const listingSpec = specOf(listing);
 
   for (const { pointer, value } of declaredMediaPaths(listingSpec)) {
-    found.push(...checkOneMediaPath(context, `${listing.label} ${pointer}`, value));
+    found.push(...checkOneMediaPath(context, `${listing.label} ${pointer}`, value, pointer === '/spec/icon' ? 'icon' : 'screenshot'));
   }
 
   // LIST-MEDIA-003. A gallery entry is its whole item-relative path, so
@@ -468,7 +522,7 @@ export function checkMedia(context: SemanticContext): Diagnostic[] {
   return found;
 }
 
-function checkOneMediaPath(context: SemanticContext, where: string, value: string): Diagnostic[] {
+function checkOneMediaPath(context: SemanticContext, where: string, value: string, role: MediaRole): Diagnostic[] {
   const target = path.resolve(context.item.root, value);
   const found: Diagnostic[] = [];
 
@@ -481,31 +535,51 @@ function checkOneMediaPath(context: SemanticContext, where: string, value: strin
 
   if (!context.item.mediaPaths.includes(target)) {
     found.push(diag('ERR_MEDIA_NOT_FOUND', where, `${JSON.stringify(value)} names no file on disk`));
+    return found;
+  }
+
+  let size: number | undefined;
+  try {
+    size = fs.statSync(target).size;
+  } catch {
+    size = undefined;
+  }
+  if (size !== undefined && size > MEDIA_BYTES[role]) {
+    found.push(diag('ERR_MEDIA_TOO_LARGE', where, `${JSON.stringify(value)} is ${size} bytes, over the ${MEDIA_BYTES[role]}-byte bound for ${role === 'icon' ? 'an icon' : 'an image'}`));
   }
 
   return found;
 }
 
-/* ------------------------------------------------------------- description */
+/* ---------------------------------------------------------------- overview */
 
-/** LIST-MD-001, LIST-MD-002, LIST-MD-003, and §5's rules reaching a description image. */
-export function checkDescription(context: SemanticContext): Diagnostic[] {
+/** The two fields written in the overview Markdown profile — listing spec §4.1. */
+const MARKDOWN_FIELDS = ['overview', 'gettingStarted'] as const;
+
+/**
+ * LIST-MD-001, LIST-MD-002, LIST-MD-003, and §5's rules reaching an overview
+ * image, over `overview` and `gettingStarted` alike.
+ */
+export function checkOverview(context: SemanticContext): Diagnostic[] {
   const listing = context.documents.listing;
   if (!listing?.value) return [];
 
-  const description = specOf(listing)['description'];
-  if (typeof description !== 'string') return [];
+  const found: Diagnostic[] = [];
+  for (const field of MARKDOWN_FIELDS) {
+    const markdown = specOf(listing)[field];
+    if (typeof markdown !== 'string') continue;
 
-  const where = `${listing.label} /spec/description`;
-  const { findings, imageDestinations } = scanDescription(description, context.isMediaPath);
+    const where = `${listing.label} /spec/${field}`;
+    const { findings, imageDestinations } = scanOverview(markdown, context.isMediaPath);
+    found.push(...findings.map((finding) => diag(finding.code, where, finding.detail)));
 
-  const found: Diagnostic[] = findings.map((finding) => diag(finding.code, where, finding.detail));
-
-  // §5's semantic rules reach a description image too — it must resolve to a
-  // file that exists and must lie inside the item root — reported at
-  // /spec/description. Basename uniqueness does not: that is the gallery's rule.
-  for (const destination of imageDestinations) {
-    if (context.isMediaPath(destination)) found.push(...checkOneMediaPath(context, where, destination));
+    // §5's semantic rules reach an overview image too — it must resolve to a
+    // file that exists, lie inside the item root and stay inside its size
+    // bound — reported at the field. Path uniqueness does not: that is the
+    // gallery's rule.
+    for (const destination of imageDestinations) {
+      if (context.isMediaPath(destination)) found.push(...checkOneMediaPath(context, where, destination, 'image'));
+    }
   }
 
   return found;
@@ -555,7 +629,7 @@ export function checkHealthProbes(context: SemanticContext): Diagnostic[] {
       // plain GET, so a workload serving one declares a separate HTTP endpoint
       // for its probe rather than pointing the probe at the wrong protocol.
       const protocol = endpoint['protocol'];
-      if (typeof protocol === 'string' && !PROBE_FAMILY.has(protocol)) {
+      if (typeof protocol === 'string' && !HTTP_PROBE.has(protocol)) {
         found.push(
           diag('ERR_ENDPOINT_NOT_HTTP', where, `the probe names endpoint ${JSON.stringify(named)}, whose protocol is ${protocol}`),
         );
@@ -614,6 +688,20 @@ export function checkInputOrigins(context: SemanticContext): Diagnostic[] {
       }
     }
 
+    // COMP-BUILD-004. A build secret reads an input that is always supplied,
+    // and its ID is not also a build argument: the two would reach the build
+    // under one name.
+    const build = record(workloadOf(component)['build']);
+    const buildArguments = record(build['arguments']);
+    for (const [id, secret] of Object.entries(record(build['secrets']))) {
+      origins.push({ where: `/spec/workload/build/secrets/${id}`, origin: record(secret) });
+      if (Object.hasOwn(buildArguments, id)) {
+        found.push(
+          diag('ERR_CONFLICTING_ENV_VAR', `${rel(componentPath)} /spec/workload/build/secrets/${id}`, `${id} is also a build argument`),
+        );
+      }
+    }
+
     for (const { where, origin } of origins) {
       if (!('input' in origin)) continue;
       const named = origin['input'];
@@ -621,7 +709,7 @@ export function checkInputOrigins(context: SemanticContext): Diagnostic[] {
       const input = typeof named === 'string' ? inputs[named] : undefined;
 
       if (!isRecord(input)) {
-        found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', at, `${JSON.stringify(named)} names no input this component declares`));
+        found.push(diag('ERR_UNKNOWN_INPUT', at, `${JSON.stringify(named)} names no input this component declares`));
       } else if (!isRequired(input) && !('default' in input)) {
         found.push(
           diag('ERR_INPUT_NOT_GUARANTEED', at, `input ${JSON.stringify(named)} is optional with no default, so it may never be supplied`),
@@ -651,8 +739,55 @@ const outputsOf = (component: Record<string, unknown> | null): Record<string, un
  */
 const isConnectionInput = (input: Record<string, unknown>): boolean => isRecord(input['connection']);
 
-/** The three members a connection publishes, whatever its protocol — COMP-CONNECTION-002. */
-const CONNECTION_MEMBERS = new Set(['baseURL', 'apiKey', 'model']);
+/**
+ * Component spec §6.4 — COMP-CONNECTION-002. Each protocol fixes its members,
+ * which of them are sensitive, and whether each is guaranteed: required,
+ * derived, or optional with a default. Only a guaranteed member may be
+ * forwarded by an output (COMP-OUT-003).
+ */
+type MemberContract = { sensitive: boolean; guaranteed: boolean };
+const member = (sensitive = false, guaranteed = true): MemberContract => ({ sensitive, guaranteed });
+const LANGUAGE_MODEL_MEMBERS = { baseURL: member(), apiKey: member(true), model: member() };
+const CONNECTION_PROTOCOL_MEMBERS: Record<string, Record<string, MemberContract>> = {
+  OPENAI_CHAT_COMPLETIONS: LANGUAGE_MODEL_MEMBERS,
+  ANTHROPIC_MESSAGES: LANGUAGE_MODEL_MEMBERS,
+  POSTGRES: {
+    host: member(),
+    port: member(),
+    database: member(),
+    username: member(),
+    password: member(true),
+    sslMode: member(),
+    url: member(true),
+  },
+  REDIS: {
+    host: member(),
+    port: member(),
+    tls: member(),
+    database: member(false, true),
+    username: member(false, false),
+    password: member(true, false),
+    url: member(true),
+  },
+  S3: {
+    endpointURL: member(),
+    region: member(),
+    bucket: member(),
+    accessKeyID: member(),
+    secretAccessKey: member(true),
+    pathStyle: member(false, true),
+  },
+};
+
+/** Every member any protocol defines. */
+const CONNECTION_MEMBERS = new Set(Object.values(CONNECTION_PROTOCOL_MEMBERS).flatMap((members) => Object.keys(members)));
+
+/** The contract `name` has under the connection input's protocol, or undefined where it defines none. */
+function protocolMember(input: Record<string, unknown>, name: string): MemberContract | undefined {
+  const protocol = record(input['connection'])['protocol'];
+  const members = typeof protocol === 'string' && Object.hasOwn(CONNECTION_PROTOCOL_MEMBERS, protocol) ? CONNECTION_PROTOCOL_MEMBERS[protocol] : undefined;
+  return members && Object.hasOwn(members, name) ? members[name] : undefined;
+}
 
 /**
  * COMP-CONNECTION-002 — a connection input is always required, and declares no
@@ -704,7 +839,7 @@ const exposureOf = (node: Record<string, unknown>, endpoint: string): Exposure =
   const form = isRecord(selected) ? selected : { visibility: selected };
   return {
     visibility: form['visibility'] === 'PUBLIC' ? 'PUBLIC' : 'PRIVATE',
-    access: form['access'] === 'AUTHENTICATED' ? 'AUTHENTICATED' : 'OPEN',
+    access: form['access'] === 'RESTRICTED' ? 'RESTRICTED' : 'OPEN',
     viewerIdentity: VIEWER_IDENTITY_MODES.has(String(form['viewerIdentity'])) ? String(form['viewerIdentity']) : 'NONE',
     viewerClaims: stringsOf(form['viewerClaims']),
     accessExemptions: stringsOf(form['accessExemptions']),
@@ -721,7 +856,7 @@ const exposureOf = (node: Record<string, unknown>, endpoint: string): Exposure =
  * look is whether the names inside it resolve. An `input` origin names one of
  * this component's own inputs (COMP-OUT-002). An `endpoint` origin names one of
  * its own endpoints and a property that endpoint publishes (COMP-EP-004), and a
- * `template` reads the same pair through a `self` reference (COMP-REF-001).
+ * `template` reads the same pair through a `self` placeholder (COMP-PLACEHOLDER-001).
  *
  * Whether a `public…` property is actually published is the blueprint's to
  * decide, because exposure lives on the node — see `checkExposure`.
@@ -742,32 +877,68 @@ export function checkOutputOrigins(context: SemanticContext): Diagnostic[] {
         const named = from['input'];
         const input = typeof named === 'string' ? inputs[named] : undefined;
         if (!isRecord(input)) {
-          found.push(diag('ERR_UNKNOWN_INPUT_REFERENCE', `${at}/input`, `${JSON.stringify(named)} names no input this component declares`));
+          found.push(diag('ERR_UNKNOWN_INPUT', `${at}/input`, `${JSON.stringify(named)} names no input this component declares`));
           continue;
         }
 
-        // COMP-OUT-004. A connection is three values, not one, so an output
+        // COMP-OUT-004. A connection is several values, not one, so an output
         // forwarding one says which. A value input has no members to choose
         // between, so naming one there is the same mistake read the other way.
         const member = from['member'];
         if (isConnectionInput(input)) {
-          if (typeof member !== 'string' || !CONNECTION_MEMBERS.has(member)) {
+          if (typeof member !== 'string') {
             found.push(
               diag(
-                'ERR_UNKNOWN_INPUT_REFERENCE',
+                'ERR_UNKNOWN_INPUT',
                 `${at}/input`,
-                `${JSON.stringify(named)} is a connection, which publishes baseURL, apiKey and model rather than one value, so the output names which of them it forwards`,
+                `${JSON.stringify(named)} is a connection, which holds several members rather than one value, so the output names which of them it forwards`,
+              ),
+            );
+            continue;
+          }
+          const contract = protocolMember(input, member);
+          if (!contract) {
+            if (CONNECTION_MEMBERS.has(member)) {
+              found.push(
+                diag(
+                  'ERR_UNKNOWN_CONNECTION_MEMBER',
+                  `${at}/member`,
+                  `${JSON.stringify(member)} is not a member of the ${String(record(input['connection'])['protocol'])} connection ${JSON.stringify(named)}`,
+                ),
+              );
+            }
+            continue;
+          }
+          // COMP-OUT-004. A sensitive member is forwarded only by an output that
+          // says so: the contract shows the sensitivity rather than inheriting
+          // it. The code is ERR_VALUE_CONSTRAINT, whose value-schema half this
+          // suite does not decide, but this half needs only two fields.
+          if (contract.sensitive && record(rawOutput)['sensitive'] !== true) {
+            found.push(
+              diag(
+                'ERR_VALUE_CONSTRAINT',
+                `${at}/member`,
+                `member ${JSON.stringify(member)} is sensitive, so output ${JSON.stringify(outputName)} declares sensitive: true`,
+              ),
+            );
+            continue;
+          }
+          // COMP-OUT-003. An optional member without a default may be absent.
+          if (!contract.guaranteed) {
+            found.push(
+              diag(
+                'ERR_INPUT_NOT_GUARANTEED',
+                `${at}/member`,
+                `member ${JSON.stringify(member)} is optional with no default, so this output may have no value to publish`,
               ),
             );
           }
-          // A connection input is always required and never carries a default,
-          // so COMP-OUT-003 below cannot bite on one.
           continue;
         }
         if (member !== undefined) {
           found.push(
             diag(
-              'ERR_UNKNOWN_INPUT_REFERENCE',
+              'ERR_UNKNOWN_INPUT',
               `${at}/member`,
               `${JSON.stringify(named)} is a value input, and only a connection input has members`,
             ),
@@ -780,7 +951,7 @@ export function checkOutputOrigins(context: SemanticContext): Diagnostic[] {
         if (!isRequired(input) && !('default' in input)) {
           found.push(
             diag(
-              'ERR_OUTPUT_NOT_PRODUCIBLE',
+              'ERR_INPUT_NOT_GUARANTEED',
               `${at}/input`,
               `${JSON.stringify(named)} is optional and declares no default, so this output has no value to publish when nothing binds it`,
             ),
@@ -817,7 +988,7 @@ function checkAddressOrigin(
 
   const family = typeof property === 'string' ? ADDRESS_PROPERTIES[property] : undefined;
   if (family === undefined) {
-    return [diag('ERR_UNKNOWN_ADDRESS_PROPERTY', where, `${JSON.stringify(property)} names no address property an endpoint publishes`)];
+    return [diag('ERR_UNKNOWN_ENDPOINT_PROPERTY', where, `${JSON.stringify(property)} names no address property an endpoint publishes`)];
   }
 
   // COMP-TYPE-003. A WORKER is never request-driven, so no node may expose one
@@ -836,7 +1007,7 @@ function checkAddressOrigin(
   const protocol = endpoint['protocol'];
   if (typeof protocol !== 'string' || family === 'any') return [];
 
-  if (family === 'viewer-identity' && !VIEWER_IDENTITY_FAMILY.has(protocol)) {
+  if (family === 'viewer-identity' && !HTTP_ROUTED.has(protocol)) {
     return [diag('ERR_ENDPOINT_NOT_HTTP', where, `${property} needs an HTTP, HTTPS or WS endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
   }
 
@@ -849,17 +1020,17 @@ function checkAddressOrigin(
     ];
   }
 
-  if (family === 'url' && !HTTP_FAMILY.has(protocol)) {
-    return [diag('ERR_ENDPOINT_NOT_HTTP', where, `${property} needs an HTTP-family endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
+  if (family === 'url' && !URL_ADDRESSED.has(protocol)) {
+    return [diag('ERR_ENDPOINT_NOT_URL_ADDRESSED', where, `${property} needs a URL-addressed endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
   }
-  if (family === 'host-port' && !L4_FAMILY.has(protocol)) {
-    return [diag('ERR_ENDPOINT_NOT_L4', where, `${property} needs a TCP or UDP endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
+  if (family === 'host-port' && !PORT_ADDRESSED.has(protocol)) {
+    return [diag('ERR_ENDPOINT_NOT_PORT_ADDRESSED', where, `${property} needs a TCP or UDP endpoint, and ${JSON.stringify(named)} speaks ${protocol}`)];
   }
   return [];
 }
 
 /**
- * Component spec §6.2 — COMP-REF-001. A template is the one position in a
+ * Component spec §6.2 — COMP-PLACEHOLDER-001. A template is the one position in a
  * component that admits a reference, it admits `self` alone, and the path shape
  * is exactly `endpoints.<name>.<property>`.
  *
@@ -869,15 +1040,15 @@ function checkAddressOrigin(
  */
 function checkOutputTemplate(component: Record<string, unknown>, template: string, where: string): Diagnostic[] {
   const { references, malformed } = scanReferences(template);
-  const found = malformed.map((raw) => diag('ERR_MALFORMED_REFERENCE', where, `${JSON.stringify(raw)} begins no well-formed reference`));
+  const found = malformed.map((raw) => diag('ERR_MALFORMED_PLACEHOLDER', where, `${JSON.stringify(raw)} begins no well-formed placeholder`));
 
   for (const reference of references) {
     if (!RESERVED_NAMESPACES.has(reference.namespace)) {
-      found.push(diag('ERR_UNKNOWN_REFERENCE_NAMESPACE', where, `${JSON.stringify(reference.namespace)} names a namespace core reserves none of`));
+      found.push(diag('ERR_UNKNOWN_PLACEHOLDER_NAMESPACE', where, `${JSON.stringify(reference.namespace)} names a namespace core reserves none of`));
       continue;
     }
     if (reference.namespace !== 'self') {
-      found.push(diag('ERR_REFERENCE_NOT_IN_SCOPE', where, `only self is in scope in a component, and this names ${JSON.stringify(reference.namespace)}`));
+      found.push(diag('ERR_NAMESPACE_NOT_PERMITTED', where, `only self is permitted in a component, and this names ${JSON.stringify(reference.namespace)}`));
       continue;
     }
 
@@ -897,6 +1068,46 @@ function checkOutputTemplate(component: Record<string, unknown>, template: strin
 
 /* ------------------------------------------------------ workload contract */
 
+/**
+ * COMP-INPUT-001 — component spec §6.1. A workload input's `target` is
+ * optional, and an input with none never reaches the environment, so something
+ * else has to read it: a probe credential, a trust bundle, a build secret or an
+ * output. One that nothing reads is declared for nothing.
+ */
+export function checkUnusedInputs(context: SemanticContext): Diagnostic[] {
+  const found: Diagnostic[] = [];
+
+  for (const [componentPath, doc] of context.documents.components) {
+    if (!doc.value) continue;
+    const component = record(doc.value);
+    if (!['SERVICE', 'WORKER', 'JOB'].includes(categoryOf(component))) continue;
+
+    const workload = workloadOf(component);
+    const read = new Set<string>();
+    const note = (origin: unknown) => {
+      const named = record(origin)['input'];
+      if (typeof named === 'string') read.add(named);
+    };
+    const health = record(workload['health']);
+    for (const probe of Object.values(health)) {
+      for (const { origin } of probeCredentials(record(record(probe)['http']))) note(origin);
+    }
+    for (const endpoint of Object.values(endpointsOf(component))) note(record(record(endpoint)['tls'])['trustBundle']);
+    for (const secret of Object.values(record(record(workload['build'])['secrets']))) note(secret);
+    for (const output of Object.values(outputsOf(component))) note(record(output)['from']);
+
+    for (const [name, rawInput] of Object.entries(inputsOf(component))) {
+      const input = record(rawInput);
+      if (isConnectionInput(input) || 'target' in input || read.has(name)) continue;
+      found.push(
+        diag('ERR_UNUSED_INPUT', `${rel(componentPath)} /spec/contract/inputs/${name}`, `input ${JSON.stringify(name)} has no target, and nothing else reads it`),
+      );
+    }
+  }
+
+  return found;
+}
+
 /** Names in UTF-8 byte order — the order the specification selects "the later declaration" by. */
 const utf8Order = (a: string, b: string): number => Buffer.compare(Buffer.from(a, 'utf8'), Buffer.from(b, 'utf8'));
 
@@ -909,7 +1120,7 @@ const utf8Order = (a: string, b: string): number => Buffer.compare(Buffer.from(a
  * input carrying no `target` is skipped, which is also what silently excludes a
  * connection input: it has no target because nothing runs to receive one.
  */
-export function checkEnvKeys(context: SemanticContext): Diagnostic[] {
+export function checkEnvVars(context: SemanticContext): Diagnostic[] {
   const found: Diagnostic[] = [];
 
   for (const [componentPath, doc] of context.documents.components) {
@@ -918,14 +1129,14 @@ export function checkEnvKeys(context: SemanticContext): Diagnostic[] {
 
     const inputs = inputsOf(doc.value);
     for (const name of Object.keys(inputs).sort(utf8Order)) {
-      const key = record(record(inputs[name])['target'])['envVarKey'];
+      const key = record(record(inputs[name])['target'])['envVar'];
       if (typeof key !== 'string') continue;
       const owner = claimed.get(key);
       if (owner !== undefined) {
         found.push(
           diag(
-            'ERR_CONFLICTING_ENV_KEY',
-            `${rel(componentPath)} /spec/contract/inputs/${name}/target/envVarKey`,
+            'ERR_CONFLICTING_ENV_VAR',
+            `${rel(componentPath)} /spec/contract/inputs/${name}/target/envVar`,
             `${key} is already claimed by input ${JSON.stringify(owner)}`,
           ),
         );
@@ -1062,13 +1273,13 @@ export function checkNodeCompute(context: SemanticContext): Diagnostic[] {
     found.push(
       external
         ? diag(
-            'ERR_CONFLICTING_NODE_COMPUTE',
-            `${blueprint.label} /spec/components/${binding.name}/compute`,
+            'ERR_COMPUTE_FORBIDDEN',
+            `${blueprint.label} /spec/nodes/${binding.name}/compute`,
             `the component ${JSON.stringify(binding.reference)} is EXTERNAL and runs nothing, so there is nothing to size or place`,
           )
         : diag(
-            'ERR_CONFLICTING_NODE_COMPUTE',
-            `${blueprint.label} /spec/components/${binding.name}`,
+            'ERR_COMPUTE_REQUIRED',
+            `${blueprint.label} /spec/nodes/${binding.name}`,
             `the component ${JSON.stringify(binding.reference)} runs a workload, so the node must name the compute it runs on`,
           ),
     );
@@ -1096,7 +1307,7 @@ export function checkVolumeAllocations(context: SemanticContext): Diagnostic[] {
 
     const declared = volumesOf(binding.component);
     const allocated = record(binding.node['volumes']);
-    const at = `${blueprint.label} /spec/components/${binding.name}/volumes`;
+    const at = `${blueprint.label} /spec/nodes/${binding.name}/volumes`;
 
     for (const name of Object.keys(declared)) {
       if (!isRecord(allocated[name])) {
@@ -1143,7 +1354,7 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
 
     const endpoints = endpointsOf(binding.component);
     const category = categoryOf(binding.component);
-    const at = `${blueprint.label} /spec/components/${binding.name}/exposure`;
+    const at = `${blueprint.label} /spec/nodes/${binding.name}/exposure`;
     const health = record(record(workloadOf(binding.component))['health']);
 
     for (const name of Object.keys(record(binding.node['exposure']))) {
@@ -1170,15 +1381,15 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
 
       // BP-NODE-007. A sign-in and a request header exist only on HTTP, HTTPS
       // and WS.
-      if (selected.access === 'AUTHENTICATED' && typeof protocol === 'string' && !VIEWER_IDENTITY_FAMILY.has(protocol)) {
+      if (selected.access === 'RESTRICTED' && typeof protocol === 'string' && !HTTP_ROUTED.has(protocol)) {
         found.push(
           diag('ERR_ENDPOINT_NOT_HTTP', `${at}/${name}/access`, `endpoint ${JSON.stringify(name)} speaks ${protocol}, which no sign-in can sit in front of`),
         );
       }
 
       // BP-NODE-008. The component constrains and the node selects: OIDC needs
-      // an endpoint declaring `oidc`, and each exemption needs the component to
-      // have declared the matching half of `accessExemptions`.
+      // an endpoint declaring `oidc`, and each exemption the node grants needs
+      // the component to offer the matching half of `exemptibleRequests`.
       if (selected.viewerIdentity === 'OIDC' && !isRecord(endpoint['oidc'])) {
         found.push(
           diag(
@@ -1188,24 +1399,24 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
           ),
         );
       }
-      const declared = record(endpoint['accessExemptions']);
+      const declared = record(endpoint['exemptibleRequests']);
       selected.accessExemptions.forEach((exemption, index) => {
         const offered =
-          exemption === 'PATHS' ? Array.isArray(declared['paths']) && declared['paths'].length > 0 : exemption === 'BEARER' ? declared['bearer'] === true : true;
+          exemption === 'PATHS' ? Array.isArray(declared['paths']) && declared['paths'].length > 0 : exemption === 'BEARER' ? declared['bearerToken'] === true : true;
         if (!offered) {
           found.push(
             diag(
               'ERR_EXEMPTION_NOT_DECLARED',
               `${at}/${name}/accessExemptions/${index}`,
               exemption === 'PATHS'
-                ? `endpoint ${JSON.stringify(name)} declares no accessExemptions.paths for PATHS to let through`
-                : `endpoint ${JSON.stringify(name)} does not declare accessExemptions.bearer: true, so it never said it checks bearer tokens`,
+                ? `endpoint ${JSON.stringify(name)} declares no exemptibleRequests.paths for PATHS to let through`
+                : `endpoint ${JSON.stringify(name)} does not declare exemptibleRequests.bearerToken: true, so it never said it checks bearer tokens`,
             ),
           );
         }
       });
 
-      if (typeof protocol !== 'string' || !HTTP_FAMILY.has(protocol)) continue;
+      if (typeof protocol !== 'string' || !URL_ADDRESSED.has(protocol)) continue;
 
       if (record(record(health['readiness'])['http'])['endpoint'] !== name) {
         found.push(
@@ -1240,7 +1451,7 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
         if (!isRecord(endpoints[name])) continue;
 
         const selected = exposureOf(binding.node, name);
-        const where = selected.authored ? `${at}/${name}` : `${blueprint.label} /spec/components/${binding.name}/componentRef`;
+        const where = selected.authored ? `${at}/${name}` : `${blueprint.label} /spec/nodes/${binding.name}/componentRef`;
 
         if (PUBLIC_PROPERTIES.has(property) && selected.visibility !== 'PUBLIC') {
           found.push(
@@ -1279,7 +1490,7 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
 /* ------------------------------------------------------- authored secrets */
 
 /**
- * Component spec §11 and COMP-VAL-005 — `ERR_SECRET_LITERAL`. A sensitive
+ * Component spec §11 and COMP-VAL-005 — `ERR_SENSITIVE_LITERAL`. A sensitive
  * contract cannot be supplied by an authored literal: "Published artifacts MUST
  * NOT contain secret plaintext, including defaults."
  *
@@ -1315,7 +1526,7 @@ export function checkExposure(context: SemanticContext): Diagnostic[] {
  * A generator is still not an authored literal: it produces a sensitive string
  * that never appears in a document (BP-PARAM-004).
  */
-export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
+export function checkSensitiveLiterals(context: SemanticContext): Diagnostic[] {
   const found: Diagnostic[] = [];
 
   for (const [componentPath, doc] of context.documents.components) {
@@ -1328,9 +1539,9 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
       if (input['sensitive'] === true && 'default' in input) {
         found.push(
           diag(
-            'ERR_SECRET_LITERAL',
+            'ERR_SENSITIVE_LITERAL',
             `${at}/inputs/${name}/default`,
-            `input ${JSON.stringify(name)} is sensitive, so it is supplied at installation and never by a value written here`,
+            `input ${JSON.stringify(name)} is sensitive, so it is supplied at deployment and never by a value written here`,
           ),
         );
       }
@@ -1344,7 +1555,7 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
       if ('value' in from) {
         found.push(
           diag(
-            'ERR_SECRET_LITERAL',
+            'ERR_SENSITIVE_LITERAL',
             `${at}/outputs/${name}/from/value`,
             `output ${JSON.stringify(name)} is sensitive, so it cannot publish a literal written here`,
           ),
@@ -1358,7 +1569,7 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
       if (typeof template === 'string' && scanReferences(template).references.length === 0) {
         found.push(
           diag(
-            'ERR_SECRET_LITERAL',
+            'ERR_SENSITIVE_LITERAL',
             `${at}/outputs/${name}/from/template`,
             `output ${JSON.stringify(name)} is sensitive, and a template naming no reference is a literal`,
           ),
@@ -1374,7 +1585,7 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
         if (!secret || !('value' in origin)) continue;
         found.push(
           diag(
-            'ERR_SECRET_LITERAL',
+            'ERR_SENSITIVE_LITERAL',
             `${rel(componentPath)} /spec/workload/health/${probe}/http/${pointer}/value`,
             `a probe's ${pointer.split('/').pop()} is a secret, so it is read from a sensitive input and never written here`,
           ),
@@ -1401,8 +1612,8 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
         if ('value' in supplier) {
           found.push(
             diag(
-              'ERR_SECRET_LITERAL',
-              `${blueprint.label} /spec/components/${binding.name}/bindings/${inputKey}/value`,
+              'ERR_SENSITIVE_LITERAL',
+              `${blueprint.label} /spec/nodes/${binding.name}/bindings/${inputKey}/value`,
               `input ${JSON.stringify(inputKey)} is sensitive, and a \`value\` binding carries a non-secret literal`,
             ),
           );
@@ -1417,7 +1628,7 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
         reported.add(named);
         found.push(
           diag(
-            'ERR_SECRET_LITERAL',
+            'ERR_SENSITIVE_LITERAL',
             `${blueprint.label} /spec/parameters/${named}/default`,
             `parameter ${JSON.stringify(named)} supplies the sensitive input ${JSON.stringify(inputKey)}, so it offers no default of its own`,
           ),
@@ -1432,7 +1643,7 @@ export function checkSecretLiterals(context: SemanticContext): Diagnostic[] {
 /* ---------------------------------------------------------------- bindings */
 
 /**
- * Blueprint spec §4.2 — BP-PARAM-006 and BP-PARAM-007.
+ * Blueprint spec §4.2 — BP-BIND-006 and BP-BIND-007.
  *
  * A binding says where one input's value comes from. That it names exactly one
  * supplier is structural (`BlueprintBinding`'s `oneOf`), so what is left here is
@@ -1455,7 +1666,7 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
 
     for (const [inputKey, rawBinding] of Object.entries(record(consumer.node['bindings']))) {
       const binding = record(rawBinding);
-      const where = `${blueprint.label} /spec/components/${consumer.name}/bindings/${inputKey}`;
+      const where = `${blueprint.label} /spec/nodes/${consumer.name}/bindings/${inputKey}`;
 
       const consumerInput = consumerInputs[inputKey];
       if (!consumer.unreadable && !isRecord(consumerInput)) {
@@ -1504,7 +1715,7 @@ export function checkBindings(context: SemanticContext): Diagnostic[] {
 }
 
 /**
- * Blueprint spec §4.2 — BP-CONN-002. The value-dependency graph is acyclic.
+ * Blueprint spec §4.2 — BP-BIND-002. The value-dependency graph is acyclic.
  *
  * A vertex is one node's input or output. A `{node, output}` binding makes the
  * consumer's input depend on the producer's output, and an output whose `from`
@@ -1550,7 +1761,7 @@ export function checkValueCycles(context: SemanticContext): Diagnostic[] {
       const seen = state.get(successor);
       if (seen === 'open') {
         const loop = [...stack.slice(stack.findIndex((frame) => frame.vertex === successor)).map((frame) => frame.vertex), successor];
-        return [diag('ERR_VALUE_CYCLE', `${blueprint.label} /spec/components`, `values depend on themselves: ${loop.join(' → ')}`)];
+        return [diag('ERR_VALUE_CYCLE', `${blueprint.label} /spec/nodes`, `values depend on themselves: ${loop.join(' → ')}`)];
       }
       if (seen === undefined) {
         state.set(successor, 'open');
@@ -1592,7 +1803,7 @@ function checkTypeAgreement(producer: Record<string, unknown>, consumer: Record<
  * bundle where one string was promised.
  *
  * What this rule leaves to others: a binding naming no parameter at all is
- * `ERR_UNKNOWN_PARAMETER` and nothing else (BP-PARAM-007), and a connection
+ * `ERR_UNKNOWN_PARAMETER` and nothing else (BP-BIND-007), and a connection
  * input left unbound is `ERR_UNSATISFIED_REQUIRED_INPUT` (BP-PARAM-003),
  * because a connection input is always required.
  */
@@ -1612,7 +1823,7 @@ export function checkConnectionBindings(context: SemanticContext): Diagnostic[] 
     for (const [inputKey, rawBinding] of Object.entries(record(binding.node['bindings']))) {
       const input = inputs[inputKey];
       if (!isRecord(input)) continue; // ERR_UNKNOWN_INPUT — checkBindings reports it
-      const where = `${blueprint.label} /spec/components/${binding.name}/bindings/${inputKey}`;
+      const where = `${blueprint.label} /spec/nodes/${binding.name}/bindings/${inputKey}`;
       const wantsConnection = isConnectionInput(input);
 
       const named = record(rawBinding)['parameter'];
@@ -1689,7 +1900,7 @@ function boundByParameter(context: SemanticContext): Map<string, Bound[]> {
 }
 
 /**
- * Blueprint spec §5 — the parameters, and the install form derived from them.
+ * Blueprint spec §5 — the parameters, and the deploy form derived from them.
  *
  * Nothing binds by name any more. A parameter reaches an input because some
  * node's `bindings` says so, which is what makes adding an unrelated node safe.
@@ -1716,12 +1927,12 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
     const at = `${blueprint.label} /spec/parameters/${key}`;
     const supplies = bound.get(key) ?? [];
 
-    found.push(...checkHashSource(parameter, parameters, at));
+    found.push(...checkHashedParameter(parameter, parameters, at));
 
     // BP-PARAM-001. Asking a deploying user for a value nothing reads is a field
     // that cannot do anything, and it is silent — which is why it is an error.
     // The one exception is a generated parameter with `ui` that a hash names:
-    // the installer reads it through disclosure, and only its hash is bound.
+    // the deployer reads it through disclosure, and only its hash is bound.
     if (supplies.length === 0 && 'generator' in parameter && 'ui' in parameter && hashedSources.has(key)) {
       continue;
     }
@@ -1758,7 +1969,20 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
     // receiving contracts and the supplied value (BP-PARAM-002), so an input not
     // marked sensitive is not an error here.
 
-    found.push(...checkParameterSource(parameter, at));
+    // BP-UI-005. A submitted parameter the deploy form never offers, and that
+    // has no default, cannot reach a required input through a form deployment.
+    const offered = ['generator', 'hash', 'from', 'ui', 'default'].some((origin) => origin in parameter);
+    if (!offered && values.some((one) => isRequired(one.input))) {
+      found.push(
+        diag(
+          'ERR_PARAMETER_NOT_OFFERED',
+          at,
+          'the deploy form never offers this parameter and it has no default, yet it is bound to a required input',
+        ),
+      );
+    }
+
+    found.push(...checkParameterOrigin(parameter, at));
     found.push(...checkEnumLabels(parameter, values, at));
   }
 
@@ -1779,7 +2003,7 @@ export function checkParameters(context: SemanticContext): Diagnostic[] {
       found.push(
         diag(
           'ERR_UNSATISFIED_REQUIRED_INPUT',
-          `${blueprint.label} /spec/components/${binding.name}`,
+          `${blueprint.label} /spec/nodes/${binding.name}`,
           `required input ${JSON.stringify(inputKey)} is bound to nothing and declares no default`,
         ),
       );
@@ -1812,7 +2036,7 @@ function generatedLength(generator: Record<string, unknown>): number {
  * enough that none of it is ignored. A receiver whose schema is not a string is
  * ERR_VALUE_CONSTRAINT, which this suite leaves to the platform.
  */
-function checkHashSource(parameter: Record<string, unknown>, parameters: Record<string, unknown>, at: string): Diagnostic[] {
+function checkHashedParameter(parameter: Record<string, unknown>, parameters: Record<string, unknown>, at: string): Diagnostic[] {
   const hash = parameter['hash'];
   if (!isRecord(hash)) return [];
 
@@ -1825,7 +2049,7 @@ function checkHashSource(parameter: Record<string, unknown>, parameters: Record<
   if (!isRecord(source['generator'])) {
     return [
       diag(
-        'ERR_INVALID_HASH_SOURCE',
+        'ERR_INVALID_HASHED_PARAMETER',
         `${at}/hash/parameter`,
         `${JSON.stringify(named)} is not generated, and a hash is made only from a value the platform generates`,
       ),
@@ -1835,7 +2059,7 @@ function checkHashSource(parameter: Record<string, unknown>, parameters: Record<
   if (hash['algorithm'] === 'BCRYPT' && length > 72) {
     return [
       diag(
-        'ERR_INVALID_HASH_SOURCE',
+        'ERR_INVALID_HASHED_PARAMETER',
         `${at}/hash/algorithm`,
         `${JSON.stringify(named)} generates ${length} characters, and bcrypt ignores everything past 72`,
       ),
@@ -1845,14 +2069,14 @@ function checkHashSource(parameter: Record<string, unknown>, parameters: Record<
 }
 
 /**
- * Blueprint spec §5.2 — BP-REF-001. A parameter's `from` is exactly one whole
+ * Blueprint spec §5.2 — BP-PLACEHOLDER-001. A parameter's `from` is exactly one whole
  * reference, in `variables`, `deployment` or `connections`.
  *
  * "Whole" is the load-bearing word: a `from` that interpolates a reference into
  * surrounding text, or names two, is not a reference to one entry, and there is
  * nothing for the platform to look up.
  */
-function checkParameterSource(parameter: Record<string, unknown>, at: string): Diagnostic[] {
+function checkParameterOrigin(parameter: Record<string, unknown>, at: string): Diagnostic[] {
   const from = parameter['from'];
   if (typeof from !== 'string') return [];
 
@@ -1860,34 +2084,34 @@ function checkParameterSource(parameter: Record<string, unknown>, at: string): D
   const { references, malformed } = scanReferences(from);
 
   if (malformed.length > 0) {
-    return [diag('ERR_MALFORMED_REFERENCE', where, `${JSON.stringify(malformed[0])} begins no well-formed reference`)];
+    return [diag('ERR_MALFORMED_PLACEHOLDER', where, `${JSON.stringify(malformed[0])} begins no well-formed placeholder`)];
   }
   if (references.length !== 1 || references[0]!.raw.trim() !== from.trim()) {
-    return [diag('ERR_INVALID_PARAMETER_SOURCE', where, 'a parameter source is exactly one whole reference, with no surrounding text')];
+    return [diag('ERR_INVALID_PARAMETER_ORIGIN', where, 'a parameter origin is exactly one whole placeholder, with no surrounding text')];
   }
 
   const { namespace } = references[0]!;
   if (!RESERVED_NAMESPACES.has(namespace)) {
-    return [diag('ERR_UNKNOWN_REFERENCE_NAMESPACE', where, `${JSON.stringify(namespace)} names a namespace core reserves none of`)];
+    return [diag('ERR_UNKNOWN_PLACEHOLDER_NAMESPACE', where, `${JSON.stringify(namespace)} names a namespace core reserves none of`)];
   }
-  if (!PARAMETER_SOURCE_NAMESPACES.has(namespace)) {
+  if (!PARAMETER_ORIGIN_NAMESPACES.has(namespace)) {
     return [
       diag(
-        'ERR_REFERENCE_NOT_IN_SCOPE',
+        'ERR_NAMESPACE_NOT_PERMITTED',
         where,
         `a parameter takes a value from variables, deployment or connections, and this names ${JSON.stringify(namespace)}`,
       ),
     ];
   }
 
-  // BP-PARAM-011. The namespace defines exactly three facts about the installer.
+  // BP-PARAM-011. The namespace defines exactly three facts about the creator.
   const path = references[0]!.path.join('.');
   if (namespace === 'deployment' && !DEPLOYMENT_FACTS.has(path)) {
     return [
       diag(
         'ERR_UNKNOWN_DEPLOYMENT_FACT',
         where,
-        `deployment.${path} is not a fact the platform keeps; only installer.identity, installer.email and installer.name are`,
+        `deployment.${path} is not a fact the platform keeps; only creator.identity, creator.email and creator.name are`,
       ),
     ];
   }
@@ -1918,7 +2142,11 @@ function checkEnumLabels(parameter: Record<string, unknown>, supplies: Bound[], 
 
 type Reference = { raw: string; namespace: string; path: string[] };
 
-const SEGMENT = /^[a-z][a-zA-Z0-9]*$/;
+/**
+ * Core v2 §5.2: a segment is a DNS-label-shaped name, so a node name such as
+ * `bootstrap-owner` is addressable. Every v1 segment still matches.
+ */
+const SEGMENT = /^(?:[a-z]|[a-z][a-zA-Z0-9-]*[a-zA-Z0-9])$/;
 
 /**
  * Core spec §5.2. A reference is `${{`, optional whitespace, a namespace, one or
@@ -1977,7 +2205,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 /**
  * The defaults a component input carries when it declares neither — read out of
- * the fetched component bundle rather than restated here, so the place this
+ * the vendored component bundle rather than restated here, so the place this
  * phase needs them cannot drift from what the spec publishes.
  *
  * This reads `$defs.ComponentInput`, not `$defs.ComponentValueSchema`. ADR 0028

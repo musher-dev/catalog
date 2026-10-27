@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: doom
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Doom
   summary: Play classic Doom in your browser, no install and no extra login
-  description: |
+  overview: |
     ## What it is
     Chocolate Doom, a faithful source port of the original 1993 Doom,
     running in a streamed Linux desktop that you play from a browser tab.
@@ -37,7 +37,7 @@ spec:
 
     The image bundles the shareware Doom episode and Freedoom alongside
     the Chocolate Doom and PrBoom+ engines.
-  category: GAMING
+  category: MEDIA
   lifecycleStage: BETA
   tags:
     - doom
@@ -45,7 +45,7 @@ spec:
     - game
     - kasmvnc
   homepageURL: https://www.chocolate-doom.org
-  sourceRepoURL: https://github.com/chocolate-doom/chocolate-doom
+  sourceRepositoryURL: https://github.com/chocolate-doom/chocolate-doom
   supportURL: https://kasmweb.com/docs
   license: GPL-2.0-or-later AND LicenseRef-Doom-Shareware
   icon: media/icon.png

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: litellm-stack
@@ -9,7 +9,7 @@ metadata:
 # Three nodes. Producers first: map order is graph order, and the two nodes the
 # wires come from read before the node they arrive at.
 spec:
-  components:
+  nodes:
     db:
       componentRef: ./components/postgres.yaml
       compute:

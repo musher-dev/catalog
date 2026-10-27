@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: opencode
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: OpenCode
   summary: Open-source AI coding agent in your browser, running on your organization's language model
-  description: |
+  overview: |
     ## What it is
     OpenCode is an open-source AI coding agent. You describe a change in a
     chat, and the agent reads your code, edits files and runs shell commands
@@ -81,7 +81,7 @@ spec:
     - developer-tools
     - terminal
   homepageURL: https://opencode.ai
-  sourceRepoURL: https://github.com/anomalyco/opencode
+  sourceRepositoryURL: https://github.com/anomalyco/opencode
   supportURL: https://opencode.ai/docs
   license: MIT
   icon: media/icon.png

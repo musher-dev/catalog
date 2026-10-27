@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -219,7 +219,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # The image already sets HERMES_HOME to the same path. Restating it ties
       # it to the volume mount above.
@@ -228,14 +228,14 @@ spec:
           type: string
         default: /opt/data
         target:
-          envVarKey: HERMES_HOME
+          envVar: HERMES_HOME
         description: Directory Hermes keeps its state in, the `data` volume's mount path.
       dashboardEnabled:
         schema:
           type: string
         default: '1'
         target:
-          envVarKey: HERMES_DASHBOARD
+          envVar: HERMES_DASHBOARD
         description: >-
           Whether the image's supervised dashboard service runs, as the literal
           string its run script parses.
@@ -244,14 +244,14 @@ spec:
           type: string
         default: 0.0.0.0
         target:
-          envVarKey: HERMES_DASHBOARD_HOST
+          envVar: HERMES_DASHBOARD_HOST
         description: Address the dashboard listens on inside the container.
       dashboardPort:
         schema:
           type: string
         default: '9119'
         target:
-          envVarKey: HERMES_DASHBOARD_PORT
+          envVar: HERMES_DASHBOARD_PORT
         description: Port the dashboard listens on, the `primary` endpoint's target port.
       # The dashboard's own public origin. It makes the OIDC callback exactly
       # `<publicURL>/auth/callback`, the URI the platform registers for
@@ -264,7 +264,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: HERMES_DASHBOARD_PUBLIC_URL
+          envVar: HERMES_DASHBOARD_PUBLIC_URL
         description: >-
           Public https URL of this deployment's dashboard, which Hermes builds
           its sign-in callback from.
@@ -281,7 +281,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: HERMES_DASHBOARD_OIDC_ISSUER
+          envVar: HERMES_DASHBOARD_OIDC_ISSUER
         description: >-
           Issuer URL of the platform's OpenID Connect provider. Hermes fetches
           its discovery document from this URL.
@@ -290,7 +290,7 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: HERMES_DASHBOARD_OIDC_CLIENT_ID
+          envVar: HERMES_DASHBOARD_OIDC_CLIENT_ID
         description: Client identifier the platform registered for the dashboard endpoint.
       oidcClientSecret:
         schema:
@@ -298,7 +298,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: HERMES_DASHBOARD_OIDC_CLIENT_SECRET
+          envVar: HERMES_DASHBOARD_OIDC_CLIENT_SECRET
         description: Client secret the platform registered for the dashboard endpoint.
       # The three inputs below carry one language-model connection. They are not
       # supplied independently: the blueprint wires all three to the outputs of
@@ -311,7 +311,7 @@ spec:
           type: string
         presentationHint: ENDPOINT_URL
         target:
-          envVarKey: LLM_BASE_URL
+          envVar: LLM_BASE_URL
         description: >-
           Base URL of the OpenAI-compatible chat-completions API the agent sends
           model requests to, ending in the version segment (for example /v1).
@@ -320,13 +320,13 @@ spec:
           type: string
         sensitive: true
         target:
-          envVarKey: LLM_API_KEY
+          envVar: LLM_API_KEY
         description: Bearer credential for the API above.
       llmModel:
         schema:
           type: string
         target:
-          envVarKey: LLM_MODEL
+          envVar: LLM_MODEL
         description: Model the agent uses by default.
     outputs:
       publicURL:

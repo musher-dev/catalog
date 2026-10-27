@@ -2,7 +2,7 @@
  * Media paths — listing spec §5.
  *
  * The grammar itself is `structural` and the listing schema carries it, so it is
- * read back out of the fetched bundle rather than copied here. Copying it would
+ * read back out of the vendored bundle rather than copied here. Copying it would
  * put a second authority in this repository, and the one place the grammar is
  * needed outside the schema's reach — a description image, listing spec §4.1
  * LIST-MD-003 — is exactly where a drifted copy would go unnoticed.

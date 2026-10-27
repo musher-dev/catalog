@@ -1,14 +1,14 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: hermes-agent
   revision: 1
   description: >-
-    Hermes Agent gateway and web dashboard on the installer's language-model
+    Hermes Agent gateway and web dashboard on the deployer's language-model
     connection, with the dashboard signed in through the platform's OpenID
     Connect provider.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml
       # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
@@ -39,7 +39,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: OIDC
           viewerClaims:
             - EMAIL
@@ -48,7 +48,7 @@ spec:
         # This node's own allocated address and OIDC client, from the outputs
         # the component derives from its `primary` endpoint. A node reading its
         # own endpoint outputs is a discovery dependency and not a value cycle
-        # (BP-CONN-002): the address and the client registration exist before
+        # (BP-BIND-002): the address and the client registration exist before
         # anything runs.
         dashboardPublicURL:
           node: web

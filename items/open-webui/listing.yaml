@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: open-webui
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Open WebUI
   summary: Self-hosted, multi-user chat interface for any OpenAI-compatible language-model API
-  description: |
+  overview: |
     ## What it is
     Open WebUI is a self-hosted web interface for chatting with LLMs through
     any OpenAI-compatible API — a hosted provider, an inference endpoint, or
@@ -54,7 +54,7 @@ spec:
     instead. A session-token signing key is auto-generated, and an 8 GiB
     persistent volume mounted at `/app/backend/data` keeps accounts, chats,
     and uploaded documents across restarts.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - ai
@@ -63,7 +63,7 @@ spec:
     - openai-compatible
     - rag
   homepageURL: https://openwebui.com
-  sourceRepoURL: https://github.com/open-webui/open-webui
+  sourceRepositoryURL: https://github.com/open-webui/open-webui
   supportURL: https://docs.openwebui.com
   license: LicenseRef-Open-WebUI
   icon: media/icon.png

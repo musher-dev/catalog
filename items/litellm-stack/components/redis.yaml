@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -61,7 +61,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: REDIS_PASSWORD
+          envVar: REDIS_PASSWORD
         description: >-
           Password a client must present (AUTH) before Redis serves it. At
           least 16 letters, digits or `._~+/=-`, with no spaces or quotes.
@@ -77,7 +77,7 @@ spec:
           endpoint: primary
           property: privateAddress
       # No redis:// URL output. A component template reads only endpoint
-      # properties (COMP-REF-001), so no URL can carry the password, and one
+      # properties (COMP-PLACEHOLDER-001), so no URL can carry the password, and one
       # without it would be refused. A consumer takes the hostname and the port,
       # and the blueprint binds the same password to both ends.
       hostname:

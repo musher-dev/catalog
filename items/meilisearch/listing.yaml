@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: meilisearch
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Meilisearch
   summary: Millisecond full-text search engine with typo tolerance, facets, and filters
-  description: |
+  overview: |
     ## What it is
     Meilisearch is an open-source search engine written in Rust. It serves
     millisecond-latency full-text search with native typo tolerance,
@@ -40,7 +40,7 @@ spec:
     this deployment has no way to restore a snapshot or dump. Treat the index
     as something you can rebuild: keep your documents in their source system
     and be ready to re-index them.
-  category: DEVELOPER_TOOLS
+  category: DATABASES
   lifecycleStage: STABLE
   tags:
     - search
@@ -48,7 +48,7 @@ spec:
     - indexing
     - typo-tolerance
   homepageURL: https://www.meilisearch.com
-  sourceRepoURL: https://github.com/meilisearch/meilisearch
+  sourceRepositoryURL: https://github.com/meilisearch/meilisearch
   supportURL: https://www.meilisearch.com/docs
   license: MIT
   icon: media/icon.png

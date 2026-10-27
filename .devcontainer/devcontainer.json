@@ -148,7 +148,7 @@
 
         // Authoring aid: red-squiggle an item in the editor against the same
         // schemas `npm test` validates it with — the exact releases pinned in
-        // RELEASES (tests/lib/spec-schemas.ts), not the floating v1 alias, which
+        // RELEASES (tests/lib/spec-schemas.ts), not the floating v2 alias, which
         // moves the moment a release ships, before this repository adopts it.
         // tests/spec.test.ts fails if these URLs and RELEASES disagree, so
         // adopting a release updates both in the same pull request.
@@ -157,9 +157,9 @@
         // so a change here reaches an existing container only after "Dev
         // Containers: Rebuild Container".
         "yaml.schemas": {
-          "https://specifications.musher.dev/listing/v1.0.1/listing.schema.json": "items/*/listing.yaml",
-          "https://specifications.musher.dev/blueprint/v1.7.1/blueprint.schema.json": "items/*/blueprint.yaml",
-          "https://specifications.musher.dev/component/v1.6.0/component.schema.json": "items/*/components/*.yaml"
+          "https://specifications.musher.dev/listing/v2.0.0/listing.schema.json": "items/*/listing.yaml",
+          "https://specifications.musher.dev/blueprint/v2.0.0/blueprint.schema.json": "items/*/blueprint.yaml",
+          "https://specifications.musher.dev/component/v2.0.0/component.schema.json": "items/*/components/*.yaml"
         },
 
         // The corpus is authored YAML, not generated. Keep the formatter off it

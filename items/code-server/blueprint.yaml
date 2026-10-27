@@ -1,11 +1,11 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: code-server
   revision: 6
   description: code-server behind the platform's sign-in, with a persistent home directory.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/code-server.yaml
       compute:
@@ -19,5 +19,5 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: NONE

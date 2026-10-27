@@ -4,13 +4,13 @@
  * These are the item's cross-document obligations: identity agreement, reference
  * resolution, path containment, and the compatibility of the two ends of every
  * wire. All of them need a second document or the filesystem, and none of them
- * needs the network — which is what makes a repo-local item validate completely
+ * needs the network — which is what makes an item-local item validate completely
  * offline, all the way through this phase.
  *
- * The `capability` phase is deliberately absent. Whether a Compute Profile is on
- * offer and whether a component version is monotonic are decided against the
- * platform catalog, and an implementation MUST NOT report a rule it has not been
- * given the means to check.
+ * The `admission` phase is deliberately absent. Whether a Compute Profile is on
+ * offer, whether a revision increases, whether a licence is on the SPDX list and
+ * how large an image is are decided against the platform, and an implementation
+ * MUST NOT report a rule it has not been given the means to check.
  */
 import assert from 'node:assert/strict';
 import { describe, it } from 'node:test';
@@ -19,20 +19,24 @@ import { discoverItems, type Item, type ItemDocuments } from './lib/catalog.ts';
 import {
   checkBindings,
   checkComponentReferences,
+  checkComponentCount,
   checkConnectionBindings,
-  checkDescription,
-  checkEnvKeys,
+  checkEnvVars,
   checkExposure,
   checkHealthProbes,
   checkIdentity,
+  checkInputOrigins,
+  checkItemFiles,
   checkItemType,
   checkMedia,
   checkMounts,
   checkNodeCompute,
   checkOutputOrigins,
+  checkOverview,
   checkParameters,
   checkSchedule,
-  checkSecretLiterals,
+  checkSensitiveLiterals,
+  checkUnusedInputs,
   checkValueCycles,
   checkVolumeAllocations,
   contextForItem,
@@ -57,9 +61,19 @@ for (const item of items) {
       assert.deepEqual(report(checkIdentity(context)), []);
     });
 
+    it('every YAML file of the item parses — CORE-ITEM-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkItemFiles(context)), []);
+    });
+
     it('itemType agrees with what the item root holds — LIST-ITEM-001', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkItemType(context)), []);
+    });
+
+    it('a component item holds exactly one component document — LIST-ITEM-002', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkComponentCount(context)), []);
     });
 
     it('every component reference resolves to a valid document inside the item root — §4.1, §10, BP-ID-003', async () => {
@@ -67,19 +81,19 @@ for (const item of items) {
       assert.deepEqual(report(checkComponentReferences(context)), []);
     });
 
-    it('every declared media path resolves to a file inside the item root — LIST-MEDIA-001/002/003', async () => {
+    it('every declared media path resolves to a file inside the item root, within its size bound — LIST-MEDIA-001..004', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkMedia(context)), []);
     });
 
-    it('the description satisfies the Markdown profile — LIST-MD-001/002/003', async () => {
+    it('the overview and getting-started text satisfy the Markdown profile — LIST-MD-001/002/003', async () => {
       const { context } = await contextFor(item);
-      assert.deepEqual(report(checkDescription(context)), []);
+      assert.deepEqual(report(checkOverview(context)), []);
     });
 
     it('no two inputs claim one environment variable — COMP-ENVVAR-002', async () => {
       const { context } = await contextFor(item);
-      assert.deepEqual(report(checkEnvKeys(context)), []);
+      assert.deepEqual(report(checkEnvVars(context)), []);
     });
 
     it('every mount path is canonical and no two mounts nest — §5.5', async () => {
@@ -97,14 +111,24 @@ for (const item of items) {
       assert.deepEqual(report(checkHealthProbes(context)), []);
     });
 
-    it('every output origin names something its own component declares — COMP-OUT-002/003/004, COMP-REF-001, COMP-EP-004', async () => {
+    it('every trust bundle, probe credential and build secret reads an input that is always supplied — COMP-EP-006/010, COMP-BUILD-004', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkInputOrigins(context)), []);
+    });
+
+    it('every output origin names something its own component declares — COMP-OUT-002/003/004, COMP-PLACEHOLDER-001, COMP-EP-004', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkOutputOrigins(context)), []);
     });
 
+    it('every input without a target is read by something — COMP-INPUT-001', async () => {
+      const { context } = await contextFor(item);
+      assert.deepEqual(report(checkUnusedInputs(context)), []);
+    });
+
     it('no authored literal supplies a sensitive contract — COMP-VAL-005, §11', async () => {
       const { context } = await contextFor(item);
-      assert.deepEqual(report(checkSecretLiterals(context)), []);
+      assert.deepEqual(report(checkSensitiveLiterals(context)), []);
     });
 
     it('a node names compute exactly when its component runs — BP-NODE-001, BP-NODE-002', async () => {
@@ -122,12 +146,12 @@ for (const item of items) {
       assert.deepEqual(report(checkExposure(context)), []);
     });
 
-    it('every binding resolves at both ends and the two types fit — §4.2, BP-PARAM-006/007/008', async () => {
+    it('every binding resolves at both ends and the two types fit — §4.2, BP-BIND-006/007, BP-PARAM-008', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkBindings(context)), []);
     });
 
-    it('no value depends on itself — BP-CONN-002', async () => {
+    it('no value depends on itself — BP-BIND-002', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkValueCycles(context)), []);
     });
@@ -137,7 +161,7 @@ for (const item of items) {
       assert.deepEqual(report(checkConnectionBindings(context)), []);
     });
 
-    it('every parameter is bound, agrees with what it supplies, and names a source in scope — BP-PARAM-001..003, BP-REF-001, BP-UI-003', async () => {
+    it('every parameter is bound, agrees with what it supplies, names a permitted origin and is offered where it must be — BP-PARAM-001..003, BP-PLACEHOLDER-001, BP-UI-003, BP-UI-005', async () => {
       const { context } = await contextFor(item);
       assert.deepEqual(report(checkParameters(context)), []);
     });
@@ -163,9 +187,10 @@ describe('the corpus as a whole', () => {
       for (const shot of (spec?.['screenshots'] as { file?: unknown }[] | undefined) ?? []) {
         if (typeof shot?.file === 'string') declared.add(shot.file);
       }
-      const description = spec?.['description'];
-      if (typeof description === 'string') {
-        for (const match of description.matchAll(/!\[[^\]]*\]\(\s*(\S+?)\s*[)\s]/g)) {
+      for (const field of ['overview', 'gettingStarted']) {
+        const markdown = spec?.[field];
+        if (typeof markdown !== 'string') continue;
+        for (const match of markdown.matchAll(/!\[[^\]]*\]\(\s*(\S+?)\s*[)\s]/g)) {
           if (match[1] && context.isMediaPath(match[1])) declared.add(match[1]);
         }
       }

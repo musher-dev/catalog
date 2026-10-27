@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: voicestudio
@@ -8,7 +8,7 @@ spec:
   summary: >-
     Self-hosted ElevenLabs alternative — voice cloning, text-to-speech,
     transcription and dubbing in 646 languages
-  description: |
+  overview: |
     ## What it is
     VoiceStudio is an open-source voice platform that runs every model itself,
     with no third-party API behind it. It clones a voice from a short sample,
@@ -54,7 +54,7 @@ spec:
 
     Clone only voices you have the owner's permission to use. Each model keeps
     its own license, separate from VoiceStudio's AGPL-3.0.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - voice
@@ -63,6 +63,6 @@ spec:
     - transcription
     - voice-cloning
   homepageURL: https://github.com/debpalash/VoiceStudio
-  sourceRepoURL: https://github.com/debpalash/VoiceStudio
+  sourceRepositoryURL: https://github.com/debpalash/VoiceStudio
   license: AGPL-3.0-only
   icon: media/icon.png

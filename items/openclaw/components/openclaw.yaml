@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 9
@@ -104,7 +104,7 @@ spec:
     #
     # The id is opaque rather than an email, so `allowUsers` and
     # `identityScopes`, which key on user identities, are left unset. Access
-    # control is the platform's installation access policy.
+    # control is the platform's deployment access policy.
     #
     # `deviceAutoApprove` then pairs the browser silently, so a first visit
     # lands connected, and every browser is a revocable paired device again.
@@ -112,7 +112,7 @@ spec:
     # `operator.admin` is listed in the auto-approve scopes deliberately. The
     # person who deploys this is its owner and needs admin to configure the
     # agent. The platform admits only viewers its access policy allows for this
-    # installation. This matches the old posture, where the token was full
+    # deployment. This matches the old posture, where the token was full
     # admin. `openclaw security audit` reports it as the CRITICAL
     # `gateway.trusted_proxy_device_auto_approve_admin` finding, and the gateway
     # logs a warning at startup. That is expected here, not a regression. Once
@@ -248,7 +248,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # No mDNS advertising inside a container network (also auto-disabled when
       # the runtime detects a container; kept explicit for intent).
@@ -257,7 +257,7 @@ spec:
           type: string
         default: "1"
         target:
-          envVarKey: OPENCLAW_DISABLE_BONJOUR
+          envVar: OPENCLAW_DISABLE_BONJOUR
         description: >-
           Whether mDNS advertising is off, as the literal string the gateway
           runtime parses.
@@ -268,14 +268,14 @@ spec:
           type: string
         default: /home/node/.openclaw
         target:
-          envVarKey: OPENCLAW_STATE_DIR
+          envVar: OPENCLAW_STATE_DIR
         description: Directory OpenClaw keeps its state in, the `config` volume's mount path.
       configPath:
         schema:
           type: string
         default: /home/node/.openclaw/openclaw.json
         target:
-          envVarKey: OPENCLAW_CONFIG_PATH
+          envVar: OPENCLAW_CONFIG_PATH
         description: Path of the gateway's config file, on the `config` volume.
       # Local-only credential. In trusted-proxy mode nothing coming through the
       # edge can present it: a password is honoured only for loopback-direct
@@ -289,7 +289,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: OPENCLAW_GATEWAY_PASSWORD
+          envVar: OPENCLAW_GATEWAY_PASSWORD
         description: >-
           Local credential for OpenClaw's CLI inside the container. Browsers
           are admitted by the platform edge's sign-in instead.
@@ -304,7 +304,7 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: OPENCLAW_IDENTITY_HEADER
+          envVar: OPENCLAW_IDENTITY_HEADER
         description: >-
           Request header in which the platform passes the signed-in viewer's
           identity.
@@ -315,7 +315,7 @@ spec:
             type: string
         required: true
         target:
-          envVarKey: OPENCLAW_TRUSTED_PROXIES
+          envVar: OPENCLAW_TRUSTED_PROXIES
         description: >-
           CIDRs the platform's forwarded traffic arrives from. The identity
           header is trusted only on connections from these addresses.
@@ -325,7 +325,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: false
         target:
-          envVarKey: OPENCLAW_PUBLIC_ORIGIN
+          envVar: OPENCLAW_PUBLIC_ORIGIN
         description: >-
           Public https origin of this deployment's Control UI, written into
           gateway.controlUi.allowedOrigins on every boot so browser sessions
@@ -340,7 +340,7 @@ spec:
         # its host-side OPENCLAW_TZ input onto TZ; OPENCLAW_TZ itself is not read
         # by the gateway runtime).
         target:
-          envVarKey: TZ
+          envVar: TZ
         description: IANA timezone for the agent's scheduled tasks and temporal reasoning.
       # The three inputs below carry one language-model connection. They are not
       # supplied independently: the blueprint wires all three to the outputs of
@@ -352,7 +352,7 @@ spec:
           type: string
         presentationHint: ENDPOINT_URL
         target:
-          envVarKey: LLM_BASE_URL
+          envVar: LLM_BASE_URL
         description: >-
           Base URL of the OpenAI-compatible chat-completions API the agent sends
           model requests to, ending in the version segment (for example /v1).
@@ -361,13 +361,13 @@ spec:
           type: string
         sensitive: true
         target:
-          envVarKey: LLM_API_KEY
+          envVar: LLM_API_KEY
         description: Bearer credential for the API above.
       llmModel:
         schema:
           type: string
         target:
-          envVarKey: LLM_MODEL
+          envVar: LLM_MODEL
         description: Model the agent uses by default.
     outputs:
       # Platform facts of the `primary` allocation (component §5.2, COMP-EP-012).

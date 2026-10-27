@@ -20,7 +20,7 @@
 # resolves the address, connects to it, or checks that anything answers there
 # (component spec §11) — a reachability check against a supplied address would
 # be a server-side request forgery primitive.
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 5
@@ -35,7 +35,7 @@ spec:
         description: >-
           Language-model connection this node stands for. The platform acquires
           the endpoint, the credential and the model together, once per
-          installation, and replaces them as a whole.
+          deployment, and replaces them as a whole.
         connection:
           # STREAMING and TOOL_CALLS. Declared by the node that supplies the
           # model rather than by the workload that calls it: after ADR 0033 a
