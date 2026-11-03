@@ -1,8 +1,8 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: open-webui-vllm
-  revision: 1
+  revision: 2
   description: >-
     Open WebUI behind the platform's sign-in, chatting with an open model that
     vLLM serves on a GPU node of the same deployment, over its private network.
@@ -17,10 +17,10 @@ metadata:
 # The two nodes need not share a host or a region. `web` runs on CPU compute
 # and `llm` on GPU compute, and `web` reaches `llm` by its private name.
 #
-# The install form is two generated secrets and nothing to type: Open WebUI's
+# The deploy form is two generated secrets and nothing to type: Open WebUI's
 # session signing key, and the API key `web` presents to vLLM.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/vllm.yaml
       # One NVIDIA GPU, with 8 vCPU and 32 GiB of memory. The profile names no
@@ -55,7 +55,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: OIDC
           viewerClaims:
             - EMAIL
@@ -67,7 +67,7 @@ spec:
           parameter: webuiSecretKey
         # The platform's OIDC client for this node's own `primary` endpoint. A
         # node reading its own endpoint outputs is a discovery dependency and
-        # not a value cycle (BP-CONN-002).
+        # not a value cycle (BP-BIND-002).
         oidcClientID:
           node: web
           output: oidcClientID

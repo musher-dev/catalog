@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: open-webui-vllm
@@ -7,15 +7,15 @@ spec:
   displayName: Open WebUI + vLLM
   summary: >-
     Self-hosted, multi-user chat with an open model on your own GPU — Open WebUI
-    in front of vLLM, with no outside model API and nothing to type at install
-  description: |
+    in front of vLLM, with no outside model API and nothing to type at deploy
+  overview: |
     ## What it is
     Open WebUI, the self-hosted multi-user chat interface, with its language
     model running inside the same deployment. [vLLM](https://docs.vllm.ai)
     serves Qwen3-4B-Instruct-2507, an open model from Alibaba's Qwen team, on
     a GPU, through the same OpenAI-compatible API Open WebUI talks to anywhere
     else. Prompts, documents and replies stay in your deployment, and no model
-    provider account is involved. A four-billion-parameter model is quick and
+    provider is involved. A four-billion-parameter model is quick and
     capable for everyday chat, summaries and tool use, though well short of
     the largest hosted models.
 
@@ -31,7 +31,7 @@ spec:
     signing key and the API key Open WebUI presents to vLLM, are generated
     for you, and you can reveal them on the deployment's Installation tab.
 
-    ## Before you install
+    ## Before you deploy
     The model runs on GPU compute: one NVIDIA GPU with at least 24 GB of
     memory, beside 8 vCPU and 32 GiB of RAM (`gpu.economy.small`). GPU
     compute must be open in a region before the model can be placed. The chat
@@ -68,7 +68,7 @@ spec:
 
     vLLM's usage statistics are switched off. Qwen3-4B-Instruct-2507 is
     licensed Apache-2.0, as vLLM is; Open WebUI keeps its own license.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - ai
@@ -79,7 +79,7 @@ spec:
     - self-hosted
     - openai-compatible
   homepageURL: https://openwebui.com
-  sourceRepoURL: https://github.com/open-webui/open-webui
+  sourceRepositoryURL: https://github.com/open-webui/open-webui
   supportURL: https://docs.openwebui.com
   license: LicenseRef-Open-WebUI AND Apache-2.0
   icon: media/icon.png

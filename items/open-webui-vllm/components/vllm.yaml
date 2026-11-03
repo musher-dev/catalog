@@ -3,10 +3,10 @@
 # the three outputs the open-webui item's EXTERNAL `llm` node forwards from its
 # connection, under the same names and types, so a node that calls the model
 # wires to this one exactly as it wires to that one (catalog#26).
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     vLLM serving Qwen3-4B-Instruct-2507 on one NVIDIA GPU through an
     OpenAI-compatible API with streaming and tool calls, publishing its private
@@ -145,7 +145,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the two constants after the key. They carry defaults,
-      # so no blueprint has to wire them and no install form gains a field.
+      # so no blueprint has to wire them and no deploy form gains a field.
       #
       # The key reaches vLLM as VLLM_API_KEY, which it reads when no --api-key
       # is given (vllm/entrypoints/serve/middleware/register.py), so it never
@@ -165,7 +165,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: VLLM_API_KEY
+          envVar: VLLM_API_KEY
         description: >-
           Bearer token vLLM requires on every /v1 request, and the value this
           node publishes as its `apiKey` output.
@@ -180,7 +180,7 @@ spec:
           minimum: 1
         default: 3600
         target:
-          envVarKey: VLLM_ENGINE_READY_TIMEOUT_S
+          envVar: VLLM_ENGINE_READY_TIMEOUT_S
         description: >-
           Seconds vLLM waits on a start for its engine to download, load and
           compile the model before it gives up.
@@ -192,7 +192,7 @@ spec:
           type: string
         default: '1'
         target:
-          envVarKey: DO_NOT_TRACK
+          envVar: DO_NOT_TRACK
         description: >-
           Whether vLLM's usage statistics and Hugging Face Hub telemetry are
           off, as the literal string both parse.
