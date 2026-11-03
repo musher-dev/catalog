@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: postgres
@@ -6,7 +6,7 @@ spec:
   itemType: COMPONENT
   displayName: PostgreSQL
   summary: The open-source relational database — SQL, ACID transactions, and JSONB in one engine
-  description: |
+  overview: |
     ## What it is
     PostgreSQL is an open-source object-relational database with three
     decades of development behind its reputation for reliability and
@@ -32,7 +32,7 @@ spec:
     not change the database, so use `ALTER ROLE` or `CREATE DATABASE`
     instead. A 10 GiB persistent volume mounted at
     `/var/lib/postgresql/data` keeps the data directory across restarts.
-  category: INFRASTRUCTURE
+  category: DATABASES
   lifecycleStage: STABLE
   tags:
     - database
@@ -40,6 +40,6 @@ spec:
     - postgres
     - relational
   homepageURL: https://www.postgresql.org
-  sourceRepoURL: https://github.com/postgres/postgres
+  sourceRepositoryURL: https://github.com/postgres/postgres
   license: PostgreSQL
   icon: media/icon.png

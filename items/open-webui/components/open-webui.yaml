@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 10
@@ -30,12 +30,12 @@ spec:
         # past the platform's sign-in. The UI keeps working through them,
         # because under OIDC it holds Open WebUI's own session.
         #
-        # Not `bearer`. /api/v1/auths/signup checks no credential, and on a
+        # Not `bearerToken`. /api/v1/auths/signup checks no credential, and on a
         # deployment first installed before this revision, sign-up stays as
         # that install saved it (ui.enable_signup and ui.enable_login_form
         # are captured at first boot, config.py). Any bearer token would
         # then open self-registration to the internet.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /api/chat/completions
             - /api/v1/chat/completions
@@ -76,14 +76,14 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the two constants below. They carry defaults, so no
-      # blueprint has to wire them and no install form gains a field — but they
+      # blueprint has to wire them and no deploy form gains a field — but they
       # are pins like any other, and a composition may override one.
       enableOpenAIAPI:
         schema:
           type: string
         default: 'true'
         target:
-          envVarKey: ENABLE_OPENAI_API
+          envVar: ENABLE_OPENAI_API
         # Already True by default in v0.11.4 (config.py:319); pinned so the item
         # does not depend on an upstream default it cannot see change.
         description: >-
@@ -94,7 +94,7 @@ spec:
           type: string
         default: 'false'
         target:
-          envVarKey: ENABLE_OLLAMA_API
+          envVar: ENABLE_OLLAMA_API
         # The native Ollama integration is off, and is not a user choice. It
         # used to be an input whose default named a sibling `ollama` service
         # this deployment never contained. An Ollama server is reachable
@@ -114,7 +114,7 @@ spec:
           type: string
         presentationHint: ENDPOINT_URL
         target:
-          envVarKey: OPENAI_API_BASE_URL
+          envVar: OPENAI_API_BASE_URL
         # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.11.4 reads
         # these env vars into DEFAULT_CONFIG (config.py:2822), and on every
         # start main.py:367 calls seed_registered_defaults(). That runs
@@ -147,7 +147,7 @@ spec:
           type: string
         sensitive: true
         target:
-          envVarKey: OPENAI_API_KEY
+          envVar: OPENAI_API_KEY
         description: Bearer credential for the API above.
       # Required and default-less: an acquired connection always carries a
       # model, so there is nothing for an optional case to cover. Users can
@@ -156,7 +156,7 @@ spec:
         schema:
           type: string
         target:
-          envVarKey: DEFAULT_MODELS
+          envVar: DEFAULT_MODELS
         description: Model preselected for new chats.
       webuiSecretKey:
         schema:
@@ -164,7 +164,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: WEBUI_SECRET_KEY
+          envVar: WEBUI_SECRET_KEY
         description: Secret key used to sign session tokens
       # Sign-in through the platform's OpenID Connect provider. Unlike the
       # connection above, `oauth.*` settings are read from the environment on
@@ -176,7 +176,7 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: OAUTH_CLIENT_ID
+          envVar: OAUTH_CLIENT_ID
         description: Client identifier the platform registered for this endpoint.
       oidcClientSecret:
         schema:
@@ -184,7 +184,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: OAUTH_CLIENT_SECRET
+          envVar: OAUTH_CLIENT_SECRET
         description: Client secret the platform registered for this endpoint.
       # A discovery document, not the bare issuer: Open WebUI hands this URL
       # to Authlib as server_metadata_url (utils/oauth.py, v0.11.4).
@@ -194,7 +194,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: OPENID_PROVIDER_URL
+          envVar: OPENID_PROVIDER_URL
         description: URL of the platform's OpenID Connect discovery document.
       # Stated rather than derived. Open WebUI otherwise builds the URI with
       # request.url_for, which depends on the scheme the proxy reports.
@@ -204,14 +204,14 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: OPENID_REDIRECT_URI
+          envVar: OPENID_REDIRECT_URI
         description: Redirect URI Open WebUI sends with its authorization request.
       oauthSignup:
         schema:
           type: string
         default: 'true'
         target:
-          envVarKey: ENABLE_OAUTH_SIGNUP
+          envVar: ENABLE_OAUTH_SIGNUP
         description: >-
           Whether a first sign-in through the platform creates the account, as
           the literal string the image parses.
@@ -224,7 +224,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+          envVar: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
         description: >-
           Whether a platform sign-in takes over the existing account with the
           same verified email, as the literal string the image parses.
@@ -233,7 +233,7 @@ spec:
           type: string
         default: Musher
         target:
-          envVarKey: OAUTH_PROVIDER_NAME
+          envVar: OAUTH_PROVIDER_NAME
         description: Name the sign-in button gives the platform's provider.
       # The platform's provider requires PKCE with S256 (BP-ACCESS-008).
       oauthCodeChallengeMethod:
@@ -241,14 +241,14 @@ spec:
           type: string
         default: S256
         target:
-          envVarKey: OAUTH_CODE_CHALLENGE_METHOD
+          envVar: OAUTH_CODE_CHALLENGE_METHOD
         description: PKCE method Open WebUI uses in its authorization request.
       oauthAutoRedirect:
         schema:
           type: string
         default: 'true'
         target:
-          envVarKey: OAUTH_AUTO_REDIRECT
+          envVar: OAUTH_AUTO_REDIRECT
         description: >-
           Whether the sign-in page goes straight to the platform's provider, as
           the literal string the image parses.
@@ -259,7 +259,7 @@ spec:
           type: string
         default: 'false'
         target:
-          envVarKey: ENABLE_PASSWORD_AUTH
+          envVar: ENABLE_PASSWORD_AUTH
         description: >-
           Whether accounts may sign in with a password, as the literal string
           the image parses.
@@ -271,7 +271,7 @@ spec:
           type: string
         default: 'false'
         target:
-          envVarKey: ENABLE_LOGIN_FORM
+          envVar: ENABLE_LOGIN_FORM
         description: >-
           Whether the email and password form is shown on a new deployment, as
           the literal string the image parses.
@@ -283,7 +283,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: ENABLE_API_KEYS
+          envVar: ENABLE_API_KEYS
         description: >-
           Whether users may create API keys on a new deployment, as the literal
           string the image parses.

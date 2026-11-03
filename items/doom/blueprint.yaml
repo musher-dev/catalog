@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: doom
@@ -7,7 +7,7 @@ metadata:
     Web-playable Doom via a browser-accessible KasmVNC/Chocolate Doom container,
     with no in-app login, behind the platform's sign-in.
 spec:
-  components:
+  nodes:
     doom:
       componentRef: ./components/doom.yaml
       compute:
@@ -19,7 +19,7 @@ spec:
       exposure:
         web:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: NONE
       bindings:
         vncPassword:

@@ -1,14 +1,14 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: coder
   revision: 1
   description: >-
     Coder control plane behind the platform's sign-in, on its own PostgreSQL,
-    with an Owner account created for the installer and members signing in
+    with an Owner account created for the deployer and members signing in
     through the platform's OpenID Connect provider.
 spec:
-  components:
+  nodes:
     db:
       componentRef: ./components/postgres.yaml
       compute:
@@ -43,7 +43,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: OIDC
           viewerClaims:
             - EMAIL
@@ -53,7 +53,7 @@ spec:
       bindings:
         # This node's own allocated address and OIDC client. A node reading its
         # own endpoint outputs is a discovery dependency and not a value cycle
-        # (BP-CONN-002): both exist before anything runs.
+        # (BP-BIND-002): both exist before anything runs.
         accessURL:
           node: web
           output: publicURL
@@ -96,11 +96,11 @@ spec:
         ownerPassword:
           parameter: ownerPassword
   parameters:
-    # The installer owns the deployment: their verified email, captured once
-    # when the installation is created (BP-PARAM-011).
+    # The deployment's creator owns it: their verified email, captured once
+    # when the deployment is created (BP-PARAM-011).
     ownerEmail:
-      from: "${{ deployment.installer.email }}"
-    # Disclosed to whoever manages the installation. 24 bytes in BASE64URL is
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment. 24 bytes in BASE64URL is
     # 32 characters: inside Coder's 64-character limit, far above its entropy
     # floor, and safe in JSON without escaping.
     ownerPassword:

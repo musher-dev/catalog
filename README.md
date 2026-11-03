@@ -21,10 +21,11 @@ normatively in
 ```text
 items/
 └── <slug>/                     # ONE self-contained item per directory
-    ├── listing.yaml            # storefront wrapper
-    ├── blueprint.yaml          # composition graph; absent for a COMPONENT item
+    ├── listing.yaml            # catalog listing
+    ├── blueprint.yaml          # node graph; absent for a COMPONENT item
     ├── components/
-    │   └── <name>.yaml         # ≥1; every file referenced by blueprint.yaml
+    │   └── <name>.yaml         # ≥1; every file referenced by blueprint.yaml,
+    │                           # exactly 1 in a COMPONENT item
     └── media/                  # optional assets
         ├── icon.png
         └── screenshots/*.png
@@ -36,52 +37,66 @@ The directory name **is** the slug, so slug uniqueness is structural.
 
 These are hard requirements. A violation is rejected when the platform syncs
 this repo — though not all of them are caught before that: the ones marked
-**(sync only)** are `capability`-phase obligations that `npm test` cannot see,
+**(sync only)** are `admission`-phase obligations that `npm test` cannot see,
 because an offline validator is forbidden to report them.
 
 - the directory name equals both `listing.yaml`'s and `blueprint.yaml`'s
   `metadata.slug`;
 - the listing's `spec.itemType` is `BLUEPRINT` exactly when the item holds a
-  `blueprint.yaml`, and `COMPONENT` otherwise;
+  `blueprint.yaml`, and `COMPONENT` otherwise, and a `COMPONENT` item holds
+  exactly one component document;
+- every YAML file of the item outside `media/` parses;
 - every blueprint node's `componentRef` resolves to a `components/<name>.yaml`
   file **in the same item directory**, and every such file is referenced — no
   unreferenced components;
 - media paths are item-relative, live under `media/`, contain no `..`, use a
-  supported extension, and exist on disk;
+  supported extension, and exist on disk; an icon is at most 1 MiB and a
+  screenshot or overview image at most 5 MiB. An icon is also square and at
+  least 256 px a side, and a screenshot at most 4096 px a side **(sync only)**;
+- every `license` identifier is on the SPDX License List release the platform
+  pins, or a `LicenseRef-…` **(sync only)**;
 - every node whose component runs carries `compute.profile`, naming a Compute
   Profile the platform offers — and a node deploying an `EXTERNAL` component,
   which runs nothing, carries no `compute` at all;
 - every volume a component declares is allocated a `sizeGiB` on the node, at or
   above the component's own `minSizeGiB`;
-- no two inputs claim one `envVarKey`: a workload's environment is exactly its
-  inputs' targets, and nothing else writes it;
+- no two inputs claim one `envVar`: a workload's environment is exactly its
+  inputs' targets, and nothing else writes it. An input with no `target` is
+  read by something else — a probe credential, a trust bundle, a build secret
+  or an output;
 - no authored literal supplies a sensitive contract, from anywhere: a
   `sensitive` input carries no `default`, no node binds a literal `value` to
   one, and no parameter bound to one carries a `default` either. Such a value is
-  supplied at installation, or generated;
+  supplied at deployment, or generated;
 - volume mount paths are canonical, and no two are the same or nested;
 - a `JOB`'s `schedule.cron` is five numeric fields, each within its range;
 - no value depends on itself through `{node, output}` bindings;
+- an output forwarding a connection member names one its protocol defines, and
+  one that is sensitive is declared `sensitive: true`;
 - component shape follows `spec.type`: a `WORKER` may declare private endpoints
   but is never exposed, and a `JOB` declares none. A `PUBLIC` HTTP endpoint
   needs a readiness probe;
 - an exposure is bare `PUBLIC` / `PRIVATE` or the object form
   `{ visibility, access, viewerIdentity, viewerClaims, accessExemptions }`.
-  `access: AUTHENTICATED` needs an `HTTP`, `HTTPS` or `WS` endpoint, and a
+  `access: RESTRICTED` needs an `HTTP`, `HTTPS` or `WS` endpoint, and a
   component reading a viewer identity property needs its node to select the
   mode that publishes it — `HEADER` for `viewerIdentityHeader` and
   `trustedProxyCIDRs` (plus the `EMAIL` / `NAME` claim for `viewerEmailHeader`
   / `viewerNameHeader`), `ASSERTION` for the four `viewerAssertion*`, and
   `OIDC` for the three `oidc*`. `OIDC`, and any `oidc*` read, needs the
-  endpoint to declare `oidc.redirectPaths`, and a node lets through only the
-  `accessExemptions` (`PATHS`, `BEARER`) its component declares;
+  endpoint to declare `oidc.redirectPaths`, and a node grants only the
+  `accessExemptions` (`PATHS`, `BEARER`) its component's endpoint offers in
+  `exemptibleRequests` (`paths`, `bearerToken: true`);
 - a parameter's `from` names a `variables`, `connections` or
-  `deployment.installer.{identity,email,name}` fact, and a `hash` names a
+  `deployment.creator.{identity,email,name}` fact, and a `hash` names a
   generated parameter — one that bcrypt can read whole, for `BCRYPT`. A hashed
-  source with `ui` is disclosed to the installer and needs no binding;
+  parameter with `ui` is disclosed to the deployer and needs no binding. A
+  parameter with no `ui` and no origin or default never binds a required input:
+  the deploy form would never ask for it;
 - an `HTTPS` endpoint whose certificate nothing can verify says so with
-  `tls: { verify: NONE }`, and a trust bundle or probe credential reads an input
-  that is always supplied. A probe password or token is never a literal;
+  `tls: { verify: NONE }`, and a trust bundle, probe credential or build secret
+  reads an input that is always supplied. A probe password or token is never a
+  literal;
 - a runnable component carries a `workload`, a workload carries a `source`, a
   `SERVICE` declares at least one endpoint, a `JOB` carries a `command`, an
   `EXTERNAL` component publishes at least one output, and every input and output
@@ -102,7 +117,7 @@ Create `items/<slug>/` with a component file per building block.
 **`components/my-app.yaml`**
 
 ```yaml
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1                   # the revision this document is released at
@@ -131,12 +146,12 @@ spec:
         schema: { type: string }        # lowercase JSON Schema types
         sensitive: true                 # beside the schema, not inside it
         required: true
-        target: { envVarKey: ADMIN_PASSWORD }
+        target: { envVar: ADMIN_PASSWORD }
       dataDir:                          # a constant is an input with a default
         description: Directory my-app keeps its data files in.
         schema: { type: string }
         default: /var/lib/my-app
-        target: { envVarKey: DATA_DIR }
+        target: { envVar: DATA_DIR }
     outputs: {}
 ```
 
@@ -148,19 +163,19 @@ The key that is present says where a value comes from. A workload `source` is
 same document is a bare noun: `input`, `endpoint`, `parameter`, `node`,
 `output`. Only `componentRef`, which points at another document, takes a suffix.
 
-**`blueprint.yaml`** — references the component file by repo-local path, binds
+**`blueprint.yaml`** — references the component file by item-local path, binds
 compute, storage and exposure per node, wires every input explicitly, and
-authors the install form:
+authors the deploy form:
 
 ```yaml
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: my-app                  # equals the directory name
   revision: 1                   # the item's revision
   description: What this deployment is, in a sentence.   # REQUIRED
 spec:
-  components:
+  nodes:
     web:                        # graph-local node name
       componentRef: ./components/my-app.yaml   # must begin ./ and end .yaml
       compute:
@@ -186,7 +201,7 @@ absent or empty `parameters` is a form with no fields, which is right only when
 every required input is bound to something else or already carries a `default`.
 
 A parameter `default` is a literal — it interpolates nothing, and being one it
-can never supply a `sensitive` input; that field is filled at installation or by
+can never supply a `sensitive` input; that field is filled at deployment or by
 a `generator`. A value from
 outside the documents arrives through `from`, which is exactly one whole
 reference in one of two namespaces: `${{ variables.cloud.region }}` names one
@@ -211,26 +226,28 @@ A node reading its own endpoint output is a discovery dependency and not a value
 cycle: the address is allocated before anything runs.
 
 The `./` prefix is load-bearing, not decorative: a bare name is not
-distinguishable from the UUID a published reference uses, so without it no
+distinguishable from the UUID a catalog reference uses, so without it no
 validator could tell which resolver the reference wanted.
 
 **`listing.yaml`**
 
 ```yaml
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata: { slug: my-app }     # slug only — a listing carries no revision
 spec:
   itemType: BLUEPRINT           # BLUEPRINT iff the item holds blueprint.yaml
   displayName: My App
   summary: One-line storefront tagline (≤ 280 chars)
-  description: |
-    Markdown long-form description.
-  category: DEVELOPER_TOOLS
+  overview: |                   # overview Markdown profile
+    Markdown long-form overview.
+  gettingStarted: |             # optional, ≤ 5 000 chars, same profile
+    What to do once the deployment is running.
+  category: DEVELOPER_TOOLS     # the closed set in listing v2 §4.2
   lifecycleStage: STABLE        # STABLE | BETA | EXPERIMENTAL | SUNSET
   tags: [example]
   homepageURL: https://example.com
-  sourceRepoURL: https://github.com/example/my-app
+  sourceRepositoryURL: https://github.com/example/my-app
   license: MIT                  # SPDX expression; LicenseRef-… when SPDX has none
   icon: media/icon.png          # optional; see ICONS.md
   screenshots:                  # optional; {file, caption?} in display order
@@ -238,13 +255,13 @@ spec:
       caption: The home screen
 ```
 
-A multi-service item adds more entries under `spec.components` — unique node
+A multi-service item adds more entries under `spec.nodes` — unique node
 names, one `components/<name>.yaml` per reference — and binds a consumer's input
 to a producer's output with `{node, output}`. The two ends agree on
 `schema.type`, with one widening: an integer output satisfies a number input.
 Input, output, parameter and connection names are `lowerCamelCase`, and an
 acronym keeps its conventional case (`baseURL`, `publicURL`, `homepageURL`) —
-the environment-variable key is what `target.envVarKey` carries, not the input's
+the environment variable is what `target.envVar` carries, not the input's
 name.
 
 A node the platform does not run — a service addressed elsewhere, such as a
@@ -267,7 +284,7 @@ spec:
       llm:
         description: Language-model connection this node stands for.
         connection:
-          protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES
+          protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES; POSTGRES, REDIS, S3 too
           capabilities: [STREAMING]
     outputs:
       baseURL:
@@ -289,7 +306,7 @@ spec:
     llm:
       from: "${{ connections.llm.default }}"
       ui: { label: Language model }
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml     # EXTERNAL, so no compute
       bindings:
@@ -322,7 +339,7 @@ enters through. Listing spec §3 binds the two together, so a `COMPONENT` item
 cannot carry a blueprint and a
 `BLUEPRINT` item cannot omit one. Such an item has no item revision; its
 component documents carry their own. A blueprint that needs one of these
-building blocks carries its own copy under `components/`, because a repo-local
+building blocks carries its own copy under `components/`, because an item-local
 reference cannot leave its item directory.
 
 ## Validation
@@ -334,18 +351,15 @@ npm test
 
 Every item is validated against an **exact release of each family** of
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications):
-`core/v1.1.0`, `listing/v1.0.1`, `component/v1.6.0` and `blueprint/v1.7.1`.
-Families release independently, so they sit at different numbers — component and
-blueprint are past `1.0.0` because
-[ADR 0033](https://github.com/musher-dev/specifications/blob/main/docs/adr/0033-inputs-are-the-only-way-into-a-component.md)
-made inputs the only way into a component, which was breaking for both.
-Nothing is vendored. The schemas are fetched from their exact release
-URLs at `specifications.musher.dev`, and the release's conformance corpus from
-its GitHub release assets. Every byte is checked against the digest the release
-records, so the corpus is judged against exactly the contract it names, and
-adopting a newer release is a deliberate change of one version and its
-digests. The origins are
-public, so no credential is involved.
+`core/v2.0.0`, `component/v2.0.0`, `blueprint/v2.0.0` and `listing/v2.0.0`.
+v1 is retired
+([ADR 0038](https://github.com/musher-dev/specifications/blob/main/docs/adr/0038-v2-one-vocabulary-and-v1-retires.md)),
+and every document here declares `specVersion: v2`. The four release archives
+are vendored under [`vendor/specifications/`](vendor/specifications/README.md),
+and every byte is checked against the digest its release records before it is
+read, so the corpus is judged against exactly the contract it names, with no
+network and no credential. Adopting a newer release is a deliberate change of
+those archives and their digests.
 
 The suite covers the three phases a client can decide offline: the YAML
 profile, the JSON Schema bundles, and the semantic rules that bind an item's
@@ -358,10 +372,11 @@ copy of it.
 
 The Musher platform remains the **sole authority**. These tests are the same
 contracts applied early, not a second one: they run the phases that need no
-network, and they cannot see the `capability` phase at all — whether a Compute
-Profile is actually offered, whether a published component exists, whether a
-version is monotonic, and, for a `COMPONENT` item, the runtime minimums listed
-as **(sync only)** above. An item that passes here can still be rejected at
+network, and they cannot see the `admission` phase at all — whether a Compute
+Profile is actually offered, whether a catalog component exists, whether a
+revision increases, whether a licence is on the SPDX list, the image
+dimensions, and, for a `COMPONENT` item, the runtime minimums listed as
+**(sync only)** above. An item that passes here can still be rejected at
 sync.
 
 Keep changes to one item per pull request, so a rejection that only the platform

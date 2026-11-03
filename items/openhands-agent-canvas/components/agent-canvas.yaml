@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -118,7 +118,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # The ingress port, pinned to the endpoint's targetPort so a changed
       # default in config/defaults.json (`ports.proxy`) cannot move it.
@@ -127,7 +127,7 @@ spec:
           type: string
         default: "8000"
         target:
-          envVarKey: PORT
+          envVar: PORT
         description: Port the image's ingress listens on, the `primary` endpoint's target port.
       # Read by docker/entrypoint.sh. When set, it becomes OH_SESSION_API_KEYS_0
       # for the agent server and the automation backend's key, and it is the
@@ -138,7 +138,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LOCAL_BACKEND_API_KEY
+          envVar: LOCAL_BACKEND_API_KEY
         description: >-
           Session API key the agent server and automation backend require on
           every API call. The UI receives it automatically, and the seed job
@@ -156,7 +156,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: OH_SECRET_KEY
+          envVar: OH_SECRET_KEY
         description: >-
           Key the agent server encrypts settings, LLM profile credentials and
           secrets with at rest. Changing it makes stored secrets unreadable.
@@ -169,7 +169,7 @@ spec:
           type: string
         default: local
         target:
-          envVarKey: OH_CONVERSATION_RUNTIME
+          envVar: OH_CONVERSATION_RUNTIME
         description: >-
           Where the agent server runs conversations, `local` meaning as
           processes inside this container.
@@ -195,14 +195,14 @@ spec:
           type: string
         default: "1"
         target:
-          envVarKey: AGENT_CANVAS_DISABLE_TELEMETRY
+          envVar: AGENT_CANVAS_DISABLE_TELEMETRY
         description: Whether the web UI's product telemetry is off, as the flag static-server.mjs parses.
       posthogAPIKey:
         schema:
           type: string
         default: ""
         target:
-          envVarKey: VITE_POSTHOG_API_KEY
+          envVar: VITE_POSTHOG_API_KEY
         description: >-
           PostHog project key passed to the backends. Empty, so the key baked
           into the release image reaches neither the automation backend nor
@@ -212,21 +212,21 @@ spec:
           type: string
         default: "1"
         target:
-          envVarKey: VITE_DO_NOT_TRACK
+          envVar: VITE_DO_NOT_TRACK
         description: Whether the entrypoint withholds PostHog from the automation backend and sets DO_NOT_TRACK.
       doNotTrack:
         schema:
           type: string
         default: "1"
         target:
-          envVarKey: DO_NOT_TRACK
+          envVar: DO_NOT_TRACK
         description: The agent server's telemetry kill switch, on.
       telemetryExporter:
         schema:
           type: string
         default: none
         target:
-          envVarKey: OH_TELEMETRY_EXPORTER
+          envVar: OH_TELEMETRY_EXPORTER
         description: Telemetry exporter the agent server uses, `none` meaning nothing is delivered.
     outputs:
       # The seed job reaches the API here, over the platform's private network

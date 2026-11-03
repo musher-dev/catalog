@@ -9,7 +9,7 @@
 # One addition to the original: `hostname` and `port` beside `address`. Coder
 # reaches the database through libpq environment variables, which take the
 # host and the port separately (components/coder.yaml).
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -31,7 +31,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including this one. It carries a default, so no blueprint has to
-      # wire it and the install form gains no field.
+      # wire it and the deploy form gains no field.
       #
       # Unlike the three below, PGDATA is read on every boot: it is where the
       # entrypoint looks for the cluster, not just where it would create one.
@@ -43,7 +43,7 @@ spec:
           type: string
         default: /var/lib/postgresql/data/pgdata
         target:
-          envVarKey: PGDATA
+          envVar: PGDATA
         description: Directory PostgreSQL keeps its data files in.
       # The three inputs below are read by the image's docker-entrypoint.sh
       # only while it initialises an EMPTY data directory. Once PGDATA holds a
@@ -55,7 +55,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: POSTGRES_PASSWORD
+          envVar: POSTGRES_PASSWORD
         description: >-
           Password the database superuser is created with on first boot; copy
           it from the deployment's Installation tab.
@@ -65,7 +65,7 @@ spec:
         default: postgres
         required: false
         target:
-          envVarKey: POSTGRES_USER
+          envVar: POSTGRES_USER
         description: Role the database is initialised with and clients connect as.
       postgresDb:
         schema:
@@ -73,7 +73,7 @@ spec:
         default: app
         required: false
         target:
-          envVarKey: POSTGRES_DB
+          envVar: POSTGRES_DB
         description: Database created on first boot for the application to use.
     outputs:
       address:

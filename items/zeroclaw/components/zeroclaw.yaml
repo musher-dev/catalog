@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -60,7 +60,7 @@ spec:
     # be lowercase: `apply_env_overrides` keeps only tails made of
     # `[a-z0-9_]` (crates/zeroclaw-config/src/env_overrides.rs), because
     # uppercase tails are reserved for the bootstrap paths ZEROCLAW_CONFIG_DIR,
-    # ZEROCLAW_DATA_DIR and ZEROCLAW_WORKSPACE. A component's envVarKey must
+    # ZEROCLAW_DATA_DIR and ZEROCLAW_WORKSPACE. A component's envVar must
     # match ^[A-Z_][A-Z0-9_]*$ (component spec §5.3), so no input can carry
     # one of these overrides. The legacy uppercase names (API_KEY, PROVIDER,
     # ZEROCLAW_MODEL, OPENAI_API_KEY and the like) were removed in v0.8.0
@@ -175,7 +175,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # Both restate the image's own ENV (Dockerfile.ci), pinned here so they
       # cannot drift from the `data` volume's mount path if the image changes.
@@ -191,7 +191,7 @@ spec:
           type: string
         default: /zeroclaw-data/data
         target:
-          envVarKey: ZEROCLAW_DATA_DIR
+          envVar: ZEROCLAW_DATA_DIR
         description: >-
           ZeroClaw's instance data directory on the `data` volume. Its config
           directory is the sibling `.zeroclaw`.
@@ -205,6 +205,6 @@ spec:
           type: string
         default: /zeroclaw-data
         target:
-          envVarKey: HOME
+          envVar: HOME
         description: Home directory of the daemon's user, the `data` volume's mount path.
     outputs: {}

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -79,7 +79,7 @@ spec:
     # The password is kept even behind the platform's sign-in. Without it the
     # server logs "server is unsecured" (serve.ts) and anyone who can reach the
     # port gets a root shell through the agent. It is generated per
-    # installation and disclosed to the installer.
+    # deployment and disclosed to the deployer.
     command:
       - serve
       - --hostname
@@ -142,7 +142,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # Paths, pinned to the volume mounts above. The image runs as root and
       # sets no HOME of its own, so without these OpenCode would write to
@@ -154,7 +154,7 @@ spec:
           type: string
         default: /workspace
         target:
-          envVarKey: HOME
+          envVar: HOME
         description: >-
           Home directory of the agent and of the web UI's project picker, the
           `workspace` volume's mount path.
@@ -163,7 +163,7 @@ spec:
           type: string
         default: /var/lib/opencode/config
         target:
-          envVarKey: XDG_CONFIG_HOME
+          envVar: XDG_CONFIG_HOME
         description: >-
           Base directory OpenCode keeps its global config under, the `config`
           volume's mount path.
@@ -172,7 +172,7 @@ spec:
           type: string
         default: /var/lib/opencode/data
         target:
-          envVarKey: XDG_DATA_HOME
+          envVar: XDG_DATA_HOME
         description: >-
           Base directory OpenCode keeps sessions, credentials and logs under,
           the `data` volume's mount path.
@@ -186,14 +186,14 @@ spec:
           type: string
         default: "1"
         target:
-          envVarKey: OPENCODE_PRINT_LOGS
+          envVar: OPENCODE_PRINT_LOGS
         description: Whether OpenCode writes its logs to stderr, as the literal string it checks.
       serverUsername:
         schema:
           type: string
         default: opencode
         target:
-          envVarKey: OPENCODE_SERVER_USERNAME
+          envVar: OPENCODE_SERVER_USERNAME
         description: >-
           User name for OpenCode's HTTP basic auth. It is upstream's default,
           stated so the readiness probe and the server read one value.
@@ -203,7 +203,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: OPENCODE_SERVER_PASSWORD
+          envVar: OPENCODE_SERVER_PASSWORD
         description: >-
           Password for OpenCode's HTTP basic auth, asked for by the browser
           after the platform's sign-in.
@@ -237,7 +237,7 @@ spec:
       #   - `disabled_providers: ["opencode"]`. With no key, OpenCode loads its
       #     own hosted provider's free models using the key "public"
       #     (provider.ts, `opencode` loader). Disabling it keeps prompts and
-      #     code on the connection the installer chose. Providers a user adds
+      #     code on the connection the deployer chose. Providers a user adds
       #     in the UI still load.
       #   - `share: "disabled"`. The default, "manual", lets anyone publish a
       #     session transcript to OpenCode's public share service.
@@ -269,7 +269,7 @@ spec:
             "autoupdate": false
           }
         target:
-          envVarKey: OPENCODE_CONFIG_CONTENT
+          envVar: OPENCODE_CONFIG_CONTENT
         description: >-
           Inline OpenCode config declaring the language-model provider from
           LLM_BASE_URL, LLM_API_KEY and LLM_MODEL, which OpenCode substitutes
@@ -284,7 +284,7 @@ spec:
           type: string
         presentationHint: ENDPOINT_URL
         target:
-          envVarKey: LLM_BASE_URL
+          envVar: LLM_BASE_URL
         description: >-
           Base URL of the OpenAI-compatible chat-completions API the agent sends
           model requests to, ending in the version segment (for example /v1).
@@ -293,12 +293,12 @@ spec:
           type: string
         sensitive: true
         target:
-          envVarKey: LLM_API_KEY
+          envVar: LLM_API_KEY
         description: Bearer credential for the API above.
       llmModel:
         schema:
           type: string
         target:
-          envVarKey: LLM_MODEL
+          envVar: LLM_MODEL
         description: Model the agent uses by default.
     outputs: {}

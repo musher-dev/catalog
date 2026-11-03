@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: hermes-agent
@@ -8,7 +8,7 @@ spec:
   summary: >-
     Nous Research's self-improving AI agent, with a web dashboard and messaging
     gateway, running on your organization's language model
-  description: |
+  overview: |
     ## What it is
     Hermes Agent, from Nous Research, is an open-source agent that keeps
     memory across sessions and writes its own reusable skills as it works.
@@ -84,7 +84,7 @@ spec:
     - automation
     - messaging
   homepageURL: https://hermes-agent.nousresearch.com
-  sourceRepoURL: https://github.com/NousResearch/hermes-agent
+  sourceRepositoryURL: https://github.com/NousResearch/hermes-agent
   supportURL: https://hermes-agent.nousresearch.com/docs/
   license: MIT
   icon: media/icon.png

@@ -13,7 +13,7 @@
  */
 import { Parser } from 'commonmark';
 
-export type DescriptionFinding = {
+export type OverviewFinding = {
   code: 'ERR_RAW_HTML' | 'ERR_DISALLOWED_SCHEME' | 'ERR_IMAGE_NOT_LOCAL';
   detail: string;
 };
@@ -23,17 +23,17 @@ const PERMITTED_SCHEMES = new Set(['https', 'http', 'mailto']);
 
 const parser = new Parser();
 
-export type DescriptionScan = {
-  findings: DescriptionFinding[];
+export type OverviewScan = {
+  findings: OverviewFinding[];
   /** Image destinations, for the caller to hold to the §5 media rules. */
   imageDestinations: string[];
 };
 
-export function scanDescription(description: string, isMediaPath: (value: string) => boolean): DescriptionScan {
-  const findings: DescriptionFinding[] = [];
+export function scanOverview(markdown: string, isMediaPath: (value: string) => boolean): OverviewScan {
+  const findings: OverviewFinding[] = [];
   const imageDestinations: string[] = [];
 
-  const walker = parser.parse(description).walker();
+  const walker = parser.parse(markdown).walker();
   for (let step = walker.next(); step; step = walker.next()) {
     if (!step.entering) continue;
     const node = step.node;

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: litellm-stack
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: LiteLLM Stack
   summary: LiteLLM with its own Postgres and Redis — virtual keys, teams, and per-client spend that outlive a restart
-  description: |
+  overview: |
     ## What it is
     The LiteLLM proxy deployed the way it is meant to run in production:
     with a database behind it and a shared cache beside it. LiteLLM fronts
@@ -32,7 +32,7 @@ spec:
     append-only persistence on a 5 GiB volume; `web` runs
     `ghcr.io/berriai/litellm:v1.103.2` on port 4000 behind the platform's
     HTTPS edge. The database and cache addresses and their credentials are
-    wired between the nodes, so nothing is typed at install. The four
+    wired between the nodes, so nothing is typed at deploy. The four
     secrets the stack runs on — the master key, the credential-encryption
     salt key, the database password and the cache password — are
     auto-generated at deploy; copy them from the deployment's Installation
@@ -52,7 +52,7 @@ spec:
 
     Rotating the salt key after any provider credential has been saved
     makes those credentials unreadable. Treat it as fixed.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - ai
@@ -63,7 +63,7 @@ spec:
     - postgres
     - redis
   homepageURL: https://www.litellm.ai
-  sourceRepoURL: https://github.com/BerriAI/litellm
+  sourceRepositoryURL: https://github.com/BerriAI/litellm
   supportURL: https://docs.litellm.ai
   license: MIT
   icon: media/icon.png

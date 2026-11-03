@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: flowise
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Flowise
   summary: Drag-and-drop builder that turns LLM chains and agents into APIs and chat widgets
-  description: |
+  overview: |
     ## What it is
     Flowise is an open-source visual builder for LLM applications. Drag
     nodes (models, vector stores, retrievers, tools, agents) onto a
@@ -25,7 +25,7 @@ spec:
     ## Defaults
     Single-container deployment of `flowiseai/flowise:3.1.4` with the web
     UI on port 3000 behind the platform's HTTPS edge and the platform's
-    sign-in: only people allowed into this installation reach the builder.
+    sign-in: only people allowed into this deployment reach the builder.
     You create the Flowise admin account from the sign-up screen on first
     launch; until one exists, the first signed-in person to reach that
     screen becomes the admin. The prediction API, embedded chat widgets,
@@ -39,7 +39,7 @@ spec:
     auto-generated at deploy so credentials stored in your flows stay
     decryptable across restarts, and a 5 GiB persistent volume mounted at
     `/root/.flowise` holds the database, flow storage, and logs.
-  category: AI_ML
+  category: AGENTS
   lifecycleStage: BETA
   tags:
     - ai
@@ -49,7 +49,7 @@ spec:
     - low-code
     - visual-builder
   homepageURL: https://flowiseai.com
-  sourceRepoURL: https://github.com/FlowiseAI/Flowise
+  sourceRepositoryURL: https://github.com/FlowiseAI/Flowise
   supportURL: https://docs.flowiseai.com
   license: Apache-2.0
   icon: media/icon.png

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: langflow
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Langflow
   summary: Visual canvas for prototyping LLM agents and RAG pipelines, exportable as APIs
-  description: |
+  overview: |
     ## What it is
     Langflow is an open-source, drag-and-drop visual builder for chaining
     LLM calls, retrievers, agents, and tools. Drop nodes onto a canvas,
@@ -45,7 +45,7 @@ spec:
     `/app/langflow` holds both config and the database, so flows survive
     container recreation. Marked beta because Langflow ships breaking
     changes more frequently than monthly.
-  category: AI_ML
+  category: AGENTS
   lifecycleStage: BETA
   tags:
     - ai
@@ -55,7 +55,7 @@ spec:
     - low-code
     - visual-builder
   homepageURL: https://www.langflow.org
-  sourceRepoURL: https://github.com/langflow-ai/langflow
+  sourceRepositoryURL: https://github.com/langflow-ai/langflow
   supportURL: https://docs.langflow.org
   license: MIT
   icon: media/icon.png

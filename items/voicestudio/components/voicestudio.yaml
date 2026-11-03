@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -53,8 +53,8 @@ spec:
         # `forwarded_allow_ips` (127.0.0.1). The platform's proxy reaches the
         # container from a routable address, so a forwarded header can never
         # make a remote caller look local.
-        accessExemptions:
-          bearer: true
+        exemptibleRequests:
+          bearerToken: true
     health:
       readiness:
         # /health answers 503 {"status": "starting"} until the backend's
@@ -93,7 +93,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # The backend's own default bind is 127.0.0.1. Inside the container it
       # must listen on every interface for the platform's proxy to reach it.
@@ -102,7 +102,7 @@ spec:
           type: string
         default: 0.0.0.0
         target:
-          envVarKey: OMNIVOICE_BIND_HOST
+          envVar: OMNIVOICE_BIND_HOST
         description: Address the backend listens on inside the container.
       # Headless server mode, already baked into the image: it relaxes the
       # desktop-only loopback-origin gate on /system/* and /api/settings/*,
@@ -113,21 +113,21 @@ spec:
           type: string
         default: '1'
         target:
-          envVarKey: OMNIVOICE_SERVER_MODE
+          envVar: OMNIVOICE_SERVER_MODE
         description: Whether the backend runs as a headless server, as the literal string it parses.
       dataDir:
         schema:
           type: string
         default: /app/omnivoice_data
         target:
-          envVarKey: OMNIVOICE_DATA_DIR
+          envVar: OMNIVOICE_DATA_DIR
         description: Directory VoiceStudio keeps its state in, the `data` volume's mount path.
       hfHome:
         schema:
           type: string
         default: /app/omnivoice_data/huggingface
         target:
-          envVarKey: HF_HOME
+          envVar: HF_HOME
         description: Hugging Face cache directory model weights download into, on the `data` volume.
       # Product analytics (PostHog) are opt-in from the UI. This removes the
       # prompt and the client entirely.
@@ -136,7 +136,7 @@ spec:
           type: string
         default: '1'
         target:
-          envVarKey: OMNIVOICE_ANALYTICS_DISABLED
+          envVar: OMNIVOICE_ANALYTICS_DISABLED
         description: Whether product analytics are disabled outright, as the literal string the backend parses.
       # The root credential. In server mode it is required for the admin
       # surface. It is also what every non-loopback client presents, as a
@@ -148,7 +148,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: OMNIVOICE_API_KEY
+          envVar: OMNIVOICE_API_KEY
         description: >-
           VoiceStudio's API key: entered once in the web UI, and sent as a
           bearer token by API and MCP clients.
@@ -162,7 +162,7 @@ spec:
         presentationHint: HOSTNAME
         required: false
         target:
-          envVarKey: OMNIVOICE_MCP_ALLOWED_HOSTS
+          envVar: OMNIVOICE_MCP_ALLOWED_HOSTS
         description: Hostname MCP clients reach /mcp/ at, accepted in addition to localhost.
     outputs:
       publicHostname:

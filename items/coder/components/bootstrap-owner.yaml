@@ -1,9 +1,9 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
   description: >-
-    One-shot job that creates Coder's first Owner account, for the installer,
+    One-shot job that creates Coder's first Owner account, for the deployer,
     through the server's own API over the private network.
 spec:
   # WHY A JOB. Coder's first account becomes its Owner, and it is created by
@@ -29,7 +29,7 @@ spec:
   # readiness, the job could never reach the server and the deployment would
   # never become ready.
   #
-  # A JOB without a schedule runs once per rollout: at installation, on every
+  # A JOB without a schedule runs once per rollout: at deployment, on every
   # update and on every redeploy (COMP-JOB-001). Every run after the first
   # finds an Owner (200) and exits without changing anything, so a rotated
   # password parameter does not reach an existing account. Change the password
@@ -55,7 +55,7 @@ spec:
     #
     # Exec form: argv, no shell of the platform's own. `set -eu` plus `curl
     # -f` turn any non-2xx into a failed run, which the platform records for
-    # the installation. That includes a 409 from losing the race described
+    # the deployment. That includes a 409 from losing the race described
     # above, which then needs a look rather than silence.
     command:
       - sh
@@ -97,7 +97,7 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: CODER_ADDRESS
+          envVar: CODER_ADDRESS
         description: Private host:port of the Coder server, from the web node's `address` output.
       ownerEmail:
         schema:
@@ -105,14 +105,14 @@ spec:
         presentationHint: EMAIL
         required: true
         target:
-          envVarKey: OWNER_EMAIL
+          envVar: OWNER_EMAIL
         description: Email address the Owner account is created with, which is also its sign-in name.
       ownerUsername:
         schema:
           type: string
         default: admin
         target:
-          envVarKey: OWNER_USERNAME
+          envVar: OWNER_USERNAME
         description: >-
           Coder username of the Owner account: letters, digits and single
           hyphens, at most 32 characters.
@@ -124,7 +124,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: OWNER_PASSWORD
+          envVar: OWNER_PASSWORD
         description: Password the Owner account is created with.
       # A first install pulls the Coder image and initialises PostgreSQL
       # before anything listens.
@@ -133,6 +133,6 @@ spec:
           type: integer
         default: 900
         target:
-          envVarKey: READY_TIMEOUT_SECONDS
+          envVar: READY_TIMEOUT_SECONDS
         description: How long the job waits for Coder to answer /healthz before it fails.
     outputs: {}

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: code-server
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: code-server
   summary: VS Code in the browser, running on infrastructure you control
-  description: |
+  overview: |
     ## What it is
     code-server runs the full VS Code editor on a remote server and serves
     it to any modern browser. The editor, extensions, terminal, and
@@ -37,7 +37,7 @@ spec:
     - editor
     - remote-development
   homepageURL: https://coder.com
-  sourceRepoURL: https://github.com/coder/code-server
+  sourceRepositoryURL: https://github.com/coder/code-server
   supportURL: https://coder.com/docs/code-server
   license: MIT
   icon: media/icon.png

@@ -1,14 +1,14 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: openhands-agent-canvas
   revision: 1
   description: >-
     OpenHands Agent Canvas behind the platform's sign-in, with persistent state
-    and projects, telemetry off, and the installer's language-model connection
+    and projects, telemetry off, and the deployer's language-model connection
     seeded as its active LLM profile.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml
       # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
@@ -42,7 +42,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: NONE
       bindings:
         sessionAPIKey:
@@ -99,7 +99,7 @@ spec:
         label: Session API key
         order: 2
     # OH_SECRET_KEY. Encrypts stored settings and credentials. It must stay
-    # the same for the life of the installation, which a generated parameter
+    # the same for the life of the deployment, which a generated parameter
     # does.
     secretKey:
       generator:

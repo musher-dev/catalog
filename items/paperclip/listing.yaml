@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: paperclip
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: Paperclip
   summary: Run a team of AI agents like a company — org chart, tickets, budgets and approval gates in one control plane
-  description: |
+  overview: |
     ## What it is
     Paperclip is an open-source control plane for teams of AI agents. You
     hire agents into an org chart with roles and reporting lines, hand them
@@ -66,6 +66,6 @@ spec:
     - codex
     - openclaw
   homepageURL: https://paperclip.ing
-  sourceRepoURL: https://github.com/paperclipai/paperclip
+  sourceRepositoryURL: https://github.com/paperclipai/paperclip
   license: MIT
   icon: media/icon.png

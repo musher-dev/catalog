@@ -1,13 +1,13 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: mlflow
   revision: 9
   description: >-
     MLflow tracking server behind the platform's sign-in and its own login, on
-    local SQLite and volume-backed artifacts, both overridable at install.
+    local SQLite and volume-backed artifacts, both overridable at deploy.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/mlflow.yaml
       compute:
@@ -21,7 +21,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           accessExemptions:
             - PATHS
       bindings:
@@ -36,7 +36,7 @@ spec:
         # This node's own allocated origin, from the output the component derives
         # from its `primary` endpoint, so the UI's writes pass MLflow's
         # cross-origin check. A node reading its own endpoint output is a
-        # discovery dependency and not a value cycle (BP-CONN-002).
+        # discovery dependency and not a value cycle (BP-BIND-002).
         corsAllowedOrigins:
           node: web
           output: publicURL

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -37,7 +37,7 @@ spec:
         # extensions authenticate with Coder's own `Coder-Session-Token`
         # header, not `Authorization: Bearer` (APITokenFromRequest,
         # coderd/httpmw/apikey.go, v2.36.6, reads the bearer only as a
-        # fallback). A `bearer` exemption would therefore let none of them
+        # fallback). A `bearerToken` exemption would therefore let none of them
         # through. Coder authenticates every /api/v2 route itself except a
         # short public set (build info, auth methods, login, the OIDC
         # callback and first-user setup). The first-user route is the one
@@ -51,7 +51,7 @@ spec:
         #
         # `/bin`: the static `coder` agent binaries that template init scripts
         # download from the access URL before an agent has any credential.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /api
             - /derp
@@ -87,7 +87,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.36.6), which
       # nothing outside the container could reach. 7080 is the port upstream's
@@ -97,7 +97,7 @@ spec:
           type: string
         default: 0.0.0.0:7080
         target:
-          envVarKey: CODER_HTTP_ADDRESS
+          envVar: CODER_HTTP_ADDRESS
         description: Address and port the Coder HTTP server binds inside the container.
       # Coder reads only a connection URL, and with none it downloads and runs a
       # built-in PostgreSQL. Bindings interpolate nothing, so no URL can be put
@@ -113,7 +113,7 @@ spec:
           type: string
         default: sslmode=disable
         target:
-          envVarKey: CODER_PG_CONNECTION_URL
+          envVar: CODER_PG_CONNECTION_URL
         description: >-
           PostgreSQL DSN Coder connects with; only the SSL mode, since the
           connection details arrive through the PG* variables.
@@ -124,21 +124,21 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: CODER_SECURE_AUTH_COOKIE
+          envVar: CODER_SECURE_AUTH_COOKIE
         description: Whether browser session cookies carry the Secure attribute, as the literal string Coder parses.
       telemetryEnable:
         schema:
           type: string
         default: 'false'
         target:
-          envVarKey: CODER_TELEMETRY_ENABLE
+          envVar: CODER_TELEMETRY_ENABLE
         description: Whether Coder sends anonymized usage telemetry upstream, as the literal string Coder parses.
       oidcSignInText:
         schema:
           type: string
         default: Sign in with Musher
         target:
-          envVarKey: CODER_OIDC_SIGN_IN_TEXT
+          envVar: CODER_OIDC_SIGN_IN_TEXT
         description: Label on the login page's OpenID Connect button.
       # Coder hands this to workspace agents and CLI logins as the address to
       # call back on, and builds its OIDC redirect URI from it.
@@ -148,7 +148,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: CODER_ACCESS_URL
+          envVar: CODER_ACCESS_URL
         description: Public URL that people, the CLI and workspace agents reach Coder at.
       # The connection, as libpq environment variables. They are also present
       # in the environment of the built-in provisioners' terraform runs.
@@ -160,21 +160,21 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: PGHOST
+          envVar: PGHOST
         description: Mesh-internal hostname of the PostgreSQL server.
       pgPort:
         schema:
           type: integer
         required: true
         target:
-          envVarKey: PGPORT
+          envVar: PGPORT
         description: Port of the PostgreSQL server on that hostname.
       pgUser:
         schema:
           type: string
         required: true
         target:
-          envVarKey: PGUSER
+          envVar: PGUSER
         description: Role Coder connects to PostgreSQL as.
       pgPassword:
         schema:
@@ -182,14 +182,14 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: PGPASSWORD
+          envVar: PGPASSWORD
         description: Password of the role above.
       pgDatabase:
         schema:
           type: string
         required: true
         target:
-          envVarKey: PGDATABASE
+          envVar: PGDATABASE
         description: Database Coder keeps its state in.
       # The platform's OIDC client for `primary`. Coder runs discovery against
       # the bare issuer itself (go-oidc), so it takes the issuer, not the
@@ -203,14 +203,14 @@ spec:
         presentationHint: ENDPOINT_URL
         required: true
         target:
-          envVarKey: CODER_OIDC_ISSUER_URL
+          envVar: CODER_OIDC_ISSUER_URL
         description: Issuer URL of the platform's OpenID Connect provider.
       oidcClientID:
         schema:
           type: string
         required: true
         target:
-          envVarKey: CODER_OIDC_CLIENT_ID
+          envVar: CODER_OIDC_CLIENT_ID
         description: Client identifier the platform registered for this endpoint.
       oidcClientSecret:
         schema:
@@ -218,7 +218,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: CODER_OIDC_CLIENT_SECRET
+          envVar: CODER_OIDC_CLIENT_SECRET
         description: Client secret the platform registered for this endpoint.
     outputs:
       publicURL:

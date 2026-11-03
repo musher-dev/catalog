@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 6
@@ -34,7 +34,7 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       #
       # Snapshots onto the volume. The image's config.yaml sets
       # `snapshots_path: ./snapshots` from WORKDIR /qdrant, which is outside
@@ -46,7 +46,7 @@ spec:
           type: string
         default: /qdrant/storage/snapshots
         target:
-          envVarKey: QDRANT__STORAGE__SNAPSHOTS_PATH
+          envVar: QDRANT__STORAGE__SNAPSHOTS_PATH
         description: Directory Qdrant writes collection snapshots to.
       # Anonymous usage telemetry is on by default (config.yaml:
       # `telemetry_disabled: false`). It is off here, as meilisearch's analytics are.
@@ -55,7 +55,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: QDRANT__TELEMETRY_DISABLED
+          envVar: QDRANT__TELEMETRY_DISABLED
         description: >-
           Whether anonymous usage telemetry is off, as the literal string the
           image parses.
@@ -65,7 +65,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: QDRANT__SERVICE__API_KEY
+          envVar: QDRANT__SERVICE__API_KEY
         description: Bearer token required by clients to authenticate against the
           Qdrant HTTP API
     outputs: {}

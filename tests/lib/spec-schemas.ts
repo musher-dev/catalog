@@ -1,38 +1,42 @@
 /**
- * Fetches the normative JSON Schema bundles for one exact, released version of
+ * Loads the normative JSON Schema bundles for one exact, released version of
  * each `musher-dev/specifications` family, and refuses any bytes but the
  * released ones.
  *
  * The catalog is not the authority on what a valid item looks like; the spec is.
- * So nothing here is vendored: the bundles are fetched on every run and memoised
- * only for the lifetime of the process. What is held here is the *identity* of
- * the contract — a version and a digest per family — not a copy of it.
+ * What this repository holds is the release itself: each family's release
+ * archive, vendored byte for byte under `vendor/specifications/`, exactly as
+ * the specification's adoption guide asks (docs/downstream-v2-adoption.md →
+ * Pin the v2 releases). An archive carries its family's bundle, specification,
+ * examples, conformance corpus and whole dependency closure, so the suite needs
+ * no network at all.
  *
- * There is exactly one source, and it is immutable:
+ * A vendored copy is still not a second authority, because nothing here is
+ * trusted for being present. Each archive's SHA-256 must equal the digest
+ * GitHub records for that immutable release asset, and each bundle inside it
+ * must equal the `bundleSha256` the release ledger records (the specification
+ * repository's `published.json`). Both are copied into `RELEASES`, never
+ * computed: a digest taken from the bytes it is meant to check would check
+ * nothing. vendor/specifications/README.md shows how to verify an archive
+ * against GitHub before adopting it.
  *
- *   https://specifications.musher.dev/<family>/v<version>/<family>.schema.json
- *
- * That is the exact release URL. The specification requires automation to pin
- * one (docs/using-schemas.md → Pinning in automation) because the major-version
- * alias, `/<family>/v1/`, changes its bytes whenever a release ships, and a
- * suite whose verdict can change without a commit here reports on a contract
- * nobody chose. Each bundle's SHA-256 is checked against the release ledger's
- * `bundleSha256` (the specification repository's `published.json`), so a proxy,
- * a cache or a mistaken origin cannot substitute other bytes.
- *
- * Adopting a new release is a deliberate change of that family's entry in
- * `RELEASES`, in a pull request of its own, copied from that ledger. Families
- * release independently, so they sit at different versions.
- *
- * The origin is public and serves open CORS, so this is fetched with no
- * credential — nothing here reads a token, and none should be configured.
+ * Adopting a new release is a deliberate change of the archive and that
+ * family's entry in `RELEASES`, in the same pull request. Every core release
+ * re-releases every family, so the four sit on one core release.
  *
  * Nothing about the source is configurable. A knob for the version, a mirror, or
  * a local checkout would each be a second answer to "what is the contract",
  * which is the thing this module exists to have only one of.
  */
+import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
+import fs from 'node:fs';
+import os from 'node:os';
+import path from 'node:path';
+
 import ajvModule, { type ErrorObject, type ValidateFunction } from 'ajv/dist/2020.js';
+
+import { REPO_ROOT } from './paths.ts';
 
 // Ajv 8 ships CommonJS with no `exports` map, so under module:nodenext TypeScript
 // types the default import as the module namespace while Node hands back the class
@@ -42,6 +46,10 @@ const Ajv2020 = ajvModule as unknown as typeof ajvModule.default;
 export const FAMILIES = ['listing', 'blueprint', 'component'] as const;
 export type Family = (typeof FAMILIES)[number];
 
+/** Every family with a release archive: the three document families, and core. */
+export const ARCHIVE_FAMILIES = ['core', 'component', 'blueprint', 'listing'] as const;
+export type ArchiveFamily = (typeof ARCHIVE_FAMILIES)[number];
+
 /** The `kind` discriminator each family's documents must carry. */
 export const KIND_OF: Record<Family, string> = {
   listing: 'LISTING',
@@ -49,62 +57,90 @@ export const KIND_OF: Record<Family, string> = {
   component: 'COMPONENT',
 };
 
-const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
+/** Where the release archives are vendored. */
+export const VENDOR_DIR = path.join(REPO_ROOT, 'vendor', 'specifications');
 
 /**
  * The identity of the contract: one released version per family, with the
- * digests that pin its bytes. Families release independently and sit at
- * different versions — `component` and `blueprint` are past `1.0.0` because
- * ADR 0033 reset the v1 compatibility baseline — so there is no single
- * "the spec version" to hold, and never was.
+ * digests that pin its bytes.
  *
+ * `archiveSha256` is the digest GitHub records for the release's `.tar.gz`
+ * asset (`gh release view <family>/v<version> -R musher-dev/specifications
+ * --json assets`), which the release's `SHA256SUMS` also lists.
  * `bundleSha256` is the family's entry in the release ledger,
- * https://specifications.musher.dev/published.json. `archiveSha256` is the
- * digest GitHub records for the release's `.tar.gz` asset, and is present only
- * for the families whose archives carry a conformance corpus this suite reads
- * (lib/conformance.ts). Both are copied, never computed: a digest taken from
- * the bytes it is meant to check would check nothing.
- *
- * Adopting a new release is a deliberate edit of this one literal, in a pull
- * request of its own.
+ * https://specifications.musher.dev/published.json. Core publishes no bundle of
+ * its own, so it carries only the archive digest.
  */
-export const RELEASES: Record<Family, { version: string; bundleSha256: string; archiveSha256?: string }> = {
-  listing: {
-    version: '1.0.1',
-    bundleSha256: 'efced6005efe4e25f60fc6d801070315160285823d4f0f4bcb93127f6010ee6b',
-    archiveSha256: 'e20dcd5a9597002aaee9d7b62ff86ed02001bb28085f7bdb6dd4f3230a05109a',
-  },
-  blueprint: {
-    version: '1.7.1',
-    bundleSha256: 'f3b64517ff6e90ac023736ee15eede2c1198ed393330f88d9b734cf372c5a3b3',
-    archiveSha256: 'd67d967e0cd844f3d0412f69fa8f07368614155c14da30cdb912ed6bfebe6fca',
+export const RELEASES: Record<ArchiveFamily, { version: string; archiveSha256: string; bundleSha256?: string }> = {
+  core: {
+    version: '2.0.0',
+    archiveSha256: '45182a42a1d2b6bf490bc10e859fc85259885d243cda1c2b8b68c3f8cd7763dc',
   },
   component: {
-    version: '1.6.0',
-    bundleSha256: 'f8ed1c8b0076705438f8ac3442a1c3365a056ef93a7bc1eef07c12d855d19fa1',
-    archiveSha256: 'bdc2e6b9372c7f40e37afc52ab4965b99fc54b811baf93b62db6c75a73d721d1',
+    version: '2.0.0',
+    archiveSha256: 'f33eecab25d501ab6147b65e0db939336e3be03f05334f3b722cbfe2736af990',
+    bundleSha256: '3ffb508d81765bf2d9fdd168c16e2720912391ba4b6032d391088786bbeb8323',
+  },
+  blueprint: {
+    version: '2.0.0',
+    archiveSha256: '9c7397005128e7e04e923a402fbcc4b5ede3ca85c79cb1eaf5728321c851272f',
+    bundleSha256: '90af173a303790de9df1e08224c824dd912798e5644b98c30c31d7d22412c92f',
+  },
+  listing: {
+    version: '2.0.0',
+    archiveSha256: '5a2addae3eab202da5cb5efedadf8a1a78fb3b017278dff64a67c81bf43a5c94',
+    bundleSha256: '5b7b311eb2bf879b50a98fc171d0f22937a15cf592014d0ba6feb60f2272856a',
   },
 };
 
 /** The released version of one family, as the release tag spells it. */
-export const releaseOf = (family: Family): string => RELEASES[family].version;
+export const releaseOf = (family: ArchiveFamily): string => RELEASES[family].version;
 
-/** The one place a schema comes from. */
+/** The major version a release belongs to, as the archive's root directory spells it. */
+const majorOf = (family: ArchiveFamily): string => `v${releaseOf(family).split('.')[0]}`;
+
+/** The exact release URL a bundle names as its `$id`, and the editor reads it from. */
 export const schemaUrl = (family: Family): string =>
   `https://specifications.musher.dev/${family}/v${releaseOf(family)}/${family}.schema.json`;
 
-async function read(url: string): Promise<string> {
-  // No credential is sent, and no code path here reads one. The specifications
-  // origin is public; a token attached to a public read is a secret handed to a
-  // host that never asked for one, and it would make the suite pass on a machine
-  // that has it and fail on one that does not.
-  const response = await fetch(url, {
-    signal: AbortSignal.timeout(TIMEOUT_MS),
-    headers: { accept: 'application/schema+json, application/json' },
-  });
-  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-  return await response.text();
+/** The vendored archive of one family's release. */
+export const archivePath = (family: ArchiveFamily): string =>
+  path.join(VENDOR_DIR, `${family}-v${releaseOf(family)}.tar.gz`);
+
+let unpacked: string | null = null;
+
+/**
+ * Verify every vendored archive against its pinned digest and unpack them all,
+ * once per process, into one scratch directory. An archive whose bytes differ
+ * from the release asset is never opened.
+ */
+export function releasesRoot(): string {
+  if (unpacked !== null) return unpacked;
+
+  const into = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-specifications-'));
+  process.on('exit', () => fs.rmSync(into, { recursive: true, force: true }));
+
+  for (const family of ARCHIVE_FAMILIES) {
+    const archive = archivePath(family);
+    if (!fs.existsSync(archive)) {
+      throw new Error(`${path.relative(REPO_ROOT, archive)} is missing: the ${family}/v${releaseOf(family)} release is vendored, never fetched`);
+    }
+    const sha256 = createHash('sha256').update(fs.readFileSync(archive)).digest('hex');
+    if (sha256 !== RELEASES[family].archiveSha256) {
+      throw new Error(
+        `${path.relative(REPO_ROOT, archive)} has sha256 ${sha256}, but the ${family}/v${releaseOf(family)} ` +
+          `release asset is ${RELEASES[family].archiveSha256}. Whatever is vendored is not that release.`,
+      );
+    }
+    execFileSync('tar', ['-xzf', archive, '-C', into]);
+  }
+
+  unpacked = into;
+  return into;
 }
+
+/** The directory one family's archive unpacks to, e.g. `component-v2`. */
+export const releaseDir = (family: ArchiveFamily): string => path.join(releasesRoot(), `${family}-${majorOf(family)}`);
 
 /** Every `$ref` in a published bundle resolves inside `$defs`; anything else is external. */
 export function externalRefs(node: unknown, found: string[] = []): string[] {
@@ -120,9 +156,9 @@ export function externalRefs(node: unknown, found: string[] = []): string[] {
 }
 
 /**
- * Sanity on the artifact itself, before the corpus is validated with it. A fetch
- * that succeeds and returns an error page, a redirect stub, or another family's
- * bundle would otherwise validate every item against nothing at all.
+ * Sanity on the artifact itself, before the corpus is validated with it. An
+ * archive holding another family's bundle, or a truncated one, would otherwise
+ * validate every item against nothing at all.
  */
 function assertIsFamilyBundle(family: Family, schema: Record<string, unknown>, origin: string): void {
   const where = `${family} schema from ${origin}`;
@@ -154,7 +190,7 @@ export type FetchedSchema = {
 
 const inFlight = new Map<Family, Promise<FetchedSchema>>();
 
-/** Fetch (once per process) and structurally vet one family's bundle. */
+/** Load (once per process) and structurally vet one family's bundle. */
 export function loadSchema(family: Family): Promise<FetchedSchema> {
   let pending = inFlight.get(family);
   if (!pending) {
@@ -167,28 +203,17 @@ export function loadSchema(family: Family): Promise<FetchedSchema> {
 export const loadAllSchemas = (): Promise<FetchedSchema[]> => Promise.all(FAMILIES.map(loadSchema));
 
 async function resolveSchema(family: Family): Promise<FetchedSchema> {
-  const url = schemaUrl(family);
-
-  let text: string;
-  try {
-    text = await read(url);
-  } catch (error) {
-    throw new Error(
-      `Could not fetch the ${family} schema from ${url}: ${(error as Error).message}\n` +
-        'These tests validate against musher-dev/specifications, so they need network ' +
-        'access to specifications.musher.dev. There is no fallback source and no cache: a ' +
-        'second answer to "what is the contract" is the thing this suite exists to not have.',
-    );
-  }
+  const file = path.join(releaseDir(family), `${family}.schema.json`);
+  const origin = `${path.relative(REPO_ROOT, archivePath(family))}:${path.basename(releaseDir(family))}/${family}.schema.json`;
+  const text = fs.readFileSync(file, 'utf8');
 
   // The digest is checked before the bytes are even parsed: anything else is not
   // the release this corpus is pinned to, whatever it claims to be.
   const sha256 = createHash('sha256').update(text).digest('hex');
   if (sha256 !== RELEASES[family].bundleSha256) {
     throw new Error(
-      `${family} schema from ${url} has sha256 ${sha256}, but the ${family}/v${releaseOf(family)} ` +
-        `release ledger records ${RELEASES[family].bundleSha256}. An exact release URL never changes its ` +
-        'bytes, so whatever answered is not that release.',
+      `${family} schema in ${origin} has sha256 ${sha256}, but the ${family}/v${releaseOf(family)} ` +
+        `release ledger records ${RELEASES[family].bundleSha256}.`,
     );
   }
 
@@ -196,16 +221,16 @@ async function resolveSchema(family: Family): Promise<FetchedSchema> {
   try {
     schema = JSON.parse(text) as Record<string, unknown>;
   } catch (error) {
-    throw new Error(`${family} schema from ${url} is not valid JSON: ${(error as Error).message}`);
+    throw new Error(`${family} schema in ${origin} is not valid JSON: ${(error as Error).message}`);
   }
-  assertIsFamilyBundle(family, schema, url);
+  assertIsFamilyBundle(family, schema, origin);
 
-  // A pinned bundle carries its exact-version `$id`; the alias restamps it.
-  if (schema['$id'] !== url) {
-    throw new Error(`${family} schema from ${url}: $id is ${String(schema['$id'])}, expected the exact release URL`);
+  // A released bundle carries its exact-version `$id`.
+  if (schema['$id'] !== schemaUrl(family)) {
+    throw new Error(`${family} schema in ${origin}: $id is ${String(schema['$id'])}, expected ${schemaUrl(family)}`);
   }
 
-  return { family, schema, origin: url, sha256 };
+  return { family, schema, origin, sha256 };
 }
 
 /**

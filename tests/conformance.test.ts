@@ -19,21 +19,18 @@ import os from 'node:os';
 import path from 'node:path';
 import { after, describe, it } from 'node:test';
 
-import { OUT_OF_SCOPE, casesOf, fetchCorpus, runCase, type Case, type CorpusFamily } from './lib/conformance.ts';
+import { OUT_OF_SCOPE, casesOf, runCase, type Case, type CorpusFamily } from './lib/conformance.ts';
 import { releaseOf } from './lib/spec-schemas.ts';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-conformance-'));
 after(() => fs.rmSync(workspace, { recursive: true, force: true }));
 
-const corpus = path.join(workspace, 'corpus');
-fs.mkdirSync(corpus);
-await fetchCorpus(corpus);
-
 const FAMILIES: CorpusFamily[] = ['core', 'component', 'blueprint', 'listing'];
 
 /** Why a case is not run, or null when it is. */
 function skipReason({ metadata, expectedCodes }: Case): string | null {
-  if (metadata.phase === 'capability') return 'capability is decided against the platform catalog';
+  if (metadata.phase === 'admission') return 'admission is decided against the platform catalog';
+  if (metadata.phase === 'resolution') return 'resolution needs a deployment context';
   if (expectedCodes.length > 0 && expectedCodes.every((code) => OUT_OF_SCOPE.has(code))) {
     return `logical value validation is out of scope (${expectedCodes.join(', ')})`;
   }
@@ -41,11 +38,9 @@ function skipReason({ metadata, expectedCodes }: Case): string | null {
 }
 
 for (const family of FAMILIES) {
-  // `core` has no bundle of its own here: its corpus rides inside the blueprint
-  // archive, so it is named without a version rather than with a guessed one.
-  const label = family === 'core' ? 'conformance core' : `conformance ${family}/v${releaseOf(family)}`;
+  const label = `conformance ${family}/v${releaseOf(family)}`;
   describe(label, () => {
-    for (const testCase of casesOf(corpus, family)) {
+    for (const testCase of casesOf(family)) {
       const { metadata, expectedCodes } = testCase;
       const reason = skipReason(testCase);
 

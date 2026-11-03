@@ -1,14 +1,14 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: paperclip
   revision: 1
   description: >-
     Paperclip agent orchestration behind the platform's sign-in, on its own
-    PostgreSQL, with Claude Code agents on the installer's language-model
+    PostgreSQL, with Claude Code agents on the deployer's language-model
     connection.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml
       # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
@@ -52,14 +52,14 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           accessExemptions:
             - BEARER
             - PATHS
       bindings:
         # This node's own allocated address, from the output the component
         # derives from its `primary` endpoint. A node reading its own endpoint
-        # output is a discovery dependency and not a value cycle (BP-CONN-002):
+        # output is a discovery dependency and not a value cycle (BP-BIND-002):
         # an endpoint address is allocated before anything runs.
         publicURL:
           node: web
@@ -112,7 +112,7 @@ spec:
         encoding: HEX
     # HEX, not BASE64: the password is placed in DATABASE_URL unencoded, and
     # hex needs no percent-encoding there. Disclosed to whoever manages the
-    # installation, for direct database access and backups.
+    # deployment, for direct database access and backups.
     dbPassword:
       generator:
         byteLength: 24

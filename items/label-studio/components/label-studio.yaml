@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 10
@@ -18,7 +18,7 @@ spec:
         # defaults to IsAuthenticated over token and session authentication
         # (core/settings/base.py, 1.23.2). The sign-in and signup pages stay
         # behind the platform's sign-in.
-        accessExemptions:
+        exemptibleRequests:
           paths:
             - /api
     health:
@@ -43,13 +43,13 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       disableSignupWithoutLink:
         schema:
           type: string
         default: 'true'
         target:
-          envVarKey: LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK
+          envVar: LABEL_STUDIO_DISABLE_SIGNUP_WITHOUT_LINK
         description: >-
           Whether signup is restricted to holders of an invite link, as the
           literal string the image parses.
@@ -64,7 +64,7 @@ spec:
           type: string
         default: '1'
         target:
-          envVarKey: LABEL_STUDIO_SESSION_COOKIE_SECURE
+          envVar: LABEL_STUDIO_SESSION_COOKIE_SECURE
         description: >-
           Whether the session cookie is marked Secure, as the integer-parsed
           literal the image expects.
@@ -76,7 +76,7 @@ spec:
           type: string
         default: '0'
         target:
-          envVarKey: LABEL_STUDIO_CSRF_COOKIE_HTTPONLY
+          envVar: LABEL_STUDIO_CSRF_COOKIE_HTTPONLY
         description: >-
           Whether the CSRF cookie is marked HttpOnly, as the integer-parsed
           literal the image expects.
@@ -93,7 +93,7 @@ spec:
         presentationHint: EMAIL
         required: true
         target:
-          envVarKey: LABEL_STUDIO_USERNAME
+          envVar: LABEL_STUDIO_USERNAME
         description: Email address the bootstrap admin account is created with
       adminPassword:
         schema:
@@ -101,7 +101,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LABEL_STUDIO_PASSWORD
+          envVar: LABEL_STUDIO_PASSWORD
         description: >-
           Password the bootstrap admin account is created with. Changing it
           after the first boot has no effect; change it in Label Studio.
@@ -131,7 +131,7 @@ spec:
         presentationHint: ENDPOINT_URL
         required: false
         target:
-          envVarKey: LABEL_STUDIO_HOST
+          envVar: LABEL_STUDIO_HOST
         description: >-
           Public base URL Label Studio builds absolute links from.
       # No `presentationHint` here, deliberately: the value is a comma-separated
@@ -145,7 +145,7 @@ spec:
           type: string
         required: false
         target:
-          envVarKey: LABEL_STUDIO_CSRF_TRUSTED_ORIGINS
+          envVar: LABEL_STUDIO_CSRF_TRUSTED_ORIGINS
         description: >-
           Comma-separated origins Django accepts form POSTs from. Must match the
           browser's Origin header exactly — scheme included, no trailing slash.
@@ -167,7 +167,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: SECRET_KEY
+          envVar: SECRET_KEY
         description: >-
           Django secret key signing sessions and CSRF tokens. Pinning it keeps
           sessions valid across replicas and re-creates.

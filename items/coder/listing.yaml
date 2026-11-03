@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: coder
@@ -8,7 +8,7 @@ spec:
   summary: >-
     Self-hosted cloud development environments for developers and their AI
     agents, defined in Terraform and provisioned on infrastructure you choose
-  description: |
+  overview: |
     ## What it is
     Coder is an open-source control plane for cloud development environments.
     Administrators describe workspaces as Terraform templates: a VM, a
@@ -41,7 +41,7 @@ spec:
 
     ## Signing in
     An **Owner** account is created for you when the deployment first starts.
-    Its email is the one you install with, and its password is generated. Copy
+    Its email is the one you deploy with, and its password is generated. Copy
     the password from the deployment's Installation tab and sign in with your
     email. Everyone else in your organization uses **Sign in with Musher** and
     joins as a member. The Owner can then grant roles. While your Owner account
@@ -76,7 +76,7 @@ spec:
     - workspaces
     - ai-agents
   homepageURL: https://coder.com
-  sourceRepoURL: https://github.com/coder/coder
+  sourceRepositoryURL: https://github.com/coder/coder
   supportURL: https://coder.com/docs
   license: AGPL-3.0-only AND LicenseRef-Coder-Enterprise
   icon: media/icon.png

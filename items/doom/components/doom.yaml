@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 3
@@ -64,7 +64,7 @@ spec:
           -MaxVideoResolution 960x540 -VideoScaling 0 -ForceGameMode
           -DLP_ClipDelay 0 -disableBasicAuth
         target:
-          envVarKey: VNCOPTIONS
+          envVar: VNCOPTIONS
         description: >-
           KasmVNC startup options, written as `-Name value`. The defaults fix
           streaming server-side for low input lag (60 fps cap, reduced-quality
@@ -81,7 +81,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: VNC_PW
+          envVar: VNC_PW
         description: >-
           Underlying VNC password for the session user kasm_user. Not asked
           for in the browser while the web login is disabled.

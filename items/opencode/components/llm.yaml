@@ -10,7 +10,7 @@
 #
 # Nothing resolves the address, connects to it, or checks that anything answers
 # there (component spec §11).
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1

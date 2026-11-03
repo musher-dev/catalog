@@ -3,66 +3,27 @@
  * its own words: "each implementation writes its own thin adapter over this
  * data" (docs/conformance.md).
  *
- * The corpus is read from each family's release archive, fetched on
- * every run and checked against the SHA-256 digests GitHub records for those
- * immutable release assets, for the same reason the schemas are: a copy held
- * here would be a second authority that drifts. The blueprint archive carries
- * the component and core corpora it was released against, so two archives
- * cover all four families.
+ * The corpus is read from each family's vendored release archive, which
+ * lib/spec-schemas.ts verifies against the digest GitHub records for that
+ * immutable asset before unpacking it.
  */
-import { execFileSync } from 'node:child_process';
-import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
 import { readItem } from './catalog.ts';
 import { contextForItem, runSemanticChecks } from './semantic.ts';
-import { RELEASES, releaseOf, validatorFor, type Family } from './spec-schemas.ts';
+import { releaseDir, validatorFor, type ArchiveFamily, type Family } from './spec-schemas.ts';
 import { parseDocument } from './yaml-profile.ts';
 
-const TIMEOUT_MS = Number(process.env.MUSHER_SPEC_TIMEOUT_MS ?? 15_000);
-
 /**
- * The families whose release archives are fetched, and which corpus each one
- * supplies. Every archive carries its own dependency closure, so more than one
- * offers a given corpus — and which copy is read is not arbitrary: a corpus
- * must come from the same release as the schema it is replayed against.
- *
- * Component `v1.3.0` is why this is spelled out rather than assumed. It turned
- * eight structural obligations into publication ones, flipping those cases from
- * `fail` to `pass`. The blueprint `v1.3.0` archive still carries component
- * `v1.2.0`'s copy of them, because that is the release it was built against
- * (`requires` in the ledger), so reading the component corpus from there while
- * validating with the `v1.3.0` schema would fail all eight — correctly, since
- * the two would disagree about the contract.
- *
- * So each corpus is read from its own family's archive where that family
- * publishes one, and `core` — which ships no archive of its own — from the
- * component release that directly requires it.
+ * Every archive ships its whole dependency closure, so more than one offers a
+ * given corpus — and which copy is read is not arbitrary: a corpus must come
+ * from the same release as the schema it is replayed against. So each corpus
+ * is read from its own family's archive, core's included.
  */
-const ARCHIVE_FAMILIES = ['component', 'blueprint', 'listing'] as const;
-type ArchiveFamily = (typeof ARCHIVE_FAMILIES)[number];
+export type CorpusFamily = ArchiveFamily;
 
-const archiveSha256 = (family: ArchiveFamily): string => {
-  const digest = RELEASES[family].archiveSha256;
-  if (digest === undefined) throw new Error(`RELEASES.${family} carries no archiveSha256`);
-  return digest;
-};
-
-const archiveUrl = (family: ArchiveFamily): string => {
-  const version = releaseOf(family);
-  return `https://github.com/musher-dev/specifications/releases/download/${family}/v${version}/${family}-v${version}.tar.gz`;
-};
-
-export type CorpusFamily = 'core' | Family;
-
-/** Where each family's corpus sits once both archives are unpacked under one directory. */
-const CORPUS_DIRS: Record<CorpusFamily, string> = {
-  core: 'component-v1/core/conformance',
-  component: 'component-v1/conformance',
-  blueprint: 'blueprint-v1/conformance',
-  listing: 'listing-v1/conformance',
-};
+const corpusDir = (family: CorpusFamily): string => path.join(releaseDir(family), 'conformance');
 
 /**
  * Codes the catalog deliberately does not decide: logical value validation
@@ -70,8 +31,9 @@ const CORPUS_DIRS: Record<CorpusFamily, string> = {
  * project from reading documents (tests/README.md). A case expecting only these
  * is skipped by name, never passed.
  *
- * `ERR_SECRET_LITERAL` used to sit here and does not belong: deciding it needs
- * two fields read side by side, not a value validator. Skipping it let an
+ * `ERR_SENSITIVE_LITERAL` (v1's `ERR_SECRET_LITERAL`) used to sit here and
+ * does not belong: deciding it needs two fields read side by side, not a value
+ * validator. Skipping it let an
  * authored secret reach a downstream consumer (#39). It is implemented in
  * `lib/semantic.ts` and this corpus now holds the suite to it.
  */
@@ -91,7 +53,10 @@ const ITEM_ROOT_CODES = new Set([
   'ERR_UNREFERENCED_COMPONENT',
   'ERR_INVALID_DEPENDENCY',
   'ERR_MEDIA_NOT_FOUND',
+  'ERR_MEDIA_TOO_LARGE',
   'ERR_PATH_ESCAPE',
+  'ERR_COMPONENT_COUNT',
+  'ERR_INVALID_YAML',
 ]);
 
 /** Where the synthetic item puts a `case.yaml` of each family. */
@@ -105,7 +70,7 @@ type Phase = 'parser' | 'structural' | 'semantic';
 
 export type CaseMetadata = {
   id: string;
-  phase: Phase | 'capability';
+  phase: Phase | 'admission' | 'resolution';
   expected: 'pass' | 'fail' | 'incomplete';
   document?: string;
   symlinks?: Record<string, string>;
@@ -126,47 +91,11 @@ export type Outcome = {
   codes: string[];
 };
 
-async function download(url: string): Promise<Buffer> {
-  const response = await fetch(url, { signal: AbortSignal.timeout(TIMEOUT_MS * 4) });
-  if (!response.ok) throw new Error(`HTTP ${response.status} ${response.statusText}`);
-  return Buffer.from(await response.arrayBuffer());
-}
-
-/** Fetch, verify and unpack both archives into `into`. */
-export async function fetchCorpus(into: string): Promise<void> {
-  await Promise.all(
-    ARCHIVE_FAMILIES.map(async (family) => {
-      const url = archiveUrl(family);
-      let bytes: Buffer;
-      try {
-        bytes = await download(url);
-      } catch (error) {
-        throw new Error(
-          `Could not fetch the ${family} conformance archive from ${url}: ${(error as Error).message}\n` +
-            'The corpus is read from the pinned release, so this needs network access to github.com.',
-        );
-      }
-
-      const sha256 = createHash('sha256').update(bytes).digest('hex');
-      if (sha256 !== archiveSha256(family)) {
-        throw new Error(
-          `${url} has sha256 ${sha256}, but the ${family}/v${releaseOf(family)} release asset is ${archiveSha256(family)}`,
-        );
-      }
-
-      const archive = path.join(into, `${family}.tar.gz`);
-      fs.writeFileSync(archive, bytes);
-      execFileSync('tar', ['-xzf', archive, '-C', into]);
-      fs.rmSync(archive);
-    }),
-  );
-}
-
 const readJson = <T>(file: string): T => JSON.parse(fs.readFileSync(file, 'utf8')) as T;
 
 /** Every indexed case of one family. `cases.json` is the contract; the directory tree is not. */
-export function casesOf(root: string, family: CorpusFamily): Case[] {
-  const corpus = path.join(root, CORPUS_DIRS[family]);
+export function casesOf(family: CorpusFamily): Case[] {
+  const corpus = corpusDir(family);
   const index = readJson<{ cases: { id: string; path: string }[] }>(path.join(corpus, 'cases.json'));
 
   return index.cases.map(({ path: relative }) => {
@@ -222,6 +151,11 @@ export async function runCase(testCase: Case, workspace: string): Promise<Outcom
   // phase alone. The conformance test asserts no more than that.
   const validate = await validatorFor(family);
   if (!validate(parsed.value)) return { failedAt: 'structural', codes: [] };
+
+  // A `structural` case runs at the `structural` validation scope, so no later
+  // phase runs on it: a passing structural case makes no claim about the
+  // document beyond its shape (docs/conformance.md → Validation coverage).
+  if (metadata.phase === 'structural') return { failedAt: null, codes: [] };
 
   let codes = runSemanticChecks(await contextForItem(readItem(root))).map((d) => d.code);
   if (!metadata.document) codes = codes.filter((code) => !ITEM_ROOT_CODES.has(code));

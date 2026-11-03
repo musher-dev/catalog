@@ -1,13 +1,13 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: n8n
   revision: 9
   description: >-
     n8n workflow automation behind the platform's sign-in, owned by its
-    installer, with webhooks reachable and its own address wired in.
+    deployer, with webhooks reachable and its own address wired in.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/n8n.yaml
       compute:
@@ -21,7 +21,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           accessExemptions:
             - PATHS
       bindings:
@@ -34,7 +34,7 @@ spec:
         # All three take this node's own allocated address, from the outputs the
         # component derives from its `primary` endpoint. A node reading its own
         # endpoint output is a discovery dependency and not a value cycle
-        # (BP-CONN-002): an endpoint address is allocated before anything runs.
+        # (BP-BIND-002): an endpoint address is allocated before anything runs.
         #
         # N8N_HOST wants the bare host and the other two want the whole URL,
         # which is why the component publishes both properties rather than one.
@@ -48,11 +48,11 @@ spec:
           node: web
           output: publicURL
   parameters:
-    # The installer owns the deployment: their verified email, captured once
-    # when the installation is created (BP-PARAM-011).
+    # The deployment's creator owns it: their verified email, captured once
+    # when the deployment is created (BP-PARAM-011).
     ownerEmail:
-      from: "${{ deployment.installer.email }}"
-    # Disclosed to whoever manages the installation, and never bound: n8n
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment, and never bound: n8n
     # receives only the bcrypt hash below. 24 bytes in BASE64URL is 32
     # characters, inside the 72 bcrypt reads (BP-PARAM-012).
     ownerPassword:

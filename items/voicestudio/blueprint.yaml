@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: voicestudio
@@ -8,7 +8,7 @@ metadata:
     platform's sign-in, with its OpenAI-compatible audio API and MCP server
     reachable by API key.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/voicestudio.yaml
       # CPU ONLY. `medium` is the largest offered profile: 4 vCPU and 8 GiB,
@@ -30,7 +30,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           accessExemptions:
             - BEARER
       bindings:
@@ -38,13 +38,13 @@ spec:
           parameter: apiKey
         # This node's own allocated hostname, from the output the component
         # derives from its `primary` endpoint. A node reading its own endpoint
-        # output is a discovery dependency and not a value cycle (BP-CONN-002):
+        # output is a discovery dependency and not a value cycle (BP-BIND-002):
         # an endpoint address is allocated before anything runs.
         mcpAllowedHosts:
           node: web
           output: publicHostname
   parameters:
-    # Disclosed to whoever manages the installation, who enters it in the web
+    # Disclosed to whoever manages the deployment, who enters it in the web
     # UI and gives it to API clients. 32 bytes in BASE64URL is 43 characters,
     # upstream's own `secrets.token_urlsafe(32)` recipe (docs/install/
     # docker.md).

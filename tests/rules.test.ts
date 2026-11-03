@@ -19,7 +19,7 @@ import YAML from 'yaml';
 
 import { loadItemDocuments, readItem } from './lib/catalog.ts';
 import { KIND_OF, formatAjvErrors, validatorFor, type Family } from './lib/spec-schemas.ts';
-import { contextForItem, runSemanticChecks, type Diagnostic } from './lib/semantic.ts';
+import { contextForItem, runSemanticChecks, scanReferences, type Diagnostic } from './lib/semantic.ts';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-rules-'));
 after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -29,14 +29,14 @@ after(() => fs.rmSync(workspace, { recursive: true, force: true }));
 type Doc = Record<string, unknown>;
 
 const listing = (over: Doc = {}): Doc => ({
-  specVersion: 'v1',
+  specVersion: 'v2',
   kind: 'LISTING',
   metadata: { slug: 'acme-wiki' },
   spec: {
     itemType: 'BLUEPRINT',
     displayName: 'Acme Wiki',
     summary: 'A wiki',
-    description: 'Long-form copy.',
+    overview: 'Long-form copy.',
     category: 'DEVELOPER_TOOLS',
     lifecycleStage: 'STABLE',
     ...(over['spec'] as Doc),
@@ -59,11 +59,11 @@ const node = (over: Doc = {}): Doc => ({
 });
 
 const blueprint = (over: Doc = {}): Doc => ({
-  specVersion: 'v1',
+  specVersion: 'v2',
   kind: 'BLUEPRINT',
   metadata: { slug: 'acme-wiki', revision: 1, description: 'Synthetic rules fixture blueprint.' },
   spec: {
-    components: { web: node() },
+    nodes: { web: node() },
     parameters: {},
     ...(over['spec'] as Doc),
   },
@@ -71,7 +71,7 @@ const blueprint = (over: Doc = {}): Doc => ({
 });
 
 const component = (over: Doc = {}): Doc => ({
-  specVersion: 'v1',
+  specVersion: 'v2',
   kind: 'COMPONENT',
   metadata: { revision: 1, description: 'Synthetic rules fixture component.' },
   spec: {
@@ -95,7 +95,7 @@ const withImage = (image: string): Doc =>
 const input = (over: Doc = {}): Doc => ({
   description: 'Synthetic rules fixture input.',
   schema: { type: 'string' },
-  target: { envVarKey: 'VALUE' },
+  target: { envVar: 'VALUE' },
   ...over,
 });
 
@@ -105,7 +105,7 @@ const input = (over: Doc = {}): Doc => ({
  * non-empty `outputs`: an EXTERNAL component exists to publish values.
  */
 const externalDatabase = (over: Doc = {}): Doc => ({
-  specVersion: 'v1',
+  specVersion: 'v2',
   kind: 'COMPONENT',
   metadata: { revision: 1, description: 'Synthetic rules fixture external component.' },
   spec: {
@@ -128,7 +128,7 @@ const externalDatabase = (over: Doc = {}): Doc => ({
  * to whatever wires to them. `apiKey` is sensitive because the member is.
  */
 const llmProvider = (over: Doc = {}): Doc => ({
-  specVersion: 'v1',
+  specVersion: 'v2',
   kind: 'COMPONENT',
   metadata: { revision: 1, description: 'Synthetic rules fixture connection provider.' },
   spec: {
@@ -156,7 +156,7 @@ const llmProvider = (over: Doc = {}): Doc => ({
  * and the blueprint wires the two together.
  */
 const llmConsumer = (inputs: Doc = {}): Doc => ({
-  specVersion: 'v1',
+  specVersion: 'v2',
   kind: 'COMPONENT',
   metadata: { revision: 1, description: 'Synthetic rules fixture connection consumer.' },
   spec: {
@@ -164,9 +164,9 @@ const llmConsumer = (inputs: Doc = {}): Doc => ({
     workload: { source: { image: 'ghcr.io/acme/worker:1.2.3' } },
     contract: {
       inputs: {
-        llmBaseURL: input({ description: 'Base URL of the chat-completions API.', target: { envVarKey: 'OPENAI_API_BASE_URL' } }),
-        llmAPIKey: input({ description: 'Bearer credential for the API above.', sensitive: true, target: { envVarKey: 'OPENAI_API_KEY' } }),
-        llmModel: input({ description: 'Model the service selects.', target: { envVarKey: 'OPENAI_MODEL' } }),
+        llmBaseURL: input({ description: 'Base URL of the chat-completions API.', target: { envVar: 'OPENAI_API_BASE_URL' } }),
+        llmAPIKey: input({ description: 'Bearer credential for the API above.', sensitive: true, target: { envVar: 'OPENAI_API_KEY' } }),
+        llmModel: input({ description: 'Model the service selects.', target: { envVar: 'OPENAI_MODEL' } }),
         ...inputs,
       },
       outputs: {},
@@ -183,6 +183,10 @@ type Fixture = {
   components?: Record<string, Doc>;
   /** Media files to create, by item-relative path. */
   media?: string[];
+  /** Media files to create at a given size in bytes, by item-relative path. */
+  sizedMedia?: Record<string, number>;
+  /** Files to write verbatim, by item-relative path. */
+  raw?: Record<string, string>;
 };
 
 function build(fixture: Fixture): string {
@@ -205,6 +209,16 @@ function build(fixture: Fixture): string {
     const target = path.join(root, relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, '');
+  }
+  for (const [relative, bytes] of Object.entries(fixture.sizedMedia ?? {})) {
+    const target = path.join(root, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, Buffer.alloc(bytes));
+  }
+  for (const [relative, text] of Object.entries(fixture.raw ?? {})) {
+    const target = path.join(root, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, text);
   }
 
   return root;
@@ -245,7 +259,7 @@ async function assertClean(fixture: Fixture): Promise<void> {
 }
 
 /**
- * Every document in a built item against its family's fetched schema. A clean
+ * Every document in a built item against its family's vendored schema. A clean
  * semantic case built on a document the structural phase would reject proves
  * nothing, because a real implementation never reaches `semantic` with it.
  */
@@ -273,7 +287,7 @@ describe('a well-formed item', () => {
     await assertClean({});
   });
 
-  it('validates structurally against all three fetched schemas', async () => {
+  it('validates structurally against all three vendored schemas', async () => {
     // The baseline the broken cases are mutations of must itself be a real item,
     // or a case could "pass" by tripping a rule the mutation never touched.
     await assertStructurallyValid(build({ media: ['media/icon.png'], listing: listing({ spec: { icon: 'media/icon.png' } }) }));
@@ -306,19 +320,47 @@ describe('item type — listing §3, LIST-ITEM-001', () => {
   it('the accepted COMPONENT item is a real item', async () => {
     await assertStructurallyValid(build(componentItem));
   });
+
+  it('ERR_COMPONENT_COUNT when a COMPONENT item holds two component documents — LIST-ITEM-002', async () => {
+    await assertReports(
+      { ...componentItem, components: { 'components/web.yaml': component(), 'components/worker.yaml': component() } },
+      'ERR_COMPONENT_COUNT',
+    );
+  });
+
+  it('ERR_COMPONENT_COUNT when a COMPONENT item holds none — LIST-ITEM-002', async () => {
+    await assertReports({ ...componentItem, components: {} }, 'ERR_COMPONENT_COUNT');
+  });
+
+  it('counts only component documents, not every YAML file — LIST-ITEM-002', async () => {
+    await assertReportsExactly(
+      { ...componentItem, components: { 'components/web.yaml': component(), 'components/notes.yaml': { kind: 'NOTES' } } },
+      [],
+    );
+  });
+});
+
+describe('item files — core §4.1, CORE-ITEM-002', () => {
+  it('ERR_INVALID_YAML when a YAML file of the item does not parse', async () => {
+    await assertReports({ raw: { 'components/broken.yaml': 'key: [unclosed\n' } }, 'ERR_INVALID_YAML');
+  });
+
+  it('reads no YAML file under media/', async () => {
+    await assertClean({ raw: { 'media/broken.yaml': 'key: [unclosed\n' } });
+  });
 });
 
 describe('component references — blueprint §4.1', () => {
   it('ERR_COMPONENT_NOT_FOUND when a reference names no document', async () => {
     await assertReports(
-      { blueprint: blueprint({ spec: { components: { web: node({ componentRef: './components/missing.yaml' }) } } }) },
+      { blueprint: blueprint({ spec: { nodes: { web: node({ componentRef: './components/missing.yaml' }) } } }) },
       'ERR_COMPONENT_NOT_FOUND',
     );
   });
 
   it('ERR_REFERENCE_ESCAPE when a reference resolves outside the item root', async () => {
     await assertReports(
-      { blueprint: blueprint({ spec: { components: { web: node({ componentRef: '../shared/web.yaml' }) } } }) },
+      { blueprint: blueprint({ spec: { nodes: { web: node({ componentRef: '../shared/web.yaml' }) } } }) },
       'ERR_REFERENCE_ESCAPE',
     );
   });
@@ -350,7 +392,7 @@ describe('component references — blueprint §4.1', () => {
     delete (unfinished['spec'] as Doc)['workload'];
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
         components: { 'components/web.yaml': unfinished },
       },
       'ERR_INVALID_DEPENDENCY',
@@ -362,7 +404,7 @@ describe('component references — blueprint §4.1', () => {
       spec: {
         type: 'SERVICE',
         workload: (component()['spec'] as Doc)['workload'],
-        contract: { inputs: { title: { schema: { type: 'string' }, default: 'Wiki', target: { envVarKey: 'TITLE' } } }, outputs: {} },
+        contract: { inputs: { title: { schema: { type: 'string' }, default: 'Wiki', target: { envVar: 'TITLE' } } }, outputs: {} },
       },
     });
     await assertReports({ components: { 'components/web.yaml': undescribed } }, 'ERR_INVALID_DEPENDENCY');
@@ -372,7 +414,7 @@ describe('component references — blueprint §4.1', () => {
     // The local form imposes no directory layout: ./component-web.yaml and
     // ./components/web.yaml are equally valid.
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ componentRef: './component-web.yaml' }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ componentRef: './component-web.yaml' }) } } }),
       components: { 'component-web.yaml': component() },
     });
   });
@@ -408,6 +450,28 @@ describe('media — listing §5', () => {
 
   it('accepts an icon that exists', async () => {
     await assertClean({ media: ['media/icon.png'], listing: listing({ spec: { icon: 'media/icon.png' } }) });
+  });
+
+  it('ERR_MEDIA_TOO_LARGE when the icon is over 1 MiB, and not at it — LIST-MEDIA-004', async () => {
+    const icon = (bytes: number): Fixture => ({ sizedMedia: { 'media/icon.png': bytes }, listing: listing({ spec: { icon: 'media/icon.png' } }) });
+    await assertReports(icon(1024 * 1024 + 1), 'ERR_MEDIA_TOO_LARGE');
+    await assertClean(icon(1024 * 1024));
+  });
+
+  it('ERR_MEDIA_TOO_LARGE when a screenshot is over 5 MiB, and not an icon-sized one — LIST-MEDIA-004', async () => {
+    const shot = (bytes: number): Fixture => ({
+      sizedMedia: { 'media/shot.png': bytes },
+      listing: listing({ spec: { screenshots: [{ file: 'media/shot.png' }] } }),
+    });
+    await assertReports(shot(5 * 1024 * 1024 + 1), 'ERR_MEDIA_TOO_LARGE');
+    await assertClean(shot(2 * 1024 * 1024));
+  });
+
+  it('ERR_MEDIA_TOO_LARGE for an overview image over 5 MiB — LIST-MEDIA-004', async () => {
+    await assertReports(
+      { sizedMedia: { 'media/shot.png': 5 * 1024 * 1024 + 1 }, listing: listing({ spec: { overview: '![shot](media/shot.png)' } }) },
+      'ERR_MEDIA_TOO_LARGE',
+    );
   });
 
   it('ERR_PATH_ESCAPE when the icon is a dangling symlink pointing outside the item — LIST-MEDIA-002', async () => {
@@ -448,24 +512,24 @@ describe('workload contract — component §5.3, §5.5, §5.7', () => {
       },
     });
 
-  it('ERR_CONFLICTING_ENV_KEY when two inputs target one name — COMP-ENVVAR-002', async () => {
+  it('ERR_CONFLICTING_ENV_VAR when two inputs target one name — COMP-ENVVAR-002', async () => {
     await assertReports(
       {
         components: {
           'components/web.yaml': withWorkload({}, {
-            first: input({ required: false, target: { envVarKey: 'VALUE' } }),
-            second: input({ required: false, target: { envVarKey: 'VALUE' } }),
+            first: input({ required: false, target: { envVar: 'VALUE' } }),
+            second: input({ required: false, target: { envVar: 'VALUE' } }),
           }),
         },
       },
-      'ERR_CONFLICTING_ENV_KEY',
+      'ERR_CONFLICTING_ENV_VAR',
     );
   });
 
   it('ERR_INVALID_MOUNT when one volume mounts inside another — §5.5', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 1 }, nested: { sizeGiB: 1 } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ volumes: { data: { sizeGiB: 1 }, nested: { sizeGiB: 1 } } }) } } }),
         components: {
           'components/web.yaml': withWorkload({
             volumes: { data: { mountPath: '/data', minSizeGiB: 1 }, nested: { mountPath: '/data/cache', minSizeGiB: 1 } },
@@ -479,7 +543,7 @@ describe('workload contract — component §5.3, §5.5, §5.7', () => {
   it('ERR_INVALID_MOUNT when a mount path is not canonical — §5.5', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 1 } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ volumes: { data: { sizeGiB: 1 } } }) } } }),
         components: { 'components/web.yaml': withWorkload({ volumes: { data: { mountPath: '/var/lib/../data/', minSizeGiB: 1 } } }) },
       },
       'ERR_INVALID_MOUNT',
@@ -488,7 +552,7 @@ describe('workload contract — component §5.3, §5.5, §5.7', () => {
 
   it('accepts sibling mounts sharing a name prefix — §5.5', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 1 }, other: { sizeGiB: 1 } } }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ volumes: { data: { sizeGiB: 1 }, other: { sizeGiB: 1 } } }) } } }),
       components: {
         'components/web.yaml': withWorkload({
           volumes: { data: { mountPath: '/data', minSizeGiB: 1 }, other: { mountPath: '/database', minSizeGiB: 1 } },
@@ -500,7 +564,7 @@ describe('workload contract — component §5.3, §5.5, §5.7', () => {
   for (const cron of ['99 * * * *', '* * * JAN *', '* * * * 7', '* * 5-1 * *', '*/0 * * * *']) {
     it(`ERR_INVALID_SCHEDULE for ${JSON.stringify(cron)} — COMP-JOB-002`, async () => {
       await assertReports(
-        { blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }), components: { 'components/web.yaml': job(cron) } },
+        { blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }), components: { 'components/web.yaml': job(cron) } },
         'ERR_INVALID_SCHEDULE',
       );
     });
@@ -508,34 +572,87 @@ describe('workload contract — component §5.3, §5.5, §5.7', () => {
 
   it('accepts lists, ranges and steps — COMP-JOB-002', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
       components: { 'components/web.yaml': job('*/15 9-17  1,15 1-12/3\t1-5') },
     });
   });
 });
 
-describe('the description Markdown profile — listing §4.1', () => {
+describe('build recipe and inputs nothing reads — component §5.1, §6.1', () => {
+  /** A SERVICE built from git, whose build reads `secrets`, with `inputs` declared. */
+  const built = (build: Doc, inputs: Doc): Doc =>
+    component({
+      spec: {
+        type: 'SERVICE',
+        workload: {
+          source: { git: { repositoryURL: 'https://github.com/acme/web', ref: { branch: 'main' } } },
+          build: { context: 'services/web', dockerfile: 'Dockerfile', ...build },
+          endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
+          health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+        },
+        contract: { inputs, outputs: {} },
+      },
+    });
+  const npmToken = (over: Doc = {}): Doc => {
+    const { target: _target, ...untargeted } = input({ description: 'Registry token the build presents.', sensitive: true, required: true, ...over });
+    return untargeted;
+  };
+
+  it('accepts a build secret reading a required sensitive input with no target — and it is a real item', async () => {
+    const fixture = { components: { 'components/web.yaml': built({ secrets: { NPM_TOKEN: { input: 'npmToken' } } }, { npmToken: npmToken() }) }, blueprint: blueprint({ spec: { parameters: { npmToken: { generator: {} } }, nodes: { web: node({ bindings: { npmToken: { parameter: 'npmToken' } } }) } } }) };
+    await assertClean(fixture);
+    await assertStructurallyValid(build(fixture));
+  });
+
+  it('ERR_UNKNOWN_INPUT when a build secret names no input — COMP-BUILD-004', async () => {
+    await assertReports({ components: { 'components/web.yaml': built({ secrets: { NPM_TOKEN: { input: 'missing' } } }, {}) } }, 'ERR_UNKNOWN_INPUT');
+  });
+
+  it('ERR_INPUT_NOT_GUARANTEED when a build secret reads an optional input with no default — COMP-BUILD-004', async () => {
+    await assertReports(
+      { components: { 'components/web.yaml': built({ secrets: { NPM_TOKEN: { input: 'npmToken' } } }, { npmToken: npmToken({ required: false }) }) } },
+      'ERR_INPUT_NOT_GUARANTEED',
+    );
+  });
+
+  it('ERR_CONFLICTING_ENV_VAR when a build secret ID is also a build argument — COMP-BUILD-004', async () => {
+    await assertReports(
+      {
+        components: {
+          'components/web.yaml': built({ arguments: { NPM_TOKEN: 'x' }, secrets: { NPM_TOKEN: { input: 'npmToken' } } }, { npmToken: npmToken() }),
+        },
+      },
+      'ERR_CONFLICTING_ENV_VAR',
+    );
+  });
+
+  it('ERR_UNUSED_INPUT when an input has no target and nothing reads it — COMP-INPUT-001', async () => {
+    await assertReports({ components: { 'components/web.yaml': built({}, { npmToken: npmToken({ sensitive: false, required: false }) }) } }, 'ERR_UNUSED_INPUT');
+  });
+});
+
+describe('the overview Markdown profile — listing §4.1', () => {
   it('ERR_RAW_HTML for an inline element', async () => {
-    await assertReports({ listing: listing({ spec: { description: 'Press <b>go</b>.' } }) }, 'ERR_RAW_HTML');
+    await assertReports({ listing: listing({ spec: { overview: 'Press <b>go</b>.' } }) }, 'ERR_RAW_HTML');
   });
 
   it('ERR_RAW_HTML for an HTML block', async () => {
-    await assertReports({ listing: listing({ spec: { description: '<div>hello</div>\n' } }) }, 'ERR_RAW_HTML');
+    await assertReports({ listing: listing({ spec: { overview: '<div>hello</div>\n' } }) }, 'ERR_RAW_HTML');
   });
 
   it('permits angle brackets inside a code fence', async () => {
     // A lexical rule would reject the authors writing honest documentation,
     // which is most of them.
-    await assertClean({ listing: listing({ spec: { description: 'Set it up:\n\n```html\n<script src="x"></script>\n```\n' } }) });
+    await assertClean({ listing: listing({ spec: { overview: 'Set it up:\n\n```html\n<script src="x"></script>\n```\n' } }) });
   });
 
   it('ERR_DISALLOWED_SCHEME for a javascript: link', async () => {
-    await assertReports({ listing: listing({ spec: { description: '[go](javascript:alert(1))' } }) }, 'ERR_DISALLOWED_SCHEME');
+    await assertReports({ listing: listing({ spec: { overview: '[go](javascript:alert(1))' } }) }, 'ERR_DISALLOWED_SCHEME');
   });
 
   it('permits https, mailto and a fragment', async () => {
     await assertClean({
-      listing: listing({ spec: { description: '[a](https://x.test) [b](mailto:h@x.test) [c](#usage)\n\n## Usage\n' } }),
+      listing: listing({ spec: { overview: '[a](https://x.test) [b](mailto:h@x.test) [c](#usage)\n\n## Usage\n' } }),
     });
   });
 
@@ -543,13 +660,25 @@ describe('the description Markdown profile — listing §4.1', () => {
     // A remote image discloses every storefront viewer's IP address to a host
     // the listing author chose, on every page view, with no interaction.
     await assertReports(
-      { listing: listing({ spec: { description: '![shot](https://cdn.test/shot.png)' } }) },
+      { listing: listing({ spec: { overview: '![shot](https://cdn.test/shot.png)' } }) },
       'ERR_IMAGE_NOT_LOCAL',
     );
   });
 
-  it('ERR_MEDIA_NOT_FOUND for a local description image the item does not ship', async () => {
-    await assertReports({ listing: listing({ spec: { description: '![shot](media/shot.png)' } }) }, 'ERR_MEDIA_NOT_FOUND');
+  it('ERR_MEDIA_NOT_FOUND for a local overview image the item does not ship', async () => {
+    await assertReports({ listing: listing({ spec: { overview: '![shot](media/shot.png)' } }) }, 'ERR_MEDIA_NOT_FOUND');
+  });
+
+  it('holds gettingStarted to the same profile', async () => {
+    await assertReports({ listing: listing({ spec: { gettingStarted: 'Press <b>go</b>.' } }) }, 'ERR_RAW_HTML');
+    await assertReports({ listing: listing({ spec: { gettingStarted: '[go](javascript:alert(1))' } }) }, 'ERR_DISALLOWED_SCHEME');
+    await assertReports({ listing: listing({ spec: { gettingStarted: '![shot](media/shot.png)' } }) }, 'ERR_MEDIA_NOT_FOUND');
+  });
+
+  it('accepts a gettingStarted section — and the accepted listing is a real item', async () => {
+    const fixture = { listing: listing({ spec: { gettingStarted: 'Open the deployment URL and sign in.\n' } }) };
+    await assertClean(fixture);
+    await assertStructurallyValid(build(fixture));
   });
 });
 
@@ -594,7 +723,7 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
   it('ERR_ENDPOINT_NOT_HTTP when a probe names a TCP endpoint', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
         components: {
           'components/web.yaml': workloadWith(tcpEndpoint, { readiness: { http: { endpoint: 'primary', path: '/healthz' } } }),
         },
@@ -633,7 +762,7 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
     );
   });
 
-  it('ERR_UNKNOWN_ADDRESS_PROPERTY when an endpoint output names no property', async () => {
+  it('ERR_UNKNOWN_ENDPOINT_PROPERTY when an endpoint output names no property', async () => {
     await assertReports(
       {
         components: {
@@ -643,14 +772,14 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
           }),
         },
       },
-      'ERR_UNKNOWN_ADDRESS_PROPERTY',
+      'ERR_UNKNOWN_ENDPOINT_PROPERTY',
     );
   });
 
-  it('ERR_ENDPOINT_NOT_HTTP when publicURL reads a TCP endpoint', async () => {
+  it('ERR_ENDPOINT_NOT_URL_ADDRESSED when publicURL reads a TCP endpoint', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: 'PUBLIC' } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: 'PUBLIC' } }) } } }),
         components: {
           'components/web.yaml': workloadWith(tcpEndpoint, {}, {
             inputs: {},
@@ -658,11 +787,11 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
           }),
         },
       },
-      'ERR_ENDPOINT_NOT_HTTP',
+      'ERR_ENDPOINT_NOT_URL_ADDRESSED',
     );
   });
 
-  it('ERR_ENDPOINT_NOT_L4 when publicAddress reads an HTTP endpoint', async () => {
+  it('ERR_ENDPOINT_NOT_PORT_ADDRESSED when publicAddress reads an HTTP endpoint', async () => {
     await assertReports(
       {
         components: {
@@ -672,14 +801,14 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
           }),
         },
       },
-      'ERR_ENDPOINT_NOT_L4',
+      'ERR_ENDPOINT_NOT_PORT_ADDRESSED',
     );
   });
 
   it('ERR_ENDPOINT_NOT_PUBLIC when an output reads a public property of an endpoint the node keeps private', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
         components: {
           'components/web.yaml': workloadWith(httpEndpoint, readiness, {
             inputs: {},
@@ -696,7 +825,7 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
     // has a value — the component can decide this without a blueprint.
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
         components: {
           'components/web.yaml': workloadWith(httpEndpoint, {}, {
             inputs: {},
@@ -710,7 +839,7 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
 
   it('accepts an output reading a private property of a private endpoint', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
       components: {
         'components/web.yaml': workloadWith(tcpEndpoint, {}, {
           inputs: {},
@@ -721,7 +850,7 @@ describe('endpoints — component §5.2, §5.4; blueprint §4.3', () => {
   });
 });
 
-describe('output templates — component §6.2, COMP-REF-001', () => {
+describe('output templates — component §6.2, COMP-PLACEHOLDER-001', () => {
   const withTemplate = (template: string, endpoints: Doc = { primary: { targetPort: 8080, protocol: 'HTTP' } }): Doc =>
     component({
       spec: {
@@ -733,6 +862,12 @@ describe('output templates — component §6.2, COMP-REF-001', () => {
         },
       },
     });
+
+  it('reads a placeholder segment with a hyphen, as core v2 permits, and no segment ending in one', () => {
+    // Core v2 §5.2: a DNS-label name, such as a node name, is addressable.
+    assert.deepEqual(scanReferences('${{ nodes.bootstrap-owner.address }}').references.map((r) => r.path), [['bootstrap-owner', 'address']]);
+    assert.deepEqual(scanReferences('${{ nodes.owner-.address }}').malformed, ['${{ nodes.owner-.address }}']);
+  });
 
   it('accepts a template reading one of its own endpoints', async () => {
     await assertClean({ components: { 'components/web.yaml': withTemplate('https://${{ self.endpoints.primary.publicHostname }}/oauth/cb') } });
@@ -754,22 +889,22 @@ describe('output templates — component §6.2, COMP-REF-001', () => {
     );
   });
 
-  it('ERR_REFERENCE_NOT_IN_SCOPE when a template reads a namespace other than self', async () => {
+  it('ERR_NAMESPACE_NOT_PERMITTED when a template reads a namespace other than self', async () => {
     await assertReports(
       { components: { 'components/web.yaml': withTemplate('https://${{ variables.cloud.region }}/cb') } },
-      'ERR_REFERENCE_NOT_IN_SCOPE',
+      'ERR_NAMESPACE_NOT_PERMITTED',
     );
   });
 
-  it('ERR_UNKNOWN_REFERENCE_NAMESPACE for the withdrawn config namespace', async () => {
+  it('ERR_UNKNOWN_PLACEHOLDER_NAMESPACE for the withdrawn config namespace', async () => {
     await assertReports(
       { components: { 'components/web.yaml': withTemplate('https://${{ config.llm.baseURL }}/cb') } },
-      'ERR_UNKNOWN_REFERENCE_NAMESPACE',
+      'ERR_UNKNOWN_PLACEHOLDER_NAMESPACE',
     );
   });
 
-  it('ERR_MALFORMED_REFERENCE when an unescaped ${{ begins no reference — CORE-REF-001', async () => {
-    await assertReports({ components: { 'components/web.yaml': withTemplate('https://${{ nope /cb') } }, 'ERR_MALFORMED_REFERENCE');
+  it('ERR_MALFORMED_PLACEHOLDER when an unescaped ${{ begins no reference — CORE-PLACEHOLDER-001', async () => {
+    await assertReports({ components: { 'components/web.yaml': withTemplate('https://${{ nope /cb') } }, 'ERR_MALFORMED_PLACEHOLDER');
   });
 
   it('reads $${{ as a single escape rather than a reference', async () => {
@@ -778,20 +913,20 @@ describe('output templates — component §6.2, COMP-REF-001', () => {
 });
 
 describe('node compute — blueprint §4.3, BP-NODE-001/002', () => {
-  it('ERR_CONFLICTING_NODE_COMPUTE when a node that runs a workload names no compute', async () => {
+  it('ERR_COMPUTE_REQUIRED when a node that runs a workload names no compute', async () => {
     await assertReports(
-      { blueprint: blueprint({ spec: { components: { web: { componentRef: './components/web.yaml', exposure: { primary: 'PUBLIC' }, bindings: {} } } } }) },
-      'ERR_CONFLICTING_NODE_COMPUTE',
+      { blueprint: blueprint({ spec: { nodes: { web: { componentRef: './components/web.yaml', exposure: { primary: 'PUBLIC' }, bindings: {} } } } }) },
+      'ERR_COMPUTE_REQUIRED',
     );
   });
 
-  it('ERR_CONFLICTING_NODE_COMPUTE when a node names compute for a component that runs nothing', async () => {
+  it('ERR_COMPUTE_FORBIDDEN when a node names compute for a component that runs nothing', async () => {
     await assertReports(
       {
         blueprint: blueprint({
           spec: {
             parameters: { host: { ui: { label: 'Host' } } },
-            components: {
+            nodes: {
               db: { componentRef: './components/db.yaml', compute: { profile: 'general.standard.small' }, bindings: { host: { parameter: 'host' } } },
               web: node(),
             },
@@ -799,7 +934,7 @@ describe('node compute — blueprint §4.3, BP-NODE-001/002', () => {
         }),
         components: { 'components/web.yaml': component(), 'components/db.yaml': externalDatabase() },
       },
-      'ERR_CONFLICTING_NODE_COMPUTE',
+      'ERR_COMPUTE_FORBIDDEN',
     );
   });
 
@@ -808,7 +943,7 @@ describe('node compute — blueprint §4.3, BP-NODE-001/002', () => {
       blueprint: blueprint({
         spec: {
           parameters: { host: { ui: { label: 'Host' } } },
-          components: {
+          nodes: {
             db: { componentRef: './components/db.yaml', bindings: { host: { parameter: 'host' } } },
             web: node({ bindings: { dbHost: { node: 'db', output: 'host' } } }),
           },
@@ -819,7 +954,7 @@ describe('node compute — blueprint §4.3, BP-NODE-001/002', () => {
           spec: {
             type: 'SERVICE',
             workload: { source: { image: 'ghcr.io/acme/web:1.2.3' }, endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } }, health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } } },
-            contract: { inputs: { dbHost: input({ target: { envVarKey: 'DB_HOST' } }) }, outputs: {} },
+            contract: { inputs: { dbHost: input({ target: { envVar: 'DB_HOST' } }) }, outputs: {} },
           },
         }),
         'components/db.yaml': externalDatabase(),
@@ -833,7 +968,7 @@ describe('node compute — blueprint §4.3, BP-NODE-001/002', () => {
         blueprint: blueprint({
           spec: {
             parameters: { host: { ui: { label: 'Host' } } },
-            components: {
+            nodes: {
               db: { componentRef: './components/db.yaml', bindings: { host: { parameter: 'host' } } },
               web: node(),
             },
@@ -844,16 +979,16 @@ describe('node compute — blueprint §4.3, BP-NODE-001/002', () => {
     );
   });
 
-  it('ERR_UNKNOWN_INPUT_REFERENCE when an input output names no input — COMP-OUT-002', async () => {
+  it('ERR_UNKNOWN_INPUT when an input output names no input — COMP-OUT-002', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { parameters: { host: { ui: { label: 'Host' } } }, components: { db: { componentRef: './components/db.yaml', bindings: { host: { parameter: 'host' } } }, web: node() } } }),
+        blueprint: blueprint({ spec: { parameters: { host: { ui: { label: 'Host' } } }, nodes: { db: { componentRef: './components/db.yaml', bindings: { host: { parameter: 'host' } } }, web: node() } } }),
         components: {
           'components/web.yaml': component(),
           'components/db.yaml': externalDatabase({ contract: { inputs: { host: { description: 'A host.', schema: { type: 'string' } } }, outputs: { host: { description: 'A host.', schema: { type: 'string' }, from: { input: 'hostname' } } } } }),
         },
       },
-      'ERR_UNKNOWN_INPUT_REFERENCE',
+      'ERR_UNKNOWN_INPUT',
     );
   });
 });
@@ -880,7 +1015,7 @@ describe('storage — blueprint §4.3', () => {
   it('ERR_INVALID_VOLUME_ALLOCATION when an allocation names no declared volume', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 10 }, cache: { sizeGiB: 1 } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ volumes: { data: { sizeGiB: 10 }, cache: { sizeGiB: 1 } } }) } } }),
         components: { 'components/web.yaml': withVolume() },
       },
       'ERR_INVALID_VOLUME_ALLOCATION',
@@ -890,7 +1025,7 @@ describe('storage — blueprint §4.3', () => {
   it('ERR_INVALID_VOLUME_ALLOCATION when an allocation sits below the component minimum', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 4 } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ volumes: { data: { sizeGiB: 4 } } }) } } }),
         components: { 'components/web.yaml': withVolume(10) },
       },
       'ERR_INVALID_VOLUME_ALLOCATION',
@@ -899,7 +1034,7 @@ describe('storage — blueprint §4.3', () => {
 
   it('accepts an allocation at the component minimum', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ volumes: { data: { sizeGiB: 10 } } }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ volumes: { data: { sizeGiB: 10 } } }) } } }),
       components: { 'components/web.yaml': withVolume(10) },
     });
   });
@@ -907,7 +1042,7 @@ describe('storage — blueprint §4.3', () => {
 
 describe('exposure — blueprint §4.3, COMP-EP-003', () => {
   it('ERR_UNKNOWN_ENDPOINT when exposure names an endpoint the component does not declare', async () => {
-    await assertReports({ blueprint: blueprint({ spec: { components: { web: node({ exposure: { console: 'PUBLIC' } }) } } }) }, 'ERR_UNKNOWN_ENDPOINT');
+    await assertReports({ blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { console: 'PUBLIC' } }) } } }) }, 'ERR_UNKNOWN_ENDPOINT');
   });
 
   it('ERR_READINESS_REQUIRED when a PUBLIC HTTP endpoint has no readiness probe', async () => {
@@ -952,7 +1087,7 @@ describe('exposure — blueprint §4.3, COMP-EP-003', () => {
 
   it('accepts a WORKER keeping its endpoint private', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
       components: {
         'components/web.yaml': component({
           spec: {
@@ -971,7 +1106,7 @@ describe('exposure — blueprint §4.3, COMP-EP-003', () => {
 });
 
 describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-012', () => {
-  const signedIn = { visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'HEADER' };
+  const signedIn = { visibility: 'PUBLIC', access: 'RESTRICTED', viewerIdentity: 'HEADER' };
 
   /** The default component, reading one endpoint property of `primary` into an output. */
   const reading = (property: string, protocol = 'HTTP'): Doc =>
@@ -1010,24 +1145,24 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
 
   it('accepts a signed-in endpoint whose component reads both viewer identity properties', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: signedIn } }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: signedIn } }) } } }),
       components: { 'components/web.yaml': reading('viewerIdentityHeader') },
     });
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: signedIn } }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: signedIn } }) } } }),
       components: { 'components/web.yaml': reading('trustedProxyCIDRs') },
     });
   });
 
   it('ERR_VIEWER_IDENTITY_NOT_FORWARDED at the exposure when a bare PUBLIC endpoint forwards no identity', async () => {
     const anchors = await anchorsOf({ components: { 'components/web.yaml': reading('viewerIdentityHeader') } }, 'ERR_VIEWER_IDENTITY_NOT_FORWARDED');
-    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary']);
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/nodes/web/exposure/primary']);
   });
 
   it('ERR_VIEWER_IDENTITY_NOT_FORWARDED when the endpoint is signed in but forwards no identity', async () => {
     await assertReportsExactly(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PUBLIC', access: 'AUTHENTICATED' } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: { visibility: 'PUBLIC', access: 'RESTRICTED' } } }) } } }),
         components: { 'components/web.yaml': reading('trustedProxyCIDRs') },
       },
       ['ERR_VIEWER_IDENTITY_NOT_FORWARDED'],
@@ -1037,40 +1172,40 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
   it('ERR_VIEWER_IDENTITY_NOT_FORWARDED at the componentRef for an endpoint left out of exposure', async () => {
     const anchors = await anchorsOf(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
         components: { 'components/web.yaml': reading('viewerIdentityHeader') },
       },
       'ERR_VIEWER_IDENTITY_NOT_FORWARDED',
     );
-    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/componentRef']);
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/nodes/web/componentRef']);
   });
 
   it('ERR_ENDPOINT_NOT_PUBLIC at the exposure when the object form keeps the endpoint PRIVATE', async () => {
     const anchors = await anchorsOf(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PRIVATE' } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: { visibility: 'PRIVATE' } } }) } } }),
         components: { 'components/web.yaml': reading('publicURL') },
       },
       'ERR_ENDPOINT_NOT_PUBLIC',
     );
-    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary']);
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/nodes/web/exposure/primary']);
   });
 
   it('ERR_ENDPOINT_NOT_HTTP at access when a gRPC endpoint is signed in', async () => {
     const anchors = await anchorsOf(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PUBLIC', access: 'AUTHENTICATED' } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: { visibility: 'PUBLIC', access: 'RESTRICTED' } } }) } } }),
         components: { 'components/web.yaml': reading('publicURL', 'GRPC') },
       },
       'ERR_ENDPOINT_NOT_HTTP',
     );
-    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary/access']);
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/nodes/web/exposure/primary/access']);
   });
 
   it('ERR_ENDPOINT_NOT_HTTP when a component reads a viewer identity property of a gRPC endpoint', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: {} }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }),
         components: { 'components/web.yaml': reading('viewerIdentityHeader', 'GRPC') },
       },
       'ERR_ENDPOINT_NOT_HTTP',
@@ -1080,7 +1215,7 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
   it('judges the object form like the bare one: a PUBLIC WORKER endpoint is ERR_ENDPOINT_NOT_EXPOSABLE', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { web: node({ exposure: { primary: { visibility: 'PUBLIC' } } }) } } }),
+        blueprint: blueprint({ spec: { nodes: { web: node({ exposure: { primary: { visibility: 'PUBLIC' } } }) } } }),
         components: {
           'components/web.yaml': component({
             spec: {
@@ -1099,7 +1234,7 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
     );
   });
 
-  /** `reading`, with members added to the `primary` endpoint — `oidc`, `accessExemptions`. */
+  /** `reading`, with members added to the `primary` endpoint — `oidc`, `exemptibleRequests`. */
   const readingOn = (property: string | null, endpoint: Doc): Doc =>
     component({
       spec: {
@@ -1125,12 +1260,12 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
         },
       },
     });
-  const exposed = (exposure: Doc): Doc => blueprint({ spec: { components: { web: node({ exposure: { primary: exposure } }) } } });
+  const exposed = (exposure: Doc): Doc => blueprint({ spec: { nodes: { web: node({ exposure: { primary: exposure } }) } } });
   const client = { oidc: { redirectPaths: ['/oauth/oidc/callback'] } };
 
   it('accepts an OIDC endpoint whose component declares oidc and reads the client — BP-NODE-008, COMP-EP-014', async () => {
     const fixture: Fixture = {
-      blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'OIDC', viewerClaims: ['EMAIL', 'NAME'] }),
+      blueprint: exposed({ visibility: 'PUBLIC', access: 'RESTRICTED', viewerIdentity: 'OIDC', viewerClaims: ['EMAIL', 'NAME'] }),
       components: { 'components/web.yaml': readingOn('oidcClientSecret', client) },
     };
     await assertClean(fixture);
@@ -1140,7 +1275,7 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
   it('ERR_ENDPOINT_NOT_OIDC_CLIENT when a component reads the client of an endpoint declaring no oidc — COMP-EP-014', async () => {
     await assertReports(
       {
-        blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'OIDC' }),
+        blueprint: exposed({ visibility: 'PUBLIC', access: 'RESTRICTED', viewerIdentity: 'OIDC' }),
         components: { 'components/web.yaml': readingOn('oidcClientID', {}) },
       },
       'ERR_ENDPOINT_NOT_OIDC_CLIENT',
@@ -1150,17 +1285,17 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
   it('ERR_ENDPOINT_NOT_OIDC_CLIENT at viewerIdentity when a node selects OIDC for an endpoint that is no client — BP-NODE-008', async () => {
     const anchors = await anchorsOf(
       {
-        blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'OIDC' }),
+        blueprint: exposed({ visibility: 'PUBLIC', access: 'RESTRICTED', viewerIdentity: 'OIDC' }),
         components: { 'components/web.yaml': readingOn(null, {}) },
       },
       'ERR_ENDPOINT_NOT_OIDC_CLIENT',
     );
-    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary/viewerIdentity']);
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/nodes/web/exposure/primary/viewerIdentity']);
   });
 
   it('accepts an assertion property read under ASSERTION, and refuses it under HEADER — BP-NODE-007', async () => {
     await assertClean({
-      blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', viewerIdentity: 'ASSERTION' }),
+      blueprint: exposed({ visibility: 'PUBLIC', access: 'RESTRICTED', viewerIdentity: 'ASSERTION' }),
       components: { 'components/web.yaml': readingOn('viewerAssertionKeysURL', {}) },
     });
     await assertReportsExactly(
@@ -1188,8 +1323,8 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
 
   it('accepts the exemptions a component declares — BP-NODE-008', async () => {
     const fixture: Fixture = {
-      blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', accessExemptions: ['PATHS', 'BEARER'] }),
-      components: { 'components/web.yaml': readingOn(null, { accessExemptions: { paths: ['/webhook'], bearer: true } }) },
+      blueprint: exposed({ visibility: 'PUBLIC', access: 'RESTRICTED', accessExemptions: ['PATHS', 'BEARER'] }),
+      components: { 'components/web.yaml': readingOn(null, { exemptibleRequests: { paths: ['/webhook'], bearerToken: true } }) },
     };
     await assertClean(fixture);
     await assertStructurallyValid(build(fixture));
@@ -1198,12 +1333,12 @@ describe('access and viewer identity — blueprint §4.5, BP-NODE-007, COMP-EP-0
   it('ERR_EXEMPTION_NOT_DECLARED at the exemption the component never offered — BP-NODE-008', async () => {
     const anchors = await anchorsOf(
       {
-        blueprint: exposed({ visibility: 'PUBLIC', access: 'AUTHENTICATED', accessExemptions: ['PATHS', 'BEARER'] }),
-        components: { 'components/web.yaml': readingOn(null, { accessExemptions: { paths: ['/webhook'] } }) },
+        blueprint: exposed({ visibility: 'PUBLIC', access: 'RESTRICTED', accessExemptions: ['PATHS', 'BEARER'] }),
+        components: { 'components/web.yaml': readingOn(null, { exemptibleRequests: { paths: ['/webhook'] } }) },
       },
       'ERR_EXEMPTION_NOT_DECLARED',
     );
-    assert.deepEqual(anchors, ['blueprint.yaml /spec/components/web/exposure/primary/accessExemptions/1']);
+    assert.deepEqual(anchors, ['blueprint.yaml /spec/nodes/web/exposure/primary/accessExemptions/1']);
   });
 });
 
@@ -1231,14 +1366,14 @@ describe('bindings — blueprint §4.2', () => {
           endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
           health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
         },
-        contract: { inputs: { dbAddress: input({ schema, target: { envVarKey: 'DB_ADDRESS' } }) }, outputs: {} },
+        contract: { inputs: { dbAddress: input({ schema, target: { envVar: 'DB_ADDRESS' } }) }, outputs: {} },
       },
     });
 
   const wired = (binding: Doc = { node: 'db', output: 'address' }, schema?: Doc): Fixture => ({
     blueprint: blueprint({
       spec: {
-        components: {
+        nodes: {
           db: { componentRef: './components/db.yaml', compute: { profile: 'general.standard.small' }, exposure: {}, bindings: {} },
           web: node({ bindings: { dbAddress: binding } }),
         },
@@ -1255,21 +1390,21 @@ describe('bindings — blueprint §4.2', () => {
     await assertStructurallyValid(build(wired()));
   });
 
-  it('ERR_UNKNOWN_NODE when a binding names no node — BP-PARAM-006', async () => {
+  it('ERR_UNKNOWN_NODE when a binding names no node — BP-BIND-006', async () => {
     await assertReports(wired({ node: 'cache', output: 'address' }), 'ERR_UNKNOWN_NODE');
   });
 
-  it('ERR_UNKNOWN_OUTPUT when a binding names no output of the producer — BP-PARAM-006', async () => {
+  it('ERR_UNKNOWN_OUTPUT when a binding names no output of the producer — BP-BIND-006', async () => {
     await assertReports(wired({ node: 'db', output: 'connectionString' }), 'ERR_UNKNOWN_OUTPUT');
   });
 
-  it('ERR_UNKNOWN_INPUT when the map key names no input of the consumer — BP-PARAM-007', async () => {
+  it('ERR_UNKNOWN_INPUT when the map key names no input of the consumer — BP-BIND-007', async () => {
     await assertReports(
       {
         ...wired(),
         blueprint: blueprint({
           spec: {
-            components: {
+            nodes: {
               db: { componentRef: './components/db.yaml', compute: { profile: 'general.standard.small' }, exposure: {}, bindings: {} },
               web: node({ bindings: { databaseAddress: { node: 'db', output: 'address' } } }),
             },
@@ -1280,7 +1415,7 @@ describe('bindings — blueprint §4.2', () => {
     );
   });
 
-  it('ERR_UNKNOWN_PARAMETER when a binding names no declared parameter — BP-PARAM-007', async () => {
+  it('ERR_UNKNOWN_PARAMETER when a binding names no declared parameter — BP-BIND-007', async () => {
     await assertReports(wired({ parameter: 'databaseAddress' }), 'ERR_UNKNOWN_PARAMETER');
   });
 
@@ -1293,7 +1428,7 @@ describe('bindings — blueprint §4.2', () => {
     await assertClean({
       blueprint: blueprint({
         spec: {
-          components: {
+          nodes: {
             db: { componentRef: './components/db.yaml', compute: { profile: 'general.standard.small' }, exposure: {}, bindings: {} },
             web: node({ bindings: { dbAddress: { node: 'db', output: 'port' } } }),
           },
@@ -1316,7 +1451,7 @@ describe('bindings — blueprint §4.2', () => {
     // A discovery dependency, not a value cycle: an endpoint address is
     // allocated before anything runs, so the chain ends at the endpoint.
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: node({ bindings: { ownURL: { node: 'web', output: 'publicURL' } } }) } } }),
+      blueprint: blueprint({ spec: { nodes: { web: node({ bindings: { ownURL: { node: 'web', output: 'publicURL' } } }) } } }),
       components: {
         'components/web.yaml': component({
           spec: {
@@ -1327,7 +1462,7 @@ describe('bindings — blueprint §4.2', () => {
               health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
             },
             contract: {
-              inputs: { ownURL: input({ target: { envVarKey: 'PUBLIC_URL' } }) },
+              inputs: { ownURL: input({ target: { envVar: 'PUBLIC_URL' } }) },
               outputs: { publicURL: { description: 'Its own URL.', schema: { type: 'string' }, from: { endpoint: 'primary', property: 'publicURL' } } },
             },
           },
@@ -1337,13 +1472,13 @@ describe('bindings — blueprint §4.2', () => {
   });
 });
 
-describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
+describe('value cycles — blueprint §4.2, BP-BIND-002', () => {
   const relay = component({
     spec: {
       type: 'WORKER',
       workload: { source: { image: 'ghcr.io/acme/relay:1.2.3' } },
       contract: {
-        inputs: { upstream: input({ target: { envVarKey: 'UPSTREAM' } }) },
+        inputs: { upstream: input({ target: { envVar: 'UPSTREAM' } }) },
         outputs: { forwarded: { description: 'The received value.', schema: { type: 'string' }, from: { input: 'upstream' } } },
       },
     },
@@ -1353,7 +1488,7 @@ describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
   it('ERR_VALUE_CYCLE when three nodes feed each other in a ring', async () => {
     await assertReports(
       {
-        blueprint: blueprint({ spec: { components: { a: relayNode('c'), b: relayNode('a'), c: relayNode('b') } } }),
+        blueprint: blueprint({ spec: { nodes: { a: relayNode('c'), b: relayNode('a'), c: relayNode('b') } } }),
         components: { 'components/relay.yaml': relay },
       },
       'ERR_VALUE_CYCLE',
@@ -1369,7 +1504,7 @@ describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
           endpoints: { primary: { targetPort: 8080, protocol: 'TCP' } },
         },
         contract: {
-          inputs: { peerAddress: input({ target: { envVarKey: 'PEER' } }) },
+          inputs: { peerAddress: input({ target: { envVar: 'PEER' } }) },
           outputs: { address: { description: 'The address.', schema: { type: 'string' }, from: { endpoint: 'primary', property: 'privateAddress' } } },
         },
       },
@@ -1377,7 +1512,7 @@ describe('value cycles — blueprint §4.2, BP-CONN-002', () => {
     const peerNode = (other: string): Doc =>
       node({ componentRef: './components/peer.yaml', exposure: {}, bindings: { peerAddress: { node: other, output: 'address' } } });
     await assertClean({
-      blueprint: blueprint({ spec: { components: { a: peerNode('b'), b: peerNode('a') } } }),
+      blueprint: blueprint({ spec: { nodes: { a: peerNode('b'), b: peerNode('a') } } }),
       components: { 'components/peer.yaml': peer },
     });
   });
@@ -1388,7 +1523,7 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
   // until #39, when a downstream consumer found `mlflow` violating it. These
   // cases exist so that cannot happen silently twice.
   const sensitiveInput = (over: Doc = {}): Doc =>
-    input({ description: 'A credential.', sensitive: true, target: { envVarKey: 'SECRET' }, ...over });
+    input({ description: 'A credential.', sensitive: true, target: { envVar: 'SECRET' }, ...over });
 
   const withInputs = (inputs: Doc): Doc =>
     component({
@@ -1406,18 +1541,18 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
     bindings,
   });
 
-  it('ERR_SECRET_LITERAL when a sensitive input carries a default', async () => {
+  it('ERR_SENSITIVE_LITERAL when a sensitive input carries a default', async () => {
     await assertReports(
       {
         blueprint: blueprint({
           spec: {
             parameters: { secret: { generator: { byteLength: 32, encoding: 'HEX' } } },
-            components: { web: worker({ secret: { parameter: 'secret' } }) },
+            nodes: { web: worker({ secret: { parameter: 'secret' } }) },
           },
         }),
         components: { 'components/web.yaml': withInputs({ secret: sensitiveInput({ default: 'hunter2' }) }) },
       },
-      'ERR_SECRET_LITERAL',
+      'ERR_SENSITIVE_LITERAL',
     );
   });
 
@@ -1426,7 +1561,7 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
       blueprint: blueprint({
         spec: {
           parameters: { secret: { generator: { byteLength: 32, encoding: 'HEX' } } },
-          components: { web: worker({ secret: { parameter: 'secret' } }) },
+          nodes: { web: worker({ secret: { parameter: 'secret' } }) },
         },
       }),
       components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
@@ -1435,31 +1570,31 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
 
   it('accepts a default on an input that is not sensitive', async () => {
     await assertClean({
-      blueprint: blueprint({ spec: { components: { web: worker() }, parameters: {} } }),
+      blueprint: blueprint({ spec: { nodes: { web: worker() }, parameters: {} } }),
       components: {
         'components/web.yaml': withInputs({
-          ordinary: input({ description: 'Not a secret.', default: 'plain', target: { envVarKey: 'PLAIN' } }),
+          ordinary: input({ description: 'Not a secret.', default: 'plain', target: { envVar: 'PLAIN' } }),
         }),
       },
     });
   });
 
-  it('ERR_SECRET_LITERAL when a node binds a literal value to a sensitive input', async () => {
+  it('ERR_SENSITIVE_LITERAL when a node binds a literal value to a sensitive input', async () => {
     await assertReports(
       {
         blueprint: blueprint({
           spec: {
             parameters: {},
-            components: { web: worker({ secret: { value: 'hunter2' } }) },
+            nodes: { web: worker({ secret: { value: 'hunter2' } }) },
           },
         }),
         components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
       },
-      'ERR_SECRET_LITERAL',
+      'ERR_SENSITIVE_LITERAL',
     );
   });
 
-  it('ERR_SECRET_LITERAL when a parameter default supplies a sensitive input', async () => {
+  it('ERR_SENSITIVE_LITERAL when a parameter default supplies a sensitive input', async () => {
     // The position this check exempted when it was written (#43). The
     // specification's reference validator reports it at the parameter's own
     // `default`, and so does this.
@@ -1468,12 +1603,12 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
         blueprint: blueprint({
           spec: {
             parameters: { secret: { default: 'hunter2', ui: { label: 'Secret' } } },
-            components: { web: worker({ secret: { parameter: 'secret' } }) },
+            nodes: { web: worker({ secret: { parameter: 'secret' } }) },
           },
         }),
         components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
       },
-      'ERR_SECRET_LITERAL',
+      'ERR_SENSITIVE_LITERAL',
     );
   });
 
@@ -1482,7 +1617,7 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
       blueprint: blueprint({
         spec: {
           parameters: { secret: { ui: { label: 'Secret' } } },
-          components: { web: worker({ secret: { parameter: 'secret' } }) },
+          nodes: { web: worker({ secret: { parameter: 'secret' } }) },
         },
       }),
       components: { 'components/web.yaml': withInputs({ secret: sensitiveInput() }) },
@@ -1494,18 +1629,18 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
       blueprint: blueprint({
         spec: {
           parameters: { plain: { default: 'fine', ui: { label: 'Plain' } } },
-          components: { web: worker({ plain: { parameter: 'plain' } }) },
+          nodes: { web: worker({ plain: { parameter: 'plain' } }) },
         },
       }),
       components: {
         'components/web.yaml': withInputs({
-          plain: input({ description: 'Not a secret.', target: { envVarKey: 'PLAIN' } }),
+          plain: input({ description: 'Not a secret.', target: { envVar: 'PLAIN' } }),
         }),
       },
     });
   });
 
-  it('ERR_SECRET_LITERAL when a sensitive output publishes a literal', async () => {
+  it('ERR_SENSITIVE_LITERAL when a sensitive output publishes a literal', async () => {
     await assertReports(
       {
         components: {
@@ -1519,17 +1654,17 @@ describe('authored secrets — component §11, COMP-VAL-005', () => {
           }),
         },
       },
-      'ERR_SECRET_LITERAL',
+      'ERR_SENSITIVE_LITERAL',
     );
   });
 
-  it('ERR_SECRET_LITERAL when a probe password is a literal — COMP-EP-010', async () => {
+  it('ERR_SENSITIVE_LITERAL when a probe password is a literal — COMP-EP-010', async () => {
     const probed = component();
     const readiness = ((probed['spec'] as Doc)['workload'] as Doc)['health'] as Doc;
     readiness['readiness'] = {
       http: { endpoint: 'primary', path: '/', auth: { basic: { username: { value: 'admin' }, password: { value: 'hunter2' } } } },
     };
-    await assertReports({ components: { 'components/web.yaml': probed } }, 'ERR_SECRET_LITERAL');
+    await assertReports({ components: { 'components/web.yaml': probed } }, 'ERR_SENSITIVE_LITERAL');
   });
 });
 
@@ -1553,12 +1688,12 @@ describe('endpoint trust and probe credentials — COMP-EP-006, COMP-EP-010', ()
     });
 
   const vncPassword = (over: Doc = {}): Doc =>
-    input({ description: 'Session password.', sensitive: true, target: { envVarKey: 'VNC_PW' }, ...over });
+    input({ description: 'Session password.', sensitive: true, target: { envVar: 'VNC_PW' }, ...over });
 
   const bound = blueprint({
     spec: {
       parameters: { vncPassword: { generator: { byteLength: 16, encoding: 'HEX' } } },
-      components: { web: node({ bindings: { vncPassword: { parameter: 'vncPassword' } } }) },
+      nodes: { web: node({ bindings: { vncPassword: { parameter: 'vncPassword' } } }) },
     },
   });
 
@@ -1568,8 +1703,8 @@ describe('endpoint trust and probe credentials — COMP-EP-006, COMP-EP-010', ()
     await assertClean(fixture);
   });
 
-  it('ERR_UNKNOWN_INPUT_REFERENCE when a probe credential names no input', async () => {
-    await assertReports({ components: { 'components/web.yaml': loginGated({}) } }, 'ERR_UNKNOWN_INPUT_REFERENCE');
+  it('ERR_UNKNOWN_INPUT when a probe credential names no input', async () => {
+    await assertReports({ components: { 'components/web.yaml': loginGated({}) } }, 'ERR_UNKNOWN_INPUT');
   });
 
   it('ERR_INPUT_NOT_GUARANTEED when a probe credential reads an optional input with no default', async () => {
@@ -1579,17 +1714,17 @@ describe('endpoint trust and probe credentials — COMP-EP-006, COMP-EP-010', ()
     );
   });
 
-  it('ERR_UNKNOWN_INPUT_REFERENCE when a trust bundle names no input', async () => {
+  it('ERR_UNKNOWN_INPUT when a trust bundle names no input', async () => {
     const tls = { verify: 'BUNDLE', serverName: 'desktop.example.internal', trustBundle: { input: 'caBundle' } };
     await assertReports(
       { blueprint: bound, components: { 'components/web.yaml': loginGated({ vncPassword: vncPassword() }, tls) } },
-      'ERR_UNKNOWN_INPUT_REFERENCE',
+      'ERR_UNKNOWN_INPUT',
     );
   });
 
   it('ERR_INPUT_NOT_GUARANTEED when a trust bundle reads an optional input with no default', async () => {
     const tls = { verify: 'BUNDLE', serverName: 'desktop.example.internal', trustBundle: { input: 'caBundle' } };
-    const caBundle = input({ description: 'CA roots.', required: false, target: { envVarKey: 'CA_BUNDLE' } });
+    const caBundle = input({ description: 'CA roots.', required: false, target: { envVar: 'CA_BUNDLE' } });
     await assertReports(
       { blueprint: bound, components: { 'components/web.yaml': loginGated({ vncPassword: vncPassword(), caBundle }, tls) } },
       'ERR_INPUT_NOT_GUARANTEED',
@@ -1608,7 +1743,7 @@ describe('connections — component §6.4, blueprint §5.3', () => {
     blueprint: blueprint({
       spec: over.blueprintSpec ?? {
         parameters: { llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } } },
-        components: {
+        nodes: {
           llm: { componentRef: './components/llm.yaml', bindings: { llm: { parameter: 'llm' } } },
           worker: {
             componentRef: './components/web.yaml',
@@ -1638,7 +1773,7 @@ describe('connections — component §6.4, blueprint §5.3', () => {
 
   /* --- COMP-OUT-004: a connection publishes members, a value input does not - */
 
-  it('ERR_UNKNOWN_INPUT_REFERENCE when an output forwards a connection and names no member', async () => {
+  it('ERR_UNKNOWN_INPUT when an output forwards a connection and names no member', async () => {
     await assertReports(
       composed({
         provider: {
@@ -1648,11 +1783,11 @@ describe('connections — component §6.4, blueprint §5.3', () => {
           },
         },
       }),
-      'ERR_UNKNOWN_INPUT_REFERENCE',
+      'ERR_UNKNOWN_INPUT',
     );
   });
 
-  it('ERR_UNKNOWN_INPUT_REFERENCE when an output names a member of a value input', async () => {
+  it('ERR_UNKNOWN_INPUT when an output names a member of a value input', async () => {
     await assertReports(
       {
         components: {
@@ -1664,13 +1799,13 @@ describe('connections — component §6.4, blueprint §5.3', () => {
           }),
         },
       },
-      'ERR_UNKNOWN_INPUT_REFERENCE',
+      'ERR_UNKNOWN_INPUT',
     );
   });
 
   /* --- COMP-OUT-003: every declared output must be producible -------------- */
 
-  it('ERR_OUTPUT_NOT_PRODUCIBLE when an output forwards an optional input with no default', async () => {
+  it('ERR_INPUT_NOT_GUARANTEED when an output forwards an optional input with no default', async () => {
     await assertReports(
       {
         components: {
@@ -1682,14 +1817,14 @@ describe('connections — component §6.4, blueprint §5.3', () => {
           }),
         },
       },
-      'ERR_OUTPUT_NOT_PRODUCIBLE',
+      'ERR_INPUT_NOT_GUARANTEED',
     );
   });
 
   it('accepts an optional input carrying a default as an output origin', async () => {
     await assertClean({
       blueprint: blueprint({
-        spec: { components: { web: { componentRef: './components/web.yaml', bindings: {} } }, parameters: {} },
+        spec: { nodes: { web: { componentRef: './components/web.yaml', bindings: {} } }, parameters: {} },
       }),
       components: {
         'components/web.yaml': externalDatabase({
@@ -1702,13 +1837,69 @@ describe('connections — component §6.4, blueprint §5.3', () => {
     });
   });
 
+  /* --- COMP-OUT-003/004: members are the protocol's, sensitivity is declared - */
+
+  /** One EXTERNAL node standing for a connection of `protocol`, forwarding `outputs`. */
+  const standsFor = (protocol: string, outputs: Doc): Fixture => ({
+    blueprint: blueprint({
+      spec: {
+        parameters: { store: { from: '${{ connections.store.default }}', ui: { label: 'Store' } } },
+        nodes: { store: { componentRef: './components/store.yaml', bindings: { store: { parameter: 'store' } } } },
+      },
+    }),
+    components: {
+      'components/store.yaml': {
+        specVersion: 'v2',
+        kind: 'COMPONENT',
+        metadata: { revision: 1, description: 'Synthetic rules fixture connection provider.' },
+        spec: {
+          type: 'EXTERNAL',
+          contract: { inputs: { store: { description: 'Connection this node stands for.', connection: { protocol } } }, outputs },
+        },
+      },
+    },
+  });
+  const forwards = (member: string, over: Doc = {}): Doc => ({
+    description: `Forwarded ${member}.`,
+    schema: { type: 'string' },
+    from: { input: 'store', member },
+    ...over,
+  });
+
+  it('accepts a POSTGRES connection forwarding every member, the sensitive ones as sensitive', async () => {
+    const fixture = standsFor('POSTGRES', {
+      host: forwards('host'),
+      port: forwards('port', { schema: { type: 'integer' } }),
+      database: forwards('database'),
+      username: forwards('username'),
+      password: forwards('password', { sensitive: true }),
+      sslMode: forwards('sslMode'),
+      url: forwards('url', { sensitive: true }),
+    });
+    await assertClean(fixture);
+    await assertStructurallyValid(build(fixture));
+  });
+
+  it('ERR_UNKNOWN_CONNECTION_MEMBER when an output names a member another protocol defines', async () => {
+    await assertReports(standsFor('POSTGRES', { baseURL: forwards('baseURL') }), 'ERR_UNKNOWN_CONNECTION_MEMBER');
+  });
+
+  it('ERR_VALUE_CONSTRAINT when a sensitive member is forwarded by an output not declared sensitive', async () => {
+    await assertReports(standsFor('S3', { secretAccessKey: forwards('secretAccessKey') }), 'ERR_VALUE_CONSTRAINT');
+  });
+
+  it('ERR_INPUT_NOT_GUARANTEED when an output forwards an optional member with no default, and not one with a default', async () => {
+    await assertReports(standsFor('REDIS', { username: forwards('username') }), 'ERR_INPUT_NOT_GUARANTEED');
+    await assertClean(standsFor('REDIS', { database: forwards('database', { schema: { type: 'integer' } }) }));
+  });
+
   /* --- BP-CONNECTION-001, read from both sides ----------------------------- */
 
   const boundBy = (binding: Doc, parameters?: Doc): Fixture =>
     composed({
       blueprintSpec: {
         parameters: parameters ?? { llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } } },
-        components: {
+        nodes: {
           llm: { componentRef: './components/llm.yaml', bindings: { llm: binding } },
           worker: {
             componentRef: './components/web.yaml',
@@ -1743,7 +1934,7 @@ describe('connections — component §6.4, blueprint §5.3', () => {
       composed({
         blueprintSpec: {
           parameters: { llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } } },
-          components: {
+          nodes: {
             llm: { componentRef: './components/llm.yaml', bindings: { llm: { parameter: 'llm' } } },
             worker: {
               componentRef: './components/web.yaml',
@@ -1766,7 +1957,7 @@ describe('connections — component §6.4, blueprint §5.3', () => {
       composed({
         blueprintSpec: {
           parameters: {},
-          components: {
+          nodes: {
             llm: { componentRef: './components/llm.yaml', bindings: {} },
             worker: {
               componentRef: './components/web.yaml',
@@ -1792,7 +1983,7 @@ describe('connections — component §6.4, blueprint §5.3', () => {
             llm: { from: '${{ connections.llm.default }}', ui: { label: 'Language model' } },
             spare: { from: '${{ connections.llm.spare }}', ui: { label: 'Spare model' } },
           },
-          components: {
+          nodes: {
             llm: { componentRef: './components/llm.yaml', bindings: { llm: { parameter: 'llm' } } },
             worker: {
               componentRef: './components/web.yaml',
@@ -1827,12 +2018,12 @@ describe('parameters — blueprint §5', () => {
           endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
           health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
         },
-        contract: { inputs: { adminPassword: input({ sensitive: true, target: { envVarKey: 'ADMIN_PASSWORD' }, ...over }) }, outputs: {} },
+        contract: { inputs: { adminPassword: input({ sensitive: true, target: { envVar: 'ADMIN_PASSWORD' }, ...over }) }, outputs: {} },
       },
     });
 
   const form = (parameters: Doc, bindings: Doc = { adminPassword: { parameter: 'adminPassword' } }): Fixture => ({
-    blueprint: blueprint({ spec: { parameters, components: { web: node({ bindings }) } } }),
+    blueprint: blueprint({ spec: { parameters, nodes: { web: node({ bindings }) } } }),
     components: { 'components/web.yaml': withInput() },
   });
 
@@ -1862,7 +2053,7 @@ describe('parameters — blueprint §5', () => {
     // COMP-VAL-005 forbids. The rule was unimplemented here until #39, so the
     // invalid fixture went unnoticed; sensitivity was never what it tested.
     await assertClean({
-      blueprint: blueprint({ spec: { parameters: {}, components: { web: node() } } }),
+      blueprint: blueprint({ spec: { parameters: {}, nodes: { web: node() } } }),
       components: { 'components/web.yaml': withInput({ sensitive: false, default: 'hunter2' }) },
     });
   });
@@ -1875,7 +2066,7 @@ describe('parameters — blueprint §5', () => {
         blueprint: blueprint({
           spec: {
             parameters: { adminPassword: { generator: { byteLength: 32, encoding: 'HEX' }, ui: { label: 'Admin password' } } },
-            components: { web: node({ bindings: { adminPassword: { parameter: 'adminPassword' } } }) },
+            nodes: { web: node({ bindings: { adminPassword: { parameter: 'adminPassword' } } }) },
           },
         }),
         components: {
@@ -1887,7 +2078,7 @@ describe('parameters — blueprint §5', () => {
                 endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
                 health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
               },
-              contract: { inputs: { adminPassword: input({ target: { envVarKey: 'ADMIN_PASSWORD' } }) }, outputs: {} },
+              contract: { inputs: { adminPassword: input({ target: { envVar: 'ADMIN_PASSWORD' } }) }, outputs: {} },
             },
           }),
         },
@@ -1901,7 +2092,7 @@ describe('parameters — blueprint §5', () => {
         blueprint: blueprint({
           spec: {
             parameters: { shared: { ui: { label: 'Shared' } } },
-            components: {
+            nodes: {
               web: node({ bindings: { adminPassword: { parameter: 'shared' } } }),
               api: node({ componentRef: './components/api.yaml', bindings: { adminPassword: { parameter: 'shared' } } }),
             },
@@ -1917,7 +2108,7 @@ describe('parameters — blueprint §5', () => {
                 endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
                 health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
               },
-              contract: { inputs: { adminPassword: input({ sensitive: true, schema: { type: 'integer' }, target: { envVarKey: 'ADMIN_PASSWORD' } }) }, outputs: {} },
+              contract: { inputs: { adminPassword: input({ sensitive: true, schema: { type: 'integer' }, target: { envVar: 'ADMIN_PASSWORD' } }) }, outputs: {} },
             },
           }),
         },
@@ -1926,13 +2117,36 @@ describe('parameters — blueprint §5', () => {
     );
   });
 
+  it('ERR_PARAMETER_NOT_OFFERED when a parameter with no ui and no default binds a required input — BP-UI-005', async () => {
+    const titled = (parameter: Doc, required = true): Fixture => ({
+      blueprint: blueprint({ spec: { parameters: { siteTitle: parameter }, nodes: { web: node({ bindings: { siteTitle: { parameter: 'siteTitle' } } }) } } }),
+      components: {
+        'components/web.yaml': component({
+          spec: {
+            type: 'SERVICE',
+            workload: {
+              source: { image: 'ghcr.io/acme/web:1.2.3' },
+              endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
+              health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+            },
+            contract: { inputs: { siteTitle: input({ required, target: { envVar: 'SITE_TITLE' } }) }, outputs: {} },
+          },
+        }),
+      },
+    });
+    await assertReports(titled({}), 'ERR_PARAMETER_NOT_OFFERED');
+    await assertClean(titled({}, false));
+    await assertClean(titled({ ui: { label: 'Site title' } }));
+    await assertClean(titled({ default: 'Wiki' }));
+  });
+
   it('ERR_UNKNOWN_ENUM_MEMBER when an enumLabels key names no member — BP-UI-003', async () => {
     await assertReports(
       {
         blueprint: blueprint({
           spec: {
             parameters: { backend: { ui: { label: 'Backend', enumLabels: { GCS: 'Google Cloud Storage' } } } },
-            components: { web: node({ bindings: { backend: { parameter: 'backend' } } }) },
+            nodes: { web: node({ bindings: { backend: { parameter: 'backend' } } }) },
           },
         }),
         components: {
@@ -1944,7 +2158,7 @@ describe('parameters — blueprint §5', () => {
                 endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
                 health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
               },
-              contract: { inputs: { backend: input({ schema: { type: 'string', enum: ['S3', 'LOCAL'] }, target: { envVarKey: 'BACKEND' } }) }, outputs: {} },
+              contract: { inputs: { backend: input({ schema: { type: 'string', enum: ['S3', 'LOCAL'] }, target: { envVar: 'BACKEND' } }) }, outputs: {} },
             },
           }),
         },
@@ -1954,12 +2168,12 @@ describe('parameters — blueprint §5', () => {
   });
 });
 
-describe('parameter sources — blueprint §5.2, BP-REF-001', () => {
+describe('parameter sources — blueprint §5.2, BP-PLACEHOLDER-001', () => {
   const sourced = (from: string): Fixture => ({
     blueprint: blueprint({
       spec: {
         parameters: { region: { from } },
-        components: { web: node({ bindings: { region: { parameter: 'region' } } }) },
+        nodes: { web: node({ bindings: { region: { parameter: 'region' } } }) },
       },
     }),
     components: {
@@ -1971,7 +2185,7 @@ describe('parameter sources — blueprint §5.2, BP-REF-001', () => {
             endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
             health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
           },
-          contract: { inputs: { region: input({ target: { envVarKey: 'REGION' } }) }, outputs: {} },
+          contract: { inputs: { region: input({ target: { envVar: 'REGION' } }) }, outputs: {} },
         },
       }),
     },
@@ -1985,29 +2199,29 @@ describe('parameter sources — blueprint §5.2, BP-REF-001', () => {
     await assertStructurallyValid(build(sourced('${{ variables.cloud.region }}')));
   });
 
-  it('ERR_INVALID_PARAMETER_SOURCE when a source interpolates a reference into text', async () => {
-    await assertReports(sourced('https://${{ variables.cloud.region }}/x'), 'ERR_INVALID_PARAMETER_SOURCE');
+  it('ERR_INVALID_PARAMETER_ORIGIN when a source interpolates a reference into text', async () => {
+    await assertReports(sourced('https://${{ variables.cloud.region }}/x'), 'ERR_INVALID_PARAMETER_ORIGIN');
   });
 
-  it('ERR_INVALID_PARAMETER_SOURCE when a source names two references', async () => {
-    await assertReports(sourced('${{ variables.a.b }}${{ variables.c.d }}'), 'ERR_INVALID_PARAMETER_SOURCE');
+  it('ERR_INVALID_PARAMETER_ORIGIN when a source names two references', async () => {
+    await assertReports(sourced('${{ variables.a.b }}${{ variables.c.d }}'), 'ERR_INVALID_PARAMETER_ORIGIN');
   });
 
-  it('ERR_MALFORMED_REFERENCE when a source begins no well-formed reference — CORE-REF-001', async () => {
-    await assertReports(sourced('${{ variables.cloud.region'), 'ERR_MALFORMED_REFERENCE');
+  it('ERR_MALFORMED_PLACEHOLDER when a source begins no well-formed reference — CORE-PLACEHOLDER-001', async () => {
+    await assertReports(sourced('${{ variables.cloud.region'), 'ERR_MALFORMED_PLACEHOLDER');
   });
 
-  it('ERR_UNKNOWN_REFERENCE_NAMESPACE for the withdrawn config namespace — CORE-REF-002', async () => {
-    await assertReports(sourced('${{ config.cloud.region }}'), 'ERR_UNKNOWN_REFERENCE_NAMESPACE');
+  it('ERR_UNKNOWN_PLACEHOLDER_NAMESPACE for the withdrawn config namespace — CORE-PLACEHOLDER-002', async () => {
+    await assertReports(sourced('${{ config.cloud.region }}'), 'ERR_UNKNOWN_PLACEHOLDER_NAMESPACE');
   });
 
-  it('ERR_REFERENCE_NOT_IN_SCOPE when a reserved namespace is not one a parameter may read', async () => {
-    await assertReports(sourced('${{ self.endpoints.primary.publicURL }}'), 'ERR_REFERENCE_NOT_IN_SCOPE');
+  it('ERR_NAMESPACE_NOT_PERMITTED when a reserved namespace is not one a parameter may read', async () => {
+    await assertReports(sourced('${{ self.endpoints.primary.publicURL }}'), 'ERR_NAMESPACE_NOT_PERMITTED');
   });
-  it('accepts each installer fact — BP-PARAM-011', async () => {
-    await assertClean(sourced('${{ deployment.installer.email }}'));
-    await assertClean(sourced('${{ deployment.installer.name }}'));
-    await assertClean(sourced('${{ deployment.installer.identity }}'));
+  it('accepts each creator fact — BP-PARAM-011', async () => {
+    await assertClean(sourced('${{ deployment.creator.email }}'));
+    await assertClean(sourced('${{ deployment.creator.name }}'));
+    await assertClean(sourced('${{ deployment.creator.identity }}'));
   });
 
   it('ERR_UNKNOWN_DEPLOYMENT_FACT for any other deployment path — BP-PARAM-011', async () => {
@@ -2016,12 +2230,12 @@ describe('parameter sources — blueprint §5.2, BP-REF-001', () => {
 });
 
 describe('hashed parameters — blueprint §5.2, BP-PARAM-001, BP-PARAM-012', () => {
-  /** A generated password disclosed to the installer, of which the workload receives only a hash. */
+  /** A generated password disclosed to the deployer, of which the workload receives only a hash. */
   const hashed = (source: Doc, hash: Doc = { parameter: 'password', algorithm: 'BCRYPT' }): Fixture => ({
     blueprint: blueprint({
       spec: {
         parameters: { password: source, passwordHash: { hash } },
-        components: { web: node({ bindings: { passwordHash: { parameter: 'passwordHash' } } }) },
+        nodes: { web: node({ bindings: { passwordHash: { parameter: 'passwordHash' } } }) },
       },
     }),
     components: {
@@ -2033,7 +2247,7 @@ describe('hashed parameters — blueprint §5.2, BP-PARAM-001, BP-PARAM-012', ()
             endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
             health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
           },
-          contract: { inputs: { passwordHash: input({ sensitive: true, target: { envVarKey: 'PASSWORD_HASH' } }) }, outputs: {} },
+          contract: { inputs: { passwordHash: input({ sensitive: true, target: { envVar: 'PASSWORD_HASH' } }) }, outputs: {} },
         },
       }),
     },
@@ -2049,16 +2263,16 @@ describe('hashed parameters — blueprint §5.2, BP-PARAM-001, BP-PARAM-012', ()
     await assertReportsExactly(hashed({ generator: { byteLength: 24 } }), ['ERR_UNBOUND_PARAMETER']);
   });
 
-  it('ERR_INVALID_HASH_SOURCE when the source is submitted rather than generated', async () => {
-    await assertReports(hashed({ ui: { label: 'Password' } }), 'ERR_INVALID_HASH_SOURCE');
+  it('ERR_INVALID_HASHED_PARAMETER when the source is submitted rather than generated', async () => {
+    await assertReports(hashed({ ui: { label: 'Password' } }), 'ERR_INVALID_HASHED_PARAMETER');
   });
 
   it('ERR_UNKNOWN_PARAMETER when the hash names no declared parameter', async () => {
     await assertReports(hashed(disclosed, { parameter: 'missing', algorithm: 'ARGON2ID' }), 'ERR_UNKNOWN_PARAMETER');
   });
 
-  it('ERR_INVALID_HASH_SOURCE when a bcrypt source encodes past 72 characters, and not at 72', async () => {
-    await assertReportsExactly(hashed({ generator: { byteLength: 37 }, ui: { label: 'Password' } }), ['ERR_INVALID_HASH_SOURCE']);
+  it('ERR_INVALID_HASHED_PARAMETER when a bcrypt source encodes past 72 characters, and not at 72', async () => {
+    await assertReportsExactly(hashed({ generator: { byteLength: 37 }, ui: { label: 'Password' } }), ['ERR_INVALID_HASHED_PARAMETER']);
     await assertClean(hashed({ generator: { byteLength: 36 }, ui: { label: 'Password' } }));
     await assertClean(hashed({ generator: { byteLength: 54, encoding: 'BASE64' }, ui: { label: 'Password' } }));
     await assertClean(hashed({ generator: { byteLength: 40 }, ui: { label: 'Password' } }, { parameter: 'password', algorithm: 'ARGON2ID' }));

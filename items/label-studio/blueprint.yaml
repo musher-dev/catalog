@@ -1,13 +1,13 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: label-studio
   revision: 9
   description: >-
-    Label Studio behind the platform's sign-in, with its installer as admin and
+    Label Studio behind the platform's sign-in, with its deployer as admin and
     its own public URL wired into Django's CSRF trust list.
 spec:
-  components:
+  nodes:
     web:
       componentRef: ./components/label-studio.yaml
       compute:
@@ -21,7 +21,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           accessExemptions:
             - PATHS
       bindings:
@@ -34,7 +34,7 @@ spec:
         # Both of these take this node's own allocated public URL, from the
         # output the component derives from its `primary` endpoint. A node
         # reading its own endpoint output is a discovery dependency, not a
-        # value cycle (blueprint BP-CONN-002), because an endpoint address is
+        # value cycle (blueprint BP-BIND-002), because an endpoint address is
         # allocated before anything runs.
         #
         # The address has to arrive WITHOUT a trailing slash for the second one
@@ -62,10 +62,10 @@ spec:
           node: web
           output: publicURL
   parameters:
-    # The installer's verified email, captured once when the installation is
-    # created (BP-PARAM-011), rather than a field on the install form.
+    # The creator's verified email, captured once when the deployment is
+    # created (BP-PARAM-011), rather than a field on the deploy form.
     adminEmail:
-      from: "${{ deployment.installer.email }}"
+      from: "${{ deployment.creator.email }}"
     adminPassword:
       generator:
         byteLength: 24

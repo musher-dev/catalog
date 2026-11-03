@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 7
@@ -29,13 +29,13 @@ spec:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
       # input, including the constants below. They carry defaults, so no
-      # blueprint has to wire them and the install form gains no field.
+      # blueprint has to wire them and the deploy form gains no field.
       env:
         schema:
           type: string
         default: production
         target:
-          envVarKey: MEILI_ENV
+          envVar: MEILI_ENV
         description: >-
           Which operating mode Meilisearch runs in; production requires a
           master key and serves no web interface.
@@ -44,7 +44,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: MEILI_NO_ANALYTICS
+          envVar: MEILI_NO_ANALYTICS
         description: >-
           Whether anonymous usage analytics are off, as the literal string the
           image parses.
@@ -82,7 +82,7 @@ spec:
           type: string
         default: 'true'
         target:
-          envVarKey: MEILI_UPGRADE_DB
+          envVar: MEILI_UPGRADE_DB
         description: >-
           Whether an existing database is upgraded in place on first start
           after a version change, as the literal string the image parses.
@@ -92,6 +92,6 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: MEILI_MASTER_KEY
+          envVar: MEILI_MASTER_KEY
         description: Bearer token for admin and indexing API access
     outputs: {}

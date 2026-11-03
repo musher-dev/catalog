@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: openhands-agent-canvas
@@ -8,7 +8,7 @@ spec:
   summary: >-
     Self-hosted control center for AI coding agents and automations, running the
     OpenHands agent on your organization's language model
-  description: |
+  overview: |
     ## What it is
     Agent Canvas is OpenHands' web control center for AI coding agents. You
     start and watch agent conversations, review the changes they make, open
@@ -96,7 +96,7 @@ spec:
     - automation
     - openhands
   homepageURL: https://openhands.dev
-  sourceRepoURL: https://github.com/OpenHands/OpenHands
+  sourceRepositoryURL: https://github.com/OpenHands/OpenHands
   supportURL: https://docs.openhands.dev
   license: MIT
   icon: media/icon.png

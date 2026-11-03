@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 1
@@ -42,7 +42,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LITELLM_MASTER_KEY
+          envVar: LITELLM_MASTER_KEY
         # Presented exactly as generated. v1.103.2 compares it to the request's
         # key with secrets.compare_digest (proxy/auth/user_api_key_auth.py) and
         # adds no prefix. With the database below it is also the admin
@@ -60,12 +60,12 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LITELLM_SALT_KEY
+          envVar: LITELLM_SALT_KEY
         description: >-
           Key LiteLLM encrypts stored provider credentials with. Never rotate
           it once a credential is saved.
       # The four parts of the database URL, rather than one DSN. A component
-      # template reads only endpoint properties (COMP-REF-001), so nothing can
+      # template reads only endpoint properties (COMP-PLACEHOLDER-001), so nothing can
       # compose a URL carrying the password. LiteLLM assembles it itself:
       # with no DATABASE_URL and no config file, run_server calls
       # construct_database_url_from_env_vars (proxy/utils.py, v1.103.2),
@@ -76,14 +76,14 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: DATABASE_HOST
+          envVar: DATABASE_HOST
         description: Mesh-internal `host:port` of the Postgres server LiteLLM keeps its state in.
       databaseUsername:
         schema:
           type: string
         required: true
         target:
-          envVarKey: DATABASE_USERNAME
+          envVar: DATABASE_USERNAME
         description: Role LiteLLM connects to Postgres as.
       databasePassword:
         schema:
@@ -91,14 +91,14 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: DATABASE_PASSWORD
+          envVar: DATABASE_PASSWORD
         description: Password of the Postgres role above.
       databaseName:
         schema:
           type: string
         required: true
         target:
-          envVarKey: DATABASE_NAME
+          envVar: DATABASE_NAME
         description: Postgres database LiteLLM applies its schema to and keeps its state in.
       # Model definitions live in the database rather than in a config file,
       # which this container has no way to receive, so models added from the
@@ -108,7 +108,7 @@ spec:
           type: string
         default: 'True'
         target:
-          envVarKey: STORE_MODEL_IN_DB
+          envVar: STORE_MODEL_IN_DB
         description: >-
           Whether model definitions are stored in the database, as the literal
           string the image parses.
@@ -120,7 +120,7 @@ spec:
           type: string
         default: PRODUCTION
         target:
-          envVarKey: LITELLM_MODE
+          envVar: LITELLM_MODE
         description: LiteLLM's run mode; PRODUCTION reads no .env file.
       # Read only once caching is switched on. No environment variable reaches
       # that switch (`litellm_settings.cache`): it is set once from the
@@ -128,7 +128,7 @@ spec:
       # in the database for every start.
       #
       # The three parts of the Redis connection, rather than one URL. A
-      # component template reads only endpoint properties (COMP-REF-001), so
+      # component template reads only endpoint properties (COMP-PLACEHOLDER-001), so
       # no URL can carry the password, and REDIS_URL would lose it anyway: when
       # a URL is set, _get_redis_client_logic drops the host, port and
       # password it found in the environment (_redis.py, v1.103.2). With no
@@ -139,7 +139,7 @@ spec:
           type: string
         required: true
         target:
-          envVarKey: REDIS_HOST
+          envVar: REDIS_HOST
         description: >-
           Mesh-internal hostname of the Redis server LiteLLM shares its cache and
           rate-limit state through.
@@ -148,7 +148,7 @@ spec:
           type: integer
         required: true
         target:
-          envVarKey: REDIS_PORT
+          envVar: REDIS_PORT
         description: Port of that Redis server.
       # The schema the cache's own password input declares: one generated
       # parameter fills both, so both ends describe the same value.
@@ -160,6 +160,6 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: REDIS_PASSWORD
+          envVar: REDIS_PASSWORD
         description: Password LiteLLM presents to that Redis server.
     outputs: {}

@@ -1,9 +1,9 @@
 /**
  * The spec bundles themselves.
  *
- * These tests fail first and loudest when the contract cannot be reached or
- * comes back as something other than what it claims — before any item is judged
- * against it. A corpus validated against a 404 page passes everything.
+ * These tests fail first and loudest when the vendored contract is missing or
+ * is something other than what it claims — before any item is judged against
+ * it. A corpus validated against the wrong bundle passes everything.
  */
 import assert from 'node:assert/strict';
 import fs from 'node:fs';
@@ -13,10 +13,48 @@ import { describe, it } from 'node:test';
 import ts from 'typescript';
 
 import { REPO_ROOT } from './lib/paths.ts';
-import { FAMILIES, KIND_OF, RELEASES, externalRefs, loadSchema, releaseOf, schemaUrl } from './lib/spec-schemas.ts';
+import {
+  ARCHIVE_FAMILIES,
+  FAMILIES,
+  KIND_OF,
+  RELEASES,
+  VENDOR_DIR,
+  archivePath,
+  externalRefs,
+  loadSchema,
+  releaseDir,
+  releaseOf,
+  schemaUrl,
+} from './lib/spec-schemas.ts';
 
 describe('musher-dev/specifications', () => {
-  it('resolves every pinned family bundle from the published origin', async () => {
+  it('vendors exactly the pinned release archives, and nothing else', () => {
+    const expected = ARCHIVE_FAMILIES.map((family) => path.basename(archivePath(family))).sort();
+    const vendored = fs.readdirSync(VENDOR_DIR).filter((name) => name.endsWith('.tar.gz')).sort();
+    assert.deepEqual(vendored, expected);
+  });
+
+  it('records each archive in SHA256SUMS with its pinned digest', () => {
+    // The release's own SHA256SUMS lines, so `sha256sum --check` verifies the
+    // vendored bytes without this suite. They must say what RELEASES says.
+    const sums = fs.readFileSync(path.join(VENDOR_DIR, 'SHA256SUMS'), 'utf8').trim().split('\n').sort();
+    const expected = ARCHIVE_FAMILIES.map((family) => `${RELEASES[family].archiveSha256}  ${path.basename(archivePath(family))}`).sort();
+    assert.deepEqual(sums, expected);
+  });
+
+  for (const family of ARCHIVE_FAMILIES) {
+    it(`unpacks the ${family}/v${releaseOf(family)} archive, whose release record names that release`, () => {
+      const record = JSON.parse(fs.readFileSync(path.join(releaseDir(family), 'specification.json'), 'utf8')) as Record<string, unknown>;
+      assert.equal(record['tag'], `${family}/v${releaseOf(family)}`);
+      // Every family sits on one core release (docs/publication.md, the
+      // dependency gate), so each names the core this suite pins.
+      if (family !== 'core') assert.equal(record['coreTag'], `core/v${releaseOf('core')}`);
+      const bundle = RELEASES[family].bundleSha256;
+      if (bundle !== undefined) assert.equal(record['bundleSha256'], bundle);
+    });
+  }
+
+  it('resolves every pinned family bundle from its vendored archive', async () => {
     const bundles = await Promise.all(FAMILIES.map(loadSchema));
     for (const bundle of bundles) {
       console.log(`  ${bundle.family.padEnd(10)} sha256:${bundle.sha256.slice(0, 12)}  ${bundle.origin}`);

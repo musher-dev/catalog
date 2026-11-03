@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 6
@@ -61,7 +61,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: REDIS_PASSWORD
+          envVar: REDIS_PASSWORD
         description: >-
           Password a client must present (AUTH) before Redis serves it; copy it
           from the deployment's Installation tab. At least 16 letters, digits or

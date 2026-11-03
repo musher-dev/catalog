@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: n8n
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: n8n
   summary: Fair-code workflow automation with 400+ integrations and a built-in code node
-  description: |
+  overview: |
     ## What it is
     n8n is a fair-code workflow automation tool for technical teams. Build
     automations visually on a node canvas across hundreds of SaaS, API,
@@ -24,7 +24,7 @@ spec:
     ## Defaults
     Single-container deployment of `n8nio/n8n:2.41.6` with the web UI on
     port 5678 behind the platform's HTTPS edge and the platform's sign-in:
-    only people allowed into this installation reach the editor.
+    only people allowed into this deployment reach the editor.
     Webhooks, forms, MCP triggers, the public API (`/api`, with an n8n API
     key) and the instance MCP server stay reachable without signing in, so
     the services that call them keep working.
@@ -34,7 +34,7 @@ spec:
     owner password on the deployment's Installation tab. n8n re-applies that
     owner on every start, so a password changed inside n8n reverts at the
     next restart, and upgrading an existing deployment replaces an owner set
-    up by hand with the installer's email and the generated password. Webhook, editor, and
+    up by hand with the deployer's email and the generated password. Webhook, editor, and
     host URLs are taken from this deployment's own public https address, so
     webhook URLs are right the first time. The readiness probe
     waits for `/healthz/readiness`, so first boot reports ready only after
@@ -49,7 +49,7 @@ spec:
     - integration
     - low-code
   homepageURL: https://n8n.io
-  sourceRepoURL: https://github.com/n8n-io/n8n
+  sourceRepositoryURL: https://github.com/n8n-io/n8n
   supportURL: https://docs.n8n.io
   license: SUL-1.0 AND LicenseRef-n8n-Enterprise
   icon: media/icon.png

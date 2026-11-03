@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: COMPONENT
 metadata:
   revision: 6
@@ -40,7 +40,7 @@ spec:
         sensitive: true
         required: true
         target:
-          envVarKey: LITELLM_MASTER_KEY
+          envVar: LITELLM_MASTER_KEY
         # Presented exactly as generated. v1.103.2 compares it to the request's
         # key with secrets.compare_digest (proxy/auth/user_api_key_auth.py) and
         # adds no prefix; the v1.84.0 release notes also stop accepting its

@@ -1,14 +1,14 @@
-specVersion: v1
+specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: openclaw
   revision: 9
   description: >-
-    OpenClaw agent gateway on the installer's language-model connection, reached
+    OpenClaw agent gateway on the deployer's language-model connection, reached
     through the platform's sign-in with the viewer's identity forwarded, with
     its own public origin in the Control UI allowlist.
 spec:
-  components:
+  nodes:
     llm:
       componentRef: ./components/llm.yaml
       # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
@@ -36,7 +36,7 @@ spec:
       exposure:
         primary:
           visibility: PUBLIC
-          access: AUTHENTICATED
+          access: RESTRICTED
           viewerIdentity: HEADER
       bindings:
         gatewayPassword:
@@ -58,7 +58,7 @@ spec:
         # from its `primary` endpoint, written into
         # gateway.controlUi.allowedOrigins by the boot command. A node reading
         # its own endpoint output is a discovery dependency and not a value
-        # cycle (BP-CONN-002): the address is allocated before anything runs.
+        # cycle (BP-BIND-002): the address is allocated before anything runs.
         publicOrigin:
           node: web
           output: publicURL

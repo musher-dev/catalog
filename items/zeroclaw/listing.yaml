@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: zeroclaw
@@ -8,7 +8,7 @@ spec:
   summary: >-
     Small, self-hosted autonomous assistant written in Rust, with a web
     dashboard, memory, scheduled jobs and messaging channels
-  description: |
+  overview: |
     ## What it is
     ZeroClaw is a self-hosted personal-assistant runtime in a single Rust
     binary. A long-running daemon hosts one or more agents. Each agent has
@@ -26,7 +26,7 @@ spec:
       yourself, including any OpenAI-compatible endpoint.
 
     ## What you'll be asked for
-    Nothing at install time. ZeroClaw doesn't use your organization's model
+    Nothing at deploy time. ZeroClaw doesn't use your organization's model
     connection. You choose the model the first time you open the dashboard.
 
     On your first visit, the dashboard pairs your browser (see below) and
@@ -86,7 +86,7 @@ spec:
     - automation
     - rust
   homepageURL: https://www.zeroclaw.com
-  sourceRepoURL: https://github.com/zeroclaw-labs/zeroclaw
+  sourceRepositoryURL: https://github.com/zeroclaw-labs/zeroclaw
   supportURL: https://docs.zeroclaw.com
   license: MIT OR Apache-2.0
   icon: media/icon.png

@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: litellm
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: LiteLLM
   summary: OpenAI-compatible proxy that fronts 100+ LLM providers with keys, budgets, and logging
-  description: |
+  overview: |
     ## What it is
     LiteLLM is an OpenAI-compatible proxy that fronts 100+ LLM providers
     (OpenAI, Anthropic, Bedrock, Vertex, Mistral, Azure, local Ollama)
@@ -38,7 +38,7 @@ spec:
     database, so the UI cannot be used. Virtual keys, teams, budgets and
     spend tracking need a database too: deploy **LiteLLM Stack** instead,
     the same proxy with its own Postgres and Redis.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - ai
@@ -47,7 +47,7 @@ spec:
     - gateway
     - openai-compatible
   homepageURL: https://www.litellm.ai
-  sourceRepoURL: https://github.com/BerriAI/litellm
+  sourceRepositoryURL: https://github.com/BerriAI/litellm
   supportURL: https://docs.litellm.ai
   license: MIT
   icon: media/icon.png

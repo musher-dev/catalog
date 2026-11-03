@@ -1,4 +1,4 @@
-specVersion: v1
+specVersion: v2
 kind: LISTING
 metadata:
   slug: mlflow
@@ -6,7 +6,7 @@ spec:
   itemType: BLUEPRINT
   displayName: MLflow
   summary: Experiment tracking and model registry for ML teams — runs, metrics, artifacts
-  description: |
+  overview: |
     ## What it is
     MLflow is the de-facto standard for tracking machine-learning
     experiments, packaging code, and managing a model registry. The
@@ -34,7 +34,7 @@ spec:
 
     ## Access and security
     The tracking UI sits behind the platform's sign-in, so only people
-    allowed into this installation reach it. It also has MLflow's own login.
+    allowed into this deployment reach it. It also has MLflow's own login.
     The admin account is `admin`, with the generated password on the
     deployment's Installation tab, and an admin can add MLflow users from
     the UI. The browser asks for those credentials after you sign in.
@@ -51,9 +51,9 @@ spec:
     SQLite path, which is not one. If you point it at Postgres or MySQL, the
     URI you enter embeds a password, and it is handled like any other
     deployment setting — it appears in the deployment's configuration, and in
-    the records and logs of the installation. Give MLflow a database role
+    the records and logs of the deployment. Give MLflow a database role
     scoped to it, and rotate that role's password rather than a shared one.
-  category: AI_ML
+  category: MODELS
   lifecycleStage: STABLE
   tags:
     - ml
@@ -61,7 +61,7 @@ spec:
     - experiment-tracking
     - model-registry
   homepageURL: https://mlflow.org
-  sourceRepoURL: https://github.com/mlflow/mlflow
+  sourceRepositoryURL: https://github.com/mlflow/mlflow
   supportURL: https://mlflow.org/docs
   license: Apache-2.0
   icon: media/icon.png
