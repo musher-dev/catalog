@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Paperclip agent-orchestration server and board UI, with agent workspaces,
     uploads and its secrets key on one volume and its state in an external

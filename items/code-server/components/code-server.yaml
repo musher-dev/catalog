@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 8
   description: code-server, VS Code in the browser, with a persistent home directory.
 spec:
   type: SERVICE

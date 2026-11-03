@@ -13,7 +13,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: The language-model API the OpenClaw agent sends model requests to, taken whole as one connection.
 spec:
   type: EXTERNAL

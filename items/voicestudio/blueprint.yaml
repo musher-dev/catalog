@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: voicestudio
-  revision: 1
+  revision: 2
   description: >-
     VoiceStudio voice cloning, speech and transcription on CPU, behind the
     platform's sign-in, with its OpenAI-compatible audio API and MCP server

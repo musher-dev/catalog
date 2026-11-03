@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: litellm-stack
-  revision: 1
+  revision: 2
   description: >-
     LiteLLM proxy with its own Postgres for virtual keys, teams and spend, and
     its own password-protected Redis for shared cache and rate limits.

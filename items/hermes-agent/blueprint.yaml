@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: hermes-agent
-  revision: 1
+  revision: 2
   description: >-
     Hermes Agent gateway and web dashboard on the deployer's language-model
     connection, with the dashboard signed in through the platform's OpenID

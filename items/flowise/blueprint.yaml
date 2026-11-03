@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  revision: 7
+  revision: 8
   description: >-
     Flowise behind the platform's sign-in, with its chat and flow APIs reachable
     and a generated credential-encryption key.

@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 6
+  revision: 7
   description: LiteLLM proxy exposing one OpenAI-compatible API in front of many model providers.
 spec:
   type: SERVICE

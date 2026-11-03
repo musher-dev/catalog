@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 10
+  revision: 11
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
