@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: qdrant
-  revision: 6
+  revision: 7
   description: Qdrant vector database with an authenticated, publicly reachable HTTP API.
 spec:
   nodes:

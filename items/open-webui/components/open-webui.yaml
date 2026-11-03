@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 10
+  revision: 11
   description: >-
     Open WebUI chat interface for any OpenAI-compatible language-model API,
     signing viewers in as an OpenID Connect client of the platform.

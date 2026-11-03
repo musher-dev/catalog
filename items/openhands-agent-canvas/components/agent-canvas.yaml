@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     OpenHands Agent Canvas all-in-one image (agent server, automation backend,
     web UI and bundled editor) behind one port, with state and project volumes.

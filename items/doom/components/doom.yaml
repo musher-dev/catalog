@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     Browser-playable Chocolate Doom via KasmVNC, served over HTTPS with the web
     login disabled and streaming fixed server-side for low input lag.
