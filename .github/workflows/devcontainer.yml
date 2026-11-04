@@ -1,9 +1,26 @@
 # Dev container integrity.
 #
 # The container is the thing nobody can validate on their own machine without
-# building it, so this workflow is where its three failure modes are caught: a
-# broken script, a lockfile that has drifted from devcontainer.json, and an
-# .env template that no longer matches what the tasks read.
+# building it, so this workflow is where its failure modes are caught: a broken
+# script, a lockfile that has drifted from devcontainer.json, a lifecycle script
+# that no longer sets the container up, and an .env template that no longer
+# matches what the tasks read.
+#
+# It runs only when a change touches the dev container's inputs, on a pull
+# request and on the push to main that lands it:
+#   .devcontainer/**   the configuration and its lockfile, the lifecycle
+#                      scripts, mise.toml (the CLIs post-create installs) and
+#                      the .env template
+#   Taskfile.yml       `task env:check`, which Env Template Sync runs
+#   this workflow      the jobs that test the container
+# Dependency manifests stay out: post-create's `npm ci` reads package.json and
+# package-lock.json, and validate.yml proves the same `npm ci` on every change.
+#
+# The filter sits on the workflow, not on a job, because nothing here is a
+# required check: no ruleset protects main, and validate.yml is one job with no
+# aggregate to report into. A required check whose workflow never starts waits
+# forever, so the day one is required, the filter moves into a job, as in
+# musher-dev/engineering-conventions' validate.yml.
 name: Dev Container
 
 on:
@@ -36,17 +53,38 @@ jobs:
         with:
           scandir: .devcontainer/scripts
 
-  lockfile:
-    name: Feature Lockfile
+  build:
+    name: Build and Start
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       # --frozen-lockfile fails if devcontainer-lock.json is missing or if its
       # resolved Feature digests drift from devcontainer.json. Building is also
       # the only real proof the Feature set still resolves together.
       - name: Build the container and enforce devcontainer-lock.json is current
-        run: npx -y @devcontainers/cli build --workspace-folder . --frozen-lockfile
+        run: npx -y @devcontainers/cli@0.89.0 build --workspace-folder . --frozen-lockfile
+      # As opening it in an editor does: initialize.sh on the runner, then
+      # post-create, startup and post-attach in the container. post-create's
+      # base_verify_tools fails the start when a CLI is missing. mise fetches
+      # the mise.toml pins from GitHub releases and checks them through the
+      # GitHub API, which the runner's shared IP would call anonymously at 60
+      # an hour; the token is this job's read-only one, and with it set
+      # lib/github-auth.sh stores no gh login.
+      - name: Start the container and run its lifecycle
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: >-
+          npx -y @devcontainers/cli@0.89.0 up --workspace-folder .
+          --remote-env "GITHUB_TOKEN=${GITHUB_TOKEN}" --remote-env CI=true
+      - name: Check mise installed every pin
+        run: |
+          set -euo pipefail
+          missing="$(npx -y @devcontainers/cli@0.89.0 exec --workspace-folder . mise ls --missing --no-header)"
+          if [ -n "$missing" ]; then
+            echo "::error title=Dev Container::mise pins missing after post-create: ${missing}"
+            exit 1
+          fi
 
   env-check:
     name: Env Template Sync
