@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 9
+  revision: 10
   description: >-
     MLflow tracking server behind the platform's sign-in and its own login, on
     local SQLite and volume-backed artifacts, both overridable at deploy.

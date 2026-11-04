@@ -23,7 +23,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 5
+  revision: 6
   description: >-
     A language-model API addressed outside this deployment, taken whole as one
     connection — endpoint, credential and model together.

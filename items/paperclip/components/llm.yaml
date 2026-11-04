@@ -13,7 +13,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     The Anthropic Messages API Paperclip's Claude Code agents send model
     requests to, taken whole as one connection.

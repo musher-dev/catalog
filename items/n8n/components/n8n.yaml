@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 11
+  revision: 12
   description: n8n workflow automation, with its database and credentials on one volume.
 spec:
   type: SERVICE
