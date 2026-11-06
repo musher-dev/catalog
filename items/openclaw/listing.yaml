@@ -31,21 +31,28 @@ spec:
 
     The connection is written into OpenClaw's configuration each time it
     starts, so a rotated credential or a replaced connection takes effect on
-    the next restart. For the same reason, a different default model picked in
-    the Control UI reverts to the connection's model on restart.
+    the next restart. For the same reason, a different default model or
+    fallback picked in the Control UI reverts on restart. Other providers you
+    add under Settings → Models are kept.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.10.2`
+    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.11.1`
     with the Control UI on port 18789 behind the platform's HTTPS edge.
     Open the deployment's URL and you land in the Control UI, already
     connected. There is no token to copy. The agent is already on the
     language model you chose. The deployment's public origin is written into
-    the gateway's browser-origin allowlist automatically. Two persistent
+    the gateway's configuration automatically. Two persistent
     volumes (10 GiB at `/home/node/.openclaw`, 1 GiB at
     `/home/node/.config/openclaw`) keep configuration, session history,
     paired browsers and connected-channel credentials across restarts. The
     smaller one holds only the key for credentials written by older
     releases.
+
+    The first start on a new version can take several minutes, because
+    OpenClaw copies and migrates its state before it starts serving. Later
+    restarts skip the copy. The version moves with this catalog item, so
+    ignore any update notice in the Control UI: OpenClaw won't update itself
+    inside a container.
 
     ## Access and security
     Signing in to Musher is what gets you in. The platform admits only people
@@ -62,14 +69,24 @@ spec:
     Everyone the platform admits gets full admin over an agent that can run
     tools and shell commands. `openclaw security audit` flags that as
     critical, and here it is intended. Limit who can open the deployment
-    accordingly. A browser stays paired after its user loses access, so
-    revoke devices you no longer trust from the Control UI.
+    accordingly: OpenClaw supports one trust boundary per gateway, so people
+    who don't trust each other should each have their own deployment. A
+    browser stays paired after its user loses access, so revoke devices you
+    no longer trust from the Control UI.
 
     The Installation tab also shows a generated gateway password. Browsers
     never need it. It is for the OpenClaw CLI inside the container.
 
-    Messaging-channel onboarding (WhatsApp, Telegram, Discord) requires
-    the interactive CLI and is not available in this deployment yet.
+    ## Messaging channels and other limits
+    Messaging channels are set up in the Control UI, under Settings →
+    Connections → Channels, and its Plugins page installs any that aren't
+    built in. Channels that connect out, such as Telegram long polling and
+    Slack Socket Mode, work as usual. A channel that needs an inbound webhook
+    can't reach this deployment, because the platform requires a sign-in on
+    every request.
+
+    Dashboard widgets and MCP Apps render from a second port this deployment
+    doesn't expose, so their frames won't load.
   category: AGENTS
   lifecycleStage: BETA
   tags:

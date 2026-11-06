@@ -2,11 +2,11 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 10
+  revision: 11
   description: >-
     OpenClaw agent gateway on the deployer's language-model connection, reached
-    through the platform's sign-in with the viewer's identity forwarded, with
-    its own public origin in the Control UI allowlist.
+    through the platform's sign-in with the viewer's identity forwarded, and
+    given its own public origin for browser sessions and links.
 spec:
   nodes:
     llm:
@@ -27,12 +27,13 @@ spec:
         auth-secrets:
           sizeGiB: 1
       # Signed in, with identity forwarded (blueprint §4.5, ADR 0034). The
-      # platform authenticates every request and WebSocket upgrade before
-      # forwarding it, and sets the viewer-identity header OpenClaw's
-      # trusted-proxy mode reads. There is no token screen. The component reads
-      # the header name and proxy CIDRs from this endpoint, so a bare `PUBLIC`
-      # here fails ERR_VIEWER_IDENTITY_NOT_FORWARDED rather than deploying an
-      # item whose header anyone could forge.
+      # platform forwards an HTTP request or WebSocket upgrade only for a viewer
+      # who signs in and whom the deployment's access policy admits, and it sets
+      # the viewer-identity header OpenClaw's trusted-proxy mode reads. There is
+      # no token screen. The component reads the header name and proxy CIDRs from
+      # this endpoint, so a bare `PUBLIC` here fails
+      # ERR_VIEWER_IDENTITY_NOT_FORWARDED rather than deploying an item whose
+      # header anyone could forge.
       exposure:
         primary:
           visibility: PUBLIC
@@ -55,7 +56,7 @@ spec:
         timezone:
           parameter: timezone
         # This node's own allocated origin, from the output the component derives
-        # from its `primary` endpoint, written into
+        # from its `primary` endpoint, written into gateway.publicOrigin and
         # gateway.controlUi.allowedOrigins by the boot command. A node reading
         # its own endpoint output is a discovery dependency and not a value
         # cycle (BP-BIND-002): the address is allocated before anything runs.
@@ -85,7 +86,7 @@ spec:
       ui:
         label: Language model
         order: 1
-    # Local gateway password: auto-minted at deploy and shown on the Configuration
+    # Local gateway password: auto-minted at deploy and shown on the Installation
     # tab. Browsers never need it; the platform edge signs them in. It is for the
     # OpenClaw CLI inside the container, which authenticates to the gateway over
     # loopback. 32 bytes of hex == 64 characters, matching the project's
