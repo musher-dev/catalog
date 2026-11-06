@@ -13,7 +13,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: The language-model API the OpenClaw agent sends model requests to, taken whole as one connection.
 spec:
   type: EXTERNAL
@@ -24,23 +24,24 @@ spec:
           Language-model connection the agent runs on: endpoint, credential and
           model, acquired together.
         connection:
-          # Streaming and tool calls, both unconditionally. Observed against the
-          # 2026.7.1 CLI (`agent --local`, with the boot command in
-          # openclaw.yaml applied) and a mock server logging what it received. A
-          # plain "say ping" turn sent POST {baseURL}/chat/completions with
-          # `stream: true`, 34 tool definitions, the model id as given, the key
-          # resolved from LLM_API_KEY, and no reasoning field. Later tags were
-          # checked by reading the source rather than by observation:
-          # `openai-completions` is still a model-data API and the
-          # custom-provider shape is unchanged. Memory search
-          # does not need embeddings: with no embedding provider configured it
-          # falls back to keyword search (docs/concepts/memory-search.md).
+          # Streaming and tool calls, both unconditionally. Observed at 2026.11.1,
+          # with the boot command in openclaw.yaml applied and a mock server
+          # logging what it received. One "say ping" turn through the gateway sent
+          # POST {baseURL}/chat/completions with `stream: true`, 14 tool
+          # definitions, the model id as given (a `/` in it is fine), the key from
+          # LLM_API_KEY as a Bearer token, only system and user roles, and no
+          # reasoning field. It also sent stream_options, tool_choice and
+          # max_completion_tokens.
           #
-          # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES, though both
-          # work at this tag. It accepts the widest range of compatible defaults
-          # and replacement connections, and it keeps OpenClaw off its
-          # Claude-specific beta and thinking paths on a host that is not
-          # api.anthropic.com.
+          # Embeddings are not required. Doctor warns on every boot that it found
+          # no embedding key, and a memory search still answers: with the provider
+          # unset, upstream falls back to keyword-only ranking when embedding
+          # setup fails (docs/concepts/memory-search.md).
+          #
+          # OPENAI_CHAT_COMPLETIONS rather than ANTHROPIC_MESSAGES, though OpenClaw
+          # speaks both. It accepts the widest range of compatible defaults and
+          # replacement connections, and it keeps OpenClaw off its Claude-specific
+          # beta and thinking paths on a host that is not api.anthropic.com.
           #
           # This is declared on the supplying node rather than on `web`: after
           # ADR 0033 a workload sees three strings and cannot demand a protocol.

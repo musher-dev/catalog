@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 10
+  revision: 11
   description: >-
     OpenClaw agent gateway and Control UI behind the platform edge's sign-in,
     with its config, sessions and credentials on two volumes.
@@ -9,54 +9,82 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 2026.10.2 is the latest stable release (2026-10-12). The tag on
+      # PINNED. 2026.11.1 is the latest stable release (2026-11-05). The tag on
       # ghcr carries no `v` prefix.
       #
-      # This item previously sat on 2026.7.1 because it relied on
-      # `gateway.controlUi.dangerouslyDisableDeviceAuth`, which 2026.8.x made
-      # inert: at 2026.10.2 `shouldSkipControlUiPairing`
-      # (src/gateway/server/ws-connection/connect-policy.ts) returns only
-      # "tailscale-device", "auth-none" or null, and `doctor --fix` deletes the
-      # key as retired. Browsers are admitted here by trusted-proxy auth with
-      # `deviceAutoApprove` instead (see the block above `command`).
+      # Known upstream issue at this tag: the Control UI does not load in iOS 18
+      # Safari, as of 2026.10.10 (openclaw/openclaw#193540).
       #
-      # When bumping, re-read the pairing plan
-      # (src/gateway/server/ws-connection/connect-pairing-approval-plan.ts) for
-      # the trusted-proxy auto-approve lane, docker-entrypoint.mjs (see below)
-      # for any change to which commands it passes through, and
-      # src/gateway/server-http.ts for which probe routes are answered before
-      # proxy attribution (see the block above `readiness`).
-      image: ghcr.io/openclaw/openclaw:2026.10.2
-    # Converge config through OpenClaw's own `config set` CLI, then exec the
-    # gateway.
+      # When bumping, re-read:
+      #
+      #   - docker-entrypoint.mjs, for which commands it passes through, and
+      #     src/commands/doctor-original-capture.ts, for the activation marker
+      #     the boot command sets. The marker is upstream's internal name, not a
+      #     documented setting. If it is renamed, nothing fails: every boot just
+      #     goes back to taking a full copy of the state.
+      #   - src/gateway/server-http-request.ts and server-http-probes.ts, for
+      #     which peers reach the probe routes. The Control UI answers unknown
+      #     paths with a catch-all 200, so a probe route that disappeared would
+      #     still read as healthy.
+      #   - src/gateway/server/ws-connection/connect-pairing-approval-plan.ts,
+      #     for the trusted-proxy auto-approve lane.
+      image: ghcr.io/openclaw/openclaw:2026.11.1
+    # BOOT ORDER: Doctor, then `config set`, then the gateway.
     #
-    # `command` replaces the image's CMD and keeps its ENTRYPOINT. Since
-    # 2026.9.7 that is `tini -s -- node /app/docker-entrypoint.mjs`. The
-    # adapter runs `doctor --fix --non-interactive` itself only when its argv
-    # is a foreground gateway run (`node openclaw.mjs gateway` and the like),
-    # and treats a failed Doctor as fatal. Any other command, `sh -c` here,
-    # it hands straight to process.execve unchanged, so tini still supervises
-    # it. That is why the script below still runs Doctor itself, with a
-    # failure reported but not fatal. Its final `exec node openclaw.mjs
-    # gateway` does not go back through the adapter, so Doctor runs once per
-    # boot.
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT, `tini -s --
+    # node /app/docker-entrypoint.mjs`. That adapter runs Doctor itself only when
+    # its argv is a foreground gateway run (`node openclaw.mjs gateway` and the
+    # like), and it treats a failed Doctor as fatal. Any other command, `sh -c`
+    # here, it hands straight to process.execve unchanged, so tini still
+    # supervises it. The adapter cannot run anything between its Doctor and the
+    # gateway, and `config set` has to run there, so this script runs Doctor
+    # itself. Its final `exec node openclaw.mjs gateway` does not go back through
+    # the adapter, so Doctor runs once per boot.
     #
-    # The Control UI origin allowlist (`gateway.controlUi.allowedOrigins`) is
-    # CONFIG-FILE-ONLY: no env var sets it. At 2026.10.2 a non-loopback bind
-    # with the Control UI on refuses to start without it or
-    # `gateway.publicOrigin` (src/gateway/server-runtime-config.ts). Since
-    # 2026.9.7 an omitted allowlist defaults to `[gateway.publicOrigin]`, but
-    # an authored list, even an empty one, overrides it
-    # (src/config/gateway-control-ui-origins.ts). The explicit list stays: it
-    # is what volumes from earlier releases already carry, and `config set`
-    # would not remove it anyway. `gateway.publicOrigin` is not set here.
+    # DOCTOR. `config set` refuses to write over an invalid existing config and
+    # points at `doctor --fix`, and some conversions (older conversations,
+    # pairing records, file-based queues) wait for an explicit Doctor run rather
+    # than happening on restart. A volume carried over from an earlier release
+    # needs both, and this is also what removes retired keys it may carry, such
+    # as gateway.controlUi.dangerouslyDisableDeviceAuth. `--non-interactive`
+    # applies the startup-blocking migrations without prompting and exits 1 when
+    # a repair is incomplete. That exit is reported and not fatal, so it cannot
+    # become a crash loop. If state really cannot be migrated, the gateway exits
+    # 78 on its own (docs/install/docker.md).
     #
-    # `config set` (not a hand-written openclaw.json) is what upstream's own
-    # container guide uses (docs/install/docker.md), and it is the only form
+    # Doctor's report on a healthy boot still carries warnings that are expected
+    # here: mcp.apps.sandboxOrigin is unset (see the block above `endpoints`), no
+    # command owner is configured (that is for chat channels; browsers are
+    # admitted by trusted-proxy auth), no embedding key is found
+    # (components/llm.yaml), and the gateway is bound to `lan`.
+    #
+    # THE ACTIVATION MARKER. Before repairing, `doctor --fix` copies the local
+    # state to /home/node/.openclaw.update-captures/ and keeps the copy for 30
+    # days (src/commands/doctor-original-capture.ts). Without the marker it does
+    # that on every run, even with nothing to repair. The adapter has set
+    # OPENCLAW_IMAGE_ACTIVATION_CAPTURE_MARKER on its own Doctor since 2026.10.6,
+    # but `sh -c` skips the adapter, so this script sets it the same way, on that
+    # one command. The marker records the copy this container already made, so
+    # a restart still runs the repair pass and skips the full copy. /tmp survives
+    # a restart and not a replacement, so a new image takes a new copy.
+    #
+    # That copy is on no volume. It sits in the container's writable layer, goes
+    # away with the container, and holds whatever the state holds, including
+    # connected-channel OAuth tokens in plaintext. It is capped at 10 minutes, and
+    # if it fails or times out Doctor logs that and carries on with the repair.
+    # It is not a backup: the volumes are what to back up.
+    #
+    # CONFIG. `config set` (not a hand-written openclaw.json) is what upstream's
+    # own container guide uses (docs/install/docker.md), and it is the only form
     # that works: the CLI writes a normalized document carrying the
     # `meta.lastTouchedVersion` stamp the gateway expects, whereas a hand-rolled
     # file is rejected as clobbered config ("existing config is missing
     # gateway.mode").
+    #
+    # Run unconditionally on every boot rather than behind a first-boot guard:
+    # the config lives on a persistent volume, so a guard would pin the very first
+    # boot's origin forever and leave a re-deployed app permanently unreachable.
+    # `config set` is declarative, so re-applying is a no-op.
     #
     # `gateway.bind=lan` is set explicitly. In a container the default is
     # `auto` (src/gateway/net.ts `defaultGatewayBindMode`), and the platform
@@ -64,59 +92,63 @@ spec:
     # interface. OPENCLAW_GATEWAY_BIND is not set: it is a compose-file
     # variable that the gateway runtime does not read.
     #
-    # Run unconditionally on every boot rather than behind a first-boot guard:
-    # the config lives on a persistent volume, so a guard would pin the very first
-    # boot's origin forever and leave a re-deployed app permanently unreachable.
-    # `config set` is declarative, so re-applying is a no-op.
-    #
-    # DOCTOR FIRST. At 2026.9.x `config set` refuses to write over an invalid
-    # existing config and points at `doctor --fix`. Since 2026.9.5 some
-    # conversions (older conversations, pairing records, file-based queues) wait
-    # for an explicit doctor run and no longer happen on restart alone. A volume
-    # carried over from 2026.7.1 needs both. `--non-interactive` applies the
-    # startup-blocking migrations without prompting and exits 1 when a repair
-    # is incomplete. That exit is reported and not fatal, so it cannot become
-    # a crash loop. If state really cannot be migrated, the gateway exits 78
-    # on its own.
+    # PUBLIC ORIGIN. Two settings carry one value, and they are config-file-only.
+    # `gateway.publicOrigin` is the origin upstream builds per-requester MCP OAuth
+    # callbacks, chat deep links and plugin viewer links from
+    # (docs/gateway/config-gateway.md). `gateway.controlUi.allowedOrigins` is the
+    # browser-origin allowlist. An omitted allowlist defaults to
+    # `[gateway.publicOrigin]`, but an authored list, even an empty one, overrides
+    # it (src/config/gateway-control-ui-origins.ts). The explicit list stays because
+    # volumes from earlier releases already carry it and `config set` would not
+    # remove it. A non-loopback bind with the Control UI on refuses to start with
+    # neither (src/gateway/server-runtime-config.ts).
     #
     # ACCESS: TRUSTED-PROXY. There is no token screen. The blueprint exposes
-    # `primary` with `access: AUTHENTICATED` and `viewerIdentity: HEADER`
-    # (blueprint §4.5, ADR 0034). So the platform signs the viewer in before
-    # forwarding (BP-ACCESS-002). It strips inbound copies of the identity
-    # header and of Forwarded / X-Forwarded-* / X-Real-IP, then sets the
-    # identity header to a stable, opaque user id on HTTP requests and
-    # WebSocket upgrades (BP-ACCESS-003). The header name and the proxy
-    # addresses are platform facts of the endpoint allocation, read through the
-    # `viewerIdentityHeader` and `trustedProxyCIDRs` outputs below and bound
+    # `primary` with `access: RESTRICTED` and `viewerIdentity: HEADER`
+    # (blueprint §4.5, ADR 0034). So the platform forwards only viewers who sign
+    # in and whom the deployment's access policy admits (BP-ACCESS-002). It strips
+    # inbound copies of the identity header and of Forwarded / X-Forwarded-* /
+    # X-Real-IP, then sets the identity header to a stable, opaque user id on HTTP
+    # requests and WebSocket upgrades (BP-ACCESS-003). The header name and the
+    # proxy addresses are platform facts of the endpoint allocation, read through
+    # the `viewerIdentityHeader` and `trustedProxyCIDRs` outputs below and bound
     # back into this node's inputs. Nothing here defaults or guesses them.
     #
-    # The gateway (docs/gateway/trusted-proxy-auth.md, v2026.10.2) accepts that
-    # header only when:
+    # The gateway (docs/gateway/trusted-proxy-auth.md) accepts that header only
+    # when:
     #
-    #   1. the TCP peer is inside `gateway.trustedProxies`, else
-    #      `proxy_attribution_required`. These are the addresses this container
-    #      sees as its peer: the compute host's proxy, not the edge and not
-    #      loopback. No other workload or tenant may originate from them
-    #      (BP-ACCESS-004);
+    #   1. the TCP peer is inside `gateway.trustedProxies` and X-Forwarded-For
+    #      names a non-loopback client, else `proxy_attribution_required`. These
+    #      are the addresses this container sees as its peer: the compute host's
+    #      proxy, not the edge and not loopback. No other workload or tenant may
+    #      originate from them (BP-ACCESS-004);
     #   2. the peer is neither loopback nor one of this container's own
     #      interface addresses;
     #   3. the header is present and non-blank.
     #
-    # The id is opaque rather than an email, so `allowUsers` and
-    # `identityScopes`, which key on user identities, are left unset. Access
-    # control is the platform's deployment access policy.
-    #
     # `deviceAutoApprove` then pairs the browser silently, so a first visit
-    # lands connected, and every browser is a revocable paired device again.
+    # lands connected, and every browser is a revocable paired device.
     #
-    # `operator.admin` is listed in the auto-approve scopes deliberately. The
-    # person who deploys this is its owner and needs admin to configure the
-    # agent. The platform admits only viewers its access policy allows for this
-    # deployment. This matches the old posture, where the token was full
-    # admin. `openclaw security audit` reports it as the CRITICAL
-    # `gateway.trusted_proxy_device_auto_approve_admin` finding, and the gateway
-    # logs a warning at startup. That is expected here, not a regression. Once
-    # the platform can send a role, `x-openclaw-scopes` can narrow it per user.
+    # `operator.admin` is listed in the auto-approve scopes deliberately: every
+    # viewer the platform admits is treated as an owner of this deployment, the
+    # "mutually trusting team" of upstream's trust model
+    # (docs/gateway/security/trust-model.md). `operator.pairing`, which the Control
+    # UI also asks for, is not listed because admin satisfies every `operator.*`
+    # scope (docs/gateway/operator-scopes.md). `openclaw security audit` reports
+    # this as the CRITICAL `gateway.trusted_proxy_device_auto_approve_admin`
+    # finding, and the gateway logs a warning at startup. That is expected here,
+    # not a regression.
+    #
+    # `allowUsers` and `gateway.auth.identityScopes` stay unset for the same
+    # reason: who may enter is the deployment's access policy, and no one is
+    # singled out. The narrower posture upstream recommends is available if that
+    # changes: take `operator.admin` off this list and grant it per connection
+    # through `identityScopes`, keyed on a parameter `from: ${{
+    # deployment.creator.identity }}` (BP-PARAM-011), the same string this header
+    # carries for that person (BP-ACCESS-006). The cost is that admin stays with
+    # the creator alone, and a deployment an API key creates has no creator
+    # identity, so it would be refused. Once the platform can send a role,
+    # `x-openclaw-scopes` can narrow it per user instead.
     #
     # The whole boundary is the platform's sign-in plus the trusted proxy
     # addresses. A paired device outlives a sign-out: revoke it in the Control
@@ -128,33 +160,41 @@ spec:
     # LLM_API_KEY, LLM_MODEL). Upstream reads no env var for a provider's base
     # URL or a default model, so there is no upstream name to target. The boot
     # command writes the three into OpenClaw's documented custom-provider shape
-    # instead (docs/concepts/model-providers.md, "Local proxies"):
+    # instead (docs/concepts/model-providers/custom-providers.md, "Local proxies"):
     #
     #   - models.providers.llm, with `api: openai-completions`. The OpenAI SDK
     #     appends /chat/completions to baseUrl, so a base ending /v1 is what it
     #     wants. On a host other than api.openai.com, OpenClaw also drops the
     #     developer role and OpenAI-only request shaping.
-    #   - `apiKey` is written as the literal string `${LLM_API_KEY}` (the `\$`
-    #     keeps sh from expanding it). OpenClaw substitutes it from the process
-    #     env at config load (docs/gateway/configuration-reference.md, "Env var
-    #     substitution"), so the credential never lands in openclaw.json on the
-    #     volume.
+    #   - `apiKey` is a SecretRef naming the env var, `{source: env, provider:
+    #     default, id: LLM_API_KEY}`, so the credential stays in the process env
+    #     (docs/gateway/secrets/secretref-contract.md). It is deliberately not the
+    #     `${LLM_API_KEY}` string form. Doctor treats that string as a plaintext
+    #     credential: any boot that finds it copies the resolved key into
+    #     state/openclaw.sqlite on the volume, and rotating the connection leaves
+    #     the old key there (src/commands/doctor-model-catalog-credentials.ts).
+    #     Observed at 2026.11.1 with the SecretRef: the key is in no file across
+    #     restarts and rotation, and `openclaw secrets audit --check` is clean. A
+    #     volume carried over from the string form keeps the copy it already has,
+    #     and takes one on its first boot here because Doctor runs before `config
+    #     set`. Requests still use the current key.
     #   - One model entry, `reasoning: false` and `input: [text]`, stated even
     #     though they are the custom-provider defaults. The connection supplies
     #     neither thinking nor vision, and this keeps OpenClaw from asking for
     #     either.
     #   - agents.defaults.model, as the whole object rather than `.primary`, so
-    #     it succeeds under `set -e` whatever shape a UI edit left behind. At
-    #     2026.9.x `config set` resolves model refs before writing. `llm/<model>`
-    #     resolves because the provider is written in the same batch, but a
-    #     model id OpenClaw cannot parse fails the boot here, visibly.
+    #     it succeeds under `set -e` whatever shape a UI edit left behind. `config
+    #     set` resolves model refs before writing. `llm/<model>` resolves because
+    #     the provider is written in the same batch, but a model id OpenClaw
+    #     cannot parse fails the boot here, visibly.
     #
     # Because the batch runs on every boot, the connection is authoritative.
     # A rotated credential or replaced connection takes effect at the next
-    # restart. A default model chosen in the Control UI does not survive one,
-    # and the listing says so.
+    # restart. A default model or fallback chosen in the Control UI does not
+    # survive one, and the listing says so. Another provider added under Settings
+    # does, because the batch writes only `models.providers.llm`.
     #
-    # Exec form: argv, no shell of the platform's own. The shell this needs is
+    # EXEC FORM: argv, no shell of the platform's own. The shell this needs is
     # the one named here. The script uses `${VAR%/}` to strip a trailing slash
     # off the origin. OPENCLAW_TRUSTED_PROXIES is an array input, so it
     # arrives as a compact JSON array and is spliced into the batch as it is.
@@ -165,52 +205,64 @@ spec:
       - -c
       - >-
         set -e;
+        OPENCLAW_IMAGE_ACTIVATION_CAPTURE_MARKER=/tmp/openclaw-image-activation-capture
         node /app/dist/index.js doctor --fix --non-interactive
         || echo "openclaw: doctor --fix reported an incomplete repair; continuing" >&2;
         node /app/dist/index.js config set --batch-json
         "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
         {\"path\":\"gateway.bind\",\"value\":\"lan\"},
+        {\"path\":\"gateway.publicOrigin\",\"value\":\"${OPENCLAW_PUBLIC_ORIGIN%/}\"},
         {\"path\":\"gateway.controlUi.allowedOrigins\",\"value\":[\"${OPENCLAW_PUBLIC_ORIGIN%/}\"]},
         {\"path\":\"gateway.trustedProxies\",\"value\":${OPENCLAW_TRUSTED_PROXIES}},
         {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
         {\"path\":\"gateway.auth.trustedProxy\",\"value\":{\"userHeader\":\"${OPENCLAW_IDENTITY_HEADER}\",\"deviceAutoApprove\":{\"enabled\":true,\"scopes\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]}}},
-        {\"path\":\"models.providers.llm\",\"value\":{\"baseUrl\":\"${LLM_BASE_URL%/}\",\"api\":\"openai-completions\",\"apiKey\":\"\${LLM_API_KEY}\",\"models\":[{\"id\":\"${LLM_MODEL}\",\"name\":\"${LLM_MODEL}\",\"reasoning\":false,\"input\":[\"text\"]}]}},
+        {\"path\":\"models.providers.llm\",\"value\":{\"baseUrl\":\"${LLM_BASE_URL%/}\",\"api\":\"openai-completions\",\"apiKey\":{\"source\":\"env\",\"provider\":\"default\",\"id\":\"LLM_API_KEY\"},\"models\":[{\"id\":\"${LLM_MODEL}\",\"name\":\"${LLM_MODEL}\",\"reasoning\":false,\"input\":[\"text\"]}]}},
         {\"path\":\"agents.defaults.model\",\"value\":{\"primary\":\"llm/${LLM_MODEL}\"}}]";
         exec node openclaw.mjs gateway
+    # One endpoint. The sandbox listener for dashboard widgets and MCP Apps (the
+    # gateway port + 1) is not exposed: it needs a second public origin
+    # (mcp.apps.sandboxOrigin, docs/cli/mcp/apps.md). So those frames do not load,
+    # Doctor warns about it on every boot, and the listing says so.
     endpoints:
       primary:
         targetPort: 18789
         protocol: HTTP
+    # Three stages (component §5.4). `startup` suspends the other two until it
+    # passes, so neither can act on a container that is still booting.
+    #
+    # The platform's probes arrive from a peer inside `trustedProxies`, naming the
+    # probing host in Forwarded and X-Forwarded-For (COMP-EP-017). A host with no
+    # usable address sends neither header. The gateway answers both forms: since
+    # 2026.10.8 a trusted peer reaches the probe routes before the
+    # `proxy_attribution_required` rejection (src/gateway/server-http-request.ts,
+    # docs/gateway/health.md). Before that, a headerless probe of /startupz got a
+    # 403 and the deployment never became ready.
     health:
-      readiness:
-        # /healthz, not upstream's /startupz or /readyz: under trusted-proxy
-        # auth the platform's probe cannot reach either of those.
+      startup:
+        # /startupz is 200 once startup sidecars and agent-database inspection
+        # have settled, and 503 while they are pending or the gateway is draining.
         #
-        # The platform probes over the published port with no forwarding
-        # headers, so this container sees the probe arrive from the same peer
-        # as forwarded traffic, which `trustedProxies` covers (BP-ACCESS-004).
-        # At 2026.10.2, src/gateway/server-http.ts answers only the live
-        # routes (/health, /healthz) before proxy attribution. /startupz and
-        # /readyz from a trusted peer whose forwarding headers name no
-        # non-loopback client are `unattributable-proxy`, answered 403
-        # `proxy_attribution_required` (src/gateway/ingress-attribution.ts),
-        # though docs/gateway/health.md calls every probe unauthenticated. A
-        # /startupz readiness probe therefore never passes, and probe `auth`
-        # cannot help because attribution runs first.
-        # musher-dev/specifications#184 tracks the platform side; move back to
-        # /startupz once probes are attributable.
-        #
-        # What this proves: the HTTP listener is up, which happens only after
-        # the boot command's doctor and `config set` have finished. Startup
-        # sidecars and agent-database inspection may still be settling. Until
-        # they do, the gateway serves the Control UI and answers RPCs with a
-        # retryable UNAVAILABLE, so a viewer who arrives that early waits
-        # rather than fails.
+        # Nothing listens until the boot command's Doctor and `config set` finish,
+        # and running out of attempts restarts the container in the middle of
+        # whatever it was doing. So the budget is sized from upstream's own
+        # numbers for a new container on slow hardware: the state copy's 600 s cap
+        # (docs/install/updating.md) plus 258 s of Doctor (the comment beside that
+        # cap in src/commands/doctor-original-capture.ts). 30 + 96 x 10 = 990 s.
         http:
           endpoint: primary
-          path: /healthz
-        # Node boot, doctor and SQLite migrations run before anything listens.
-        initialDelaySeconds: 45
+          path: /startupz
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 96
+      readiness:
+        # /startupz and not /readyz, as upstream advises for traffic admission
+        # (docs/install/docker.md). /readyz also fails on a hard channel failure,
+        # which would take the whole Control UI out of routing because of one
+        # broken channel account.
+        http:
+          endpoint: primary
+          path: /startupz
         timeoutSeconds: 5
         successThreshold: 1
         failureThreshold: 10
@@ -221,26 +273,23 @@ spec:
         http:
           endpoint: primary
           path: /healthz
-        # Nothing listens while the boot command's doctor and config runs are
-        # still going. Without this delay, three failures 30s apart would
-        # restart a container in the middle of a first-boot migration.
-        initialDelaySeconds: 120
         periodSeconds: 30
         timeoutSeconds: 5
         failureThreshold: 3
     volumes:
-      # Core state: openclaw.json, SQLite session DBs (which, at 2026.9.x, hold
-      # connected-channel OAuth tokens in plaintext), paired devices, installed
-      # plugins and the agent workspace (default /home/node/.openclaw/workspace
-      # lives inside this directory, so a single claim covers config +
-      # workspace). This is the credential-bearing volume.
+      # Core state: openclaw.json, the SQLite databases (state/openclaw.sqlite and
+      # agents/<id>/agent/openclaw-agent.sqlite, which hold connected-channel
+      # OAuth tokens in plaintext, docs/install/docker/networking-and-storage.md),
+      # paired devices, installed plugins and the agent workspace (default
+      # /home/node/.openclaw/workspace lives inside this directory, so a single
+      # claim covers config + workspace). This is the credential-bearing volume.
       config:
         minSizeGiB: 10
         mountPath: /home/node/.openclaw
-      # The key that recovers legacy encrypted OAuth sidecars written by
-      # releases before 2026.9. Upstream keeps it outside the config directory
-      # and still mounts it (docker-compose.yml), so a volume carried over from
-      # 2026.7.1 can still decrypt what it holds.
+      # The key that recovers legacy encrypted OAuth sidecars written by older
+      # releases. Upstream keeps it outside the config directory and still mounts
+      # it (docker-compose.yml, OPENCLAW_AUTH_PROFILE_SECRET_DIR), so a volume
+      # carried over from one of those releases can still decrypt what it holds.
       auth-secrets:
         minSizeGiB: 1
         mountPath: /home/node/.config/openclaw
@@ -319,17 +368,21 @@ spec:
         description: >-
           CIDRs the platform's forwarded traffic arrives from. The identity
           header is trusted only on connections from these addresses.
+      # Required because the boot command cannot succeed without it: `config set`
+      # rejects an empty gateway.publicOrigin as an invalid URL, which fails the
+      # boot under `set -e`.
       publicOrigin:
         schema:
           type: string
         presentationHint: ENDPOINT_URL
-        required: false
+        required: true
         target:
           envVar: OPENCLAW_PUBLIC_ORIGIN
         description: >-
-          Public https origin of this deployment's Control UI, written into
-          gateway.controlUi.allowedOrigins on every boot so browser sessions
-          from the public hostname are accepted.
+          Public https origin of this deployment, written into
+          gateway.publicOrigin and gateway.controlUi.allowedOrigins on every boot
+          so links use the public hostname and browser sessions from it are
+          accepted.
       timezone:
         schema:
           type: string
@@ -400,9 +453,9 @@ spec:
           type: string
         presentationHint: ENDPOINT_URL
         description: >-
-          Public https origin this deployment's Control UI answers at, as the
-          platform allocated it. The blueprint binds it back into this node's own
-          allowlist.
+          Public https origin this deployment answers at, as the platform
+          allocated it. The blueprint binds it back into this node's own
+          `publicOrigin` input.
         from:
           endpoint: primary
           property: publicURL
