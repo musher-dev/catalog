@@ -1886,6 +1886,8 @@ describe('connections — component §6.4, blueprint §5.3', () => {
 
   it('ERR_VALUE_CONSTRAINT when a sensitive member is forwarded by an output not declared sensitive', async () => {
     await assertReports(standsFor('S3', { secretAccessKey: forwards('secretAccessKey') }), 'ERR_VALUE_CONSTRAINT');
+    await assertReports(standsFor('TELEGRAM_BOT', { botToken: forwards('botToken') }), 'ERR_VALUE_CONSTRAINT');
+    await assertClean(standsFor('SLACK_APP', { signingSecret: forwards('signingSecret', { sensitive: true }) }));
   });
 
   it('ERR_INPUT_NOT_GUARANTEED when an output forwards an optional member with no default, and not one with a default', async () => {

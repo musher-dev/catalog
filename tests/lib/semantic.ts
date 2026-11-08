@@ -28,7 +28,7 @@ import {
 import { declaredMediaPaths, mediaPathPatternFrom } from './media.ts';
 import { scanOverview } from './markdown.ts';
 import { rel } from './paths.ts';
-import { loadSchema, validatorFor } from './spec-schemas.ts';
+import { loadSchema, protocolRegistry, validatorFor, type ProtocolRecord } from './spec-schemas.ts';
 
 export type Diagnostic = { code: string; where: string; message: string };
 
@@ -746,46 +746,29 @@ const isConnectionInput = (input: Record<string, unknown>): boolean => isRecord(
  * forwarded by an output (COMP-OUT-003).
  */
 type MemberContract = { sensitive: boolean; guaranteed: boolean };
-const member = (sensitive = false, guaranteed = true): MemberContract => ({ sensitive, guaranteed });
-const LANGUAGE_MODEL_MEMBERS = { baseURL: member(), apiKey: member(true), model: member() };
-const CONNECTION_PROTOCOL_MEMBERS: Record<string, Record<string, MemberContract>> = {
-  OPENAI_CHAT_COMPLETIONS: LANGUAGE_MODEL_MEMBERS,
-  ANTHROPIC_MESSAGES: LANGUAGE_MODEL_MEMBERS,
-  POSTGRES: {
-    host: member(),
-    port: member(),
-    database: member(),
-    username: member(),
-    password: member(true),
-    sslMode: member(),
-    url: member(true),
-  },
-  REDIS: {
-    host: member(),
-    port: member(),
-    tls: member(),
-    database: member(false, true),
-    username: member(false, false),
-    password: member(true, false),
-    url: member(true),
-  },
-  S3: {
-    endpointURL: member(),
-    region: member(),
-    bucket: member(),
-    accessKeyID: member(),
-    secretAccessKey: member(true),
-    pathStyle: member(false, true),
-  },
-};
 
-/** Every member any protocol defines. */
-const CONNECTION_MEMBERS = new Set(Object.values(CONNECTION_PROTOCOL_MEMBERS).flatMap((members) => Object.keys(members)));
+const contractsOf = (protocol: ProtocolRecord): Record<string, MemberContract> =>
+  Object.fromEntries(
+    protocol.members.map((member) => [
+      member.name,
+      { sensitive: member.sensitive, guaranteed: member.presence !== 'optional' || member.default !== undefined },
+    ]),
+  );
+
+/** Read once, on first use: an import must not unpack the releases before `spec.test.ts` can judge them. */
+let protocolContracts: Record<string, Record<string, MemberContract>> | null = null;
+const connectionProtocols = (): Record<string, Record<string, MemberContract>> =>
+  (protocolContracts ??= Object.fromEntries(protocolRegistry().map((protocol) => [protocol.id, contractsOf(protocol)])));
+
+/** Is `name` a member of any protocol at all? */
+const isConnectionMember = (name: string): boolean =>
+  Object.values(connectionProtocols()).some((members) => Object.hasOwn(members, name));
 
 /** The contract `name` has under the connection input's protocol, or undefined where it defines none. */
 function protocolMember(input: Record<string, unknown>, name: string): MemberContract | undefined {
   const protocol = record(input['connection'])['protocol'];
-  const members = typeof protocol === 'string' && Object.hasOwn(CONNECTION_PROTOCOL_MEMBERS, protocol) ? CONNECTION_PROTOCOL_MEMBERS[protocol] : undefined;
+  const protocols = connectionProtocols();
+  const members = typeof protocol === 'string' && Object.hasOwn(protocols, protocol) ? protocols[protocol] : undefined;
   return members && Object.hasOwn(members, name) ? members[name] : undefined;
 }
 
@@ -898,7 +881,7 @@ export function checkOutputOrigins(context: SemanticContext): Diagnostic[] {
           }
           const contract = protocolMember(input, member);
           if (!contract) {
-            if (CONNECTION_MEMBERS.has(member)) {
+            if (isConnectionMember(member)) {
               found.push(
                 diag(
                   'ERR_UNKNOWN_CONNECTION_MEMBER',

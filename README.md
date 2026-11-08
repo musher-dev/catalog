@@ -284,7 +284,8 @@ spec:
       llm:
         description: Language-model connection this node stands for.
         connection:
-          protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES; POSTGRES, REDIS, S3 too
+          protocol: OPENAI_CHAT_COMPLETIONS   # or ANTHROPIC_MESSAGES; POSTGRES, REDIS, S3,
+                                              # TELEGRAM_BOT, SLACK_APP and DISCORD_BOT too
           capabilities: [STREAMING]
     outputs:
       baseURL:
@@ -351,7 +352,7 @@ npm test
 
 Every item is validated against an **exact release of each family** of
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications):
-`core/v2.0.0`, `component/v2.0.0`, `blueprint/v2.0.0` and `listing/v2.0.0`.
+`core/v2.1.0`, `component/v2.1.0`, `blueprint/v2.1.0` and `listing/v2.1.0`.
 v1 is retired
 ([ADR 0038](https://github.com/musher-dev/specifications/blob/main/docs/adr/0038-v2-one-vocabulary-and-v1-retires.md)),
 and every document here declares `specVersion: v2`. The four release archives
