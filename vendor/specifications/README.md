@@ -7,10 +7,10 @@ publishes them:
 
 | Archive | Release |
 | --- | --- |
-| `core-v2.0.0.tar.gz` | [`core/v2.0.0`](https://github.com/musher-dev/specifications/releases/tag/core/v2.0.0) |
-| `component-v2.0.0.tar.gz` | [`component/v2.0.0`](https://github.com/musher-dev/specifications/releases/tag/component/v2.0.0) |
-| `blueprint-v2.0.0.tar.gz` | [`blueprint/v2.0.0`](https://github.com/musher-dev/specifications/releases/tag/blueprint/v2.0.0) |
-| `listing-v2.0.0.tar.gz` | [`listing/v2.0.0`](https://github.com/musher-dev/specifications/releases/tag/listing/v2.0.0) |
+| `core-v2.1.0.tar.gz` | [`core/v2.1.0`](https://github.com/musher-dev/specifications/releases/tag/core/v2.1.0) |
+| `component-v2.1.0.tar.gz` | [`component/v2.1.0`](https://github.com/musher-dev/specifications/releases/tag/component/v2.1.0) |
+| `blueprint-v2.1.0.tar.gz` | [`blueprint/v2.1.0`](https://github.com/musher-dev/specifications/releases/tag/blueprint/v2.1.0) |
+| `listing-v2.1.0.tar.gz` | [`listing/v2.1.0`](https://github.com/musher-dev/specifications/releases/tag/listing/v2.1.0) |
 
 Each archive carries its family's schema bundle, specification, examples,
 conformance corpus and whole dependency closure, with the specification's own
@@ -31,9 +31,9 @@ shows:
 ```sh
 cd vendor/specifications
 for family in core component blueprint listing; do
-  gh release verify "$family/v2.0.0" --repo musher-dev/specifications
-  gh release verify-asset "$family/v2.0.0" "$family-v2.0.0.tar.gz" --repo musher-dev/specifications
-  gh attestation verify "$family-v2.0.0.tar.gz" --repo musher-dev/specifications
+  gh release verify "$family/v2.1.0" --repo musher-dev/specifications
+  gh release verify-asset "$family/v2.1.0" "$family-v2.1.0.tar.gz" --repo musher-dev/specifications
+  gh attestation verify "$family-v2.1.0.tar.gz" --repo musher-dev/specifications
 done
 sha256sum --check SHA256SUMS
 ```

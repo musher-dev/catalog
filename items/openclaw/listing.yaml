@@ -87,6 +87,17 @@ spec:
 
     Dashboard widgets and MCP Apps render from a second port this deployment
     doesn't expose, so their frames won't load.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. You land in the Control
+       UI already connected, with your browser paired and the agent on the
+       language model you chose. The first start on a new version can take
+       several minutes.
+    2. Send the agent a message to confirm it answers.
+    3. To reach it from a messaging app, go to Settings → Connections →
+       Channels. Channels that connect out, such as Telegram long polling and
+       Slack Socket Mode, work as usual.
+    4. Review paired devices in the Control UI from time to time, and revoke any
+       you no longer trust.
   category: AGENTS
   lifecycleStage: BETA
   tags:

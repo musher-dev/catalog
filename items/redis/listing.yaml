@@ -36,6 +36,11 @@ spec:
     `._~+/=-`: Redis reads the password as one word of its configuration, so
     it can carry no spaces or quotes. The endpoint is private as well, so the
     public internet cannot reach it.
+  gettingStarted: |
+    1. Reveal the password on the deployment's Installation tab.
+    2. Connect from another of your workloads on port 6379, for example with the
+       URL `redis://:<password>@<host>:6379`. The endpoint is private, so the
+       public internet can't reach it.
   category: DATABASES
   lifecycleStage: STABLE
   tags:

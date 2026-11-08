@@ -45,6 +45,17 @@ spec:
     `/app/langflow` holds both config and the database, so flows survive
     container recreation. Marked beta because Langflow ships breaking
     changes more frequently than monthly.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. You arrive in Langflow
+       already signed in, with an ordinary account of your own.
+    2. Add your model provider's API key inside Langflow, then build your first
+       flow on the canvas.
+    3. To call a flow from outside, create a Langflow API key. The run API
+       requires one.
+
+    For admin tasks, use the **Admin username** and **Admin password** from the
+    deployment's Installation tab, and change that password inside Langflow
+    afterwards.
   category: AGENTS
   lifecycleStage: BETA
   tags:

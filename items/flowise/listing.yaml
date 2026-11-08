@@ -39,6 +39,15 @@ spec:
     auto-generated at deploy so credentials stored in your flows stay
     decryptable across restarts, and a 5 GiB persistent volume mounted at
     `/root/.flowise` holds the database, flow storage, and logs.
+  gettingStarted: |
+    1. Open the deployment's URL and create the Flowise admin account on the
+       sign-up screen. Do this right away: the first signed-in person to reach
+       that screen becomes the admin.
+    2. Add your model provider as a credential inside Flowise.
+    3. Build a chatflow on the canvas, wiring together a model and any
+       retrievers or tools it needs.
+    4. Assign the chatflow an API key before you share its API or chat widget,
+       because those stay reachable without signing in.
   category: AGENTS
   lifecycleStage: BETA
   tags:

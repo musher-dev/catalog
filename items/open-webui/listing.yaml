@@ -54,6 +54,15 @@ spec:
     instead. A session-token signing key is auto-generated, and an 8 GiB
     persistent volume mounted at `/app/backend/data` keeps accounts, chats,
     and uploaded documents across restarts.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in through the platform. Do this first
+       if you want to be the admin: the first person to sign in becomes it.
+    2. Start a chat. Your language model is already connected.
+    3. Ask your team to sign in the same way, and manage their access from the
+       admin settings.
+
+    To switch providers later, edit the connection under **Admin Settings →
+    Connections**. API clients use an Open WebUI API key.
   category: MODELS
   lifecycleStage: BETA
   tags:

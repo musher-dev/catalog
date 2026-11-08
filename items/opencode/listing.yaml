@@ -72,6 +72,15 @@ spec:
     Tools that talk to the OpenCode server from outside the browser, such as
     `opencode attach` on your laptop, can't get through the platform's
     sign-in. Use the web UI.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher.
+    2. When your browser shows its own sign-in dialog, enter the user name
+       `opencode` and the **OpenCode password (user name opencode)** from the
+       deployment's Installation tab.
+    3. Clone or create a project under `/workspace`, where the project picker
+       opens. The image has no git, so ask the agent to run `apk add git` first
+       if you need it.
+    4. Describe a change in the chat and let the agent make it.
   category: AGENTS
   lifecycleStage: BETA
   tags:

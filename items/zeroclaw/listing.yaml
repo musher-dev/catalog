@@ -77,6 +77,16 @@ spec:
     gate. Pick one with care, and limit who can open the deployment.
 
     ZeroClaw is pre-1.0 and changes quickly between releases.
+  gettingStarted: |
+    1. Open the deployment right after installing it. The first person through
+       the platform's sign-in pairs their browser with one click.
+    2. In **Quickstart**, pick a model provider, enter its credential and model,
+       and choose a risk profile. For any OpenAI-compatible API, choose the
+       **custom** provider and enter a base URL ending in its version segment,
+       such as `/v1`.
+    3. Send the agent a message. Chats are refused until Quickstart is finished.
+    4. To add another browser, open the **Pairing** page in one that is already
+       paired and generate a new code.
   category: AGENTS
   lifecycleStage: BETA
   tags:

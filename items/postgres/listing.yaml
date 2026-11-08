@@ -32,6 +32,14 @@ spec:
     not change the database, so use `ALTER ROLE` or `CREATE DATABASE`
     instead. A 10 GiB persistent volume mounted at
     `/var/lib/postgresql/data` keeps the data directory across restarts.
+  gettingStarted: |
+    1. Reveal the password on the deployment's Installation tab.
+    2. Connect from another of your workloads on port 5432, with the user and
+       database name you deployed with. The endpoint is private, so the public
+       internet can't reach it.
+
+    To add roles or databases later, use `ALTER ROLE` or `CREATE DATABASE`.
+    Editing the deployment's values does not change an existing database.
   category: DATABASES
   lifecycleStage: STABLE
   tags:

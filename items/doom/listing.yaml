@@ -37,6 +37,13 @@ spec:
 
     The image bundles the shareware Doom episode and Freedoom alongside
     the Chocolate Doom and PrBoom+ engines.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher if asked. There is no
+       other login.
+    2. Click the game to capture the mouse for aiming, and press Esc to release
+       it.
+
+    There is no sound, and save games are lost when the deployment restarts.
   category: MEDIA
   lifecycleStage: BETA
   tags:

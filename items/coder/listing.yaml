@@ -67,6 +67,20 @@ spec:
     unavailable, because there is no wildcard domain. Premium features such as
     audit logs, template access control, workspace proxies and AI Bridge need a
     license from Coder.
+  gettingStarted: |
+    1. Copy the **Owner password** from the deployment's Installation tab and
+       sign in with the email you deployed with.
+    2. Create a template for where workspaces will run: an AWS, Google Cloud,
+       Azure or DigitalOcean account, a Kubernetes cluster, or VMs you already
+       have. Give it its credentials as template variables. The Docker starter
+       template won't work here.
+    3. Make sure that infrastructure has outbound HTTPS to the deployment's URL,
+       then start your first workspace.
+    4. Ask everyone else to choose **Sign in with Musher**. They join as
+       members, and you can grant roles from there.
+
+    To use the CLI, run `coder login` with the deployment's URL. A browser opens
+    and hands the CLI a session token.
   category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:

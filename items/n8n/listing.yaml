@@ -41,6 +41,15 @@ spec:
     database migrations finish. A 4 GiB persistent volume mounted at
     `/home/node/.n8n` keeps workflows, credentials, and execution history
     across restarts.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher.
+    2. Sign in to n8n with your verified email and the **Owner password** from
+       the deployment's Installation tab. There is no setup screen.
+    3. Build your first workflow on the canvas. Webhook URLs already use the
+       deployment's own address.
+
+    Keep using the generated password: n8n re-applies the owner on every start,
+    so one changed inside n8n reverts at the next restart.
   category: AUTOMATION
   lifecycleStage: STABLE
   tags:

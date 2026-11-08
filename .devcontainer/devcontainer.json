@@ -152,9 +152,9 @@
         // so a change here reaches an existing container only after "Dev
         // Containers: Rebuild Container".
         "yaml.schemas": {
-          "https://specifications.musher.dev/listing/v2.0.0/listing.schema.json": "items/*/listing.yaml",
-          "https://specifications.musher.dev/blueprint/v2.0.0/blueprint.schema.json": "items/*/blueprint.yaml",
-          "https://specifications.musher.dev/component/v2.0.0/component.schema.json": "items/*/components/*.yaml"
+          "https://specifications.musher.dev/listing/v2.1.0/listing.schema.json": "items/*/listing.yaml",
+          "https://specifications.musher.dev/blueprint/v2.1.0/blueprint.schema.json": "items/*/blueprint.yaml",
+          "https://specifications.musher.dev/component/v2.1.0/component.schema.json": "items/*/components/*.yaml"
         },
 
         // The corpus is authored YAML, not generated. Keep the formatter off it

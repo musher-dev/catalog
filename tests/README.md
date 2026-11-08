@@ -4,8 +4,8 @@ These tests hold every item under `items/` to the contracts published in
 [`musher-dev/specifications`](https://github.com/musher-dev/specifications).
 
 The suite is held to **one exact, released version per family**: the `RELEASES`
-table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today `core/v2.0.0`,
-`component/v2.0.0`, `blueprint/v2.0.0` and `listing/v2.0.0`. Every core release
+table in [`lib/spec-schemas.ts`](lib/spec-schemas.ts), today `core/v2.1.0`,
+`component/v2.1.0`, `blueprint/v2.1.0` and `listing/v2.1.0`. Every core release
 re-releases every family, so all four sit on one core release
 ([ADR 0038](https://github.com/musher-dev/specifications/blob/main/docs/adr/0038-v2-one-vocabulary-and-v1-retires.md)
 retired v1 and started v2 at `2.0.0` for each).
@@ -140,6 +140,13 @@ adapter holds the first group in one list, `OUT_OF_SCOPE` in
 only those codes as skipped, with the reason. It never counts one as passed. It
 does not run `behavior.json`, whose cases are resolution and deploy operations.
 
+**Warnings** (`WARN_` codes, core §7) are not reported here either. Every
+diagnostic in this suite fails a test, and a warning must never change a
+result, so `WARN_ENDPOINT_SERVER_NAME` (COMP-EP-020) has nowhere to go. No item
+meets its condition today: the one `HTTPS` endpoint, `doom`'s, is
+`tls: { verify: NONE }`. An item adding a verifying `HTTPS` endpoint should name
+its `serverName` all the same.
+
 ### Why `rules.test.ts` and `conformance.test.ts` both exist
 
 A suite that passes on a clean corpus proves nothing on its own. It passes just
@@ -170,8 +177,9 @@ The adapter follows the fixture format in the archive's `conformance/README.md`:
 
 Nothing is restated from the spec where it can be read from it instead. The
 media-path grammar and the component input defaults are pulled out of the
-vendored bundles at run time rather than copied, so the two places the semantic
-phase needs them cannot drift.
+vendored bundles at run time rather than copied, and each connection protocol's
+members out of the component release's protocol registry (`protocols/`), so the
+places the semantic phase needs them cannot drift.
 
 What is written down here is what JSON Schema cannot express, and each rule
 carries the clause it implements: `CORE-ITEM-001`, `LIST-MEDIA-003`,
