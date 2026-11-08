@@ -54,6 +54,16 @@ spec:
 
     Clone only voices you have the owner's permission to use. Each model keeps
     its own license, separate from VoiceStudio's AGPL-3.0.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. Startup after an install
+       can take a few minutes, because the image is about 6 GB.
+    2. When the web UI asks for it, enter the **API key** from the deployment's
+       Installation tab.
+    3. Run a first text-to-speech job. The first use of an engine downloads its
+       weights, and the default model is about 2.4 GB, so allow several minutes.
+
+    API and MCP clients send the same key as `Authorization: Bearer <key>`.
+    Clone only voices you have the owner's permission to use.
   category: MODELS
   lifecycleStage: BETA
   tags:

@@ -40,6 +40,15 @@ spec:
     this deployment has no way to restore a snapshot or dump. Treat the index
     as something you can rebuild: keep your documents in their source system
     and be ready to re-index them.
+  gettingStarted: |
+    1. Copy the **Master key** from the deployment's Installation tab.
+    2. Use it from a trusted server or script to create an index and add your
+       documents through the API at the deployment's URL.
+    3. Mint scoped tenant tokens for anything client-facing, and keep the master
+       key out of browsers.
+
+    Keep your documents in their source system too, so you can re-index them if
+    you ever need to.
   category: DATABASES
   lifecycleStage: STABLE
   tags:

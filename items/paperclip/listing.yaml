@@ -57,6 +57,17 @@ spec:
 
     Paperclip runs on 4 vCPU and 8 GiB of memory, because agent runs start
     CLIs, git and build tools inside the same container.
+  gettingStarted: |
+    1. Do this right after deploying: open the deployment's URL, sign in to
+       Musher, create a Paperclip account and choose **Claim this instance**.
+       The first person to claim it owns it.
+    2. Hire your first agent into the org chart. The **Claude Code** adapter
+       runs on the language model you chose, and other adapters need their own
+       credentials, which you add in Paperclip.
+    3. Give the agent a budget and a first ticket, and turn on approvals for
+       anything risky.
+    4. Plan backups of the database and of the master key on the `/paperclip`
+       volume. Secrets can't be decrypted without that key.
   category: AGENTS
   lifecycleStage: BETA
   tags:

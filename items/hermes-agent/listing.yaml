@@ -75,6 +75,16 @@ spec:
     because only the dashboard is exposed. Each connected channel lets the
     people it allows talk to the agent. Use the channel's allowlist or the
     dashboard's **Pairing** page to control who that is.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. Hermes signs you in
+       through the platform too, and the agent is already on the language model
+       you chose.
+    2. Chat with the agent from the dashboard to confirm it answers.
+    3. To reach it from a messaging app, add Telegram, Discord, Slack or another
+       outbound channel on the **Channels** page, then restart the gateway from
+       there.
+    4. Use the channel's allowlist or the **Pairing** page to control who can
+       talk to the agent.
   category: AGENTS
   lifecycleStage: BETA
   tags:

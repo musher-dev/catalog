@@ -87,6 +87,15 @@ spec:
     Agent Canvas's own guide to reaching the server from another Agent Canvas
     install, by registering it as a remote backend, doesn't apply here. The
     platform's sign-in admits browsers, not API clients.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. You land on the UI at
+       `/canvas`, already connected.
+    2. Close the onboarding tour with **Skip for now**. Clicking through its
+       model step would replace the model you chose.
+    3. Start a conversation and keep the code it works on under `/projects`,
+       which survives a restart.
+    4. To use Claude Code, Codex or another ACP agent, add its credentials in
+       Agent Canvas.
   category: AGENTS
   lifecycleStage: BETA
   tags:

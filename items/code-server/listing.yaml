@@ -29,6 +29,13 @@ spec:
     own login screen is turned off. An 8 GiB persistent volume is mounted
     at `/home/coder`, so projects, extensions, and settings survive
     restarts.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher if asked. The editor
+       opens straight away, with no separate password.
+    2. Keep your projects under `/home/coder`. Everything there survives a
+       restart, along with your extensions and settings.
+    3. Open a folder from that directory and start working, using the built-in
+       terminal for your toolchain.
   category: DEVELOPER_TOOLS
   lifecycleStage: STABLE
   tags:

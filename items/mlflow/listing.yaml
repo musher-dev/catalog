@@ -53,6 +53,16 @@ spec:
     deployment setting — it appears in the deployment's configuration, and in
     the records and logs of the deployment. Give MLflow a database role
     scoped to it, and rotate that role's password rather than a shared one.
+  gettingStarted: |
+    1. Allow a couple of minutes on first boot while the database schema is
+       created.
+    2. Open the deployment's URL and sign in to Musher. When your browser then
+       asks for credentials, use `admin` and the **Admin password** from the
+       deployment's Installation tab.
+    3. Point your notebooks and CI at the server by setting
+       `MLFLOW_TRACKING_URI`, `MLFLOW_TRACKING_USERNAME` and
+       `MLFLOW_TRACKING_PASSWORD`, then log a first run.
+    4. Add MLflow users for your team from the UI.
   category: MODELS
   lifecycleStage: STABLE
   tags:

@@ -37,6 +37,14 @@ spec:
     collections, inspect points, and run queries from the browser. Paste the
     deployment's API key into the dashboard's key field before it can read
     anything.
+  gettingStarted: |
+    1. Copy the **API key** from the deployment's Installation tab.
+    2. Add `/dashboard` to the deployment's URL and paste the key into the
+       dashboard's key field. The URL on its own only returns Qdrant's JSON
+       version banner.
+    3. Point your application at the deployment's URL over HTTP, sending the key
+       with each request. The gRPC port is not exposed.
+    4. Create a collection and upload your first vectors.
   category: DATABASES
   lifecycleStage: STABLE
   tags:

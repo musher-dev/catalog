@@ -52,6 +52,22 @@ spec:
 
     Rotating the salt key after any provider credential has been saved
     makes those credentials unreadable. Treat it as fixed.
+  gettingStarted: |
+    1. Allow a few extra minutes on the first deploy while LiteLLM applies its
+       database schema.
+    2. Copy the **Master key** from the deployment's Installation tab, then sign
+       in to the dashboard at `/ui` as `admin`, with the master key as the
+       password.
+    3. Add your provider upstreams and models in the dashboard. They are stored
+       in the database and survive a redeploy.
+    4. Issue a virtual key for each client or team, with any budgets it needs,
+       and point clients at the deployment's URL as their OpenAI-compatible
+       endpoint.
+    5. Turn on response caching from the dashboard if you want it. It is off by
+       default.
+
+    Leave the **Salt key** as it is. Rotating it after saving a provider
+    credential makes that credential unreadable.
   category: MODELS
   lifecycleStage: BETA
   tags:
