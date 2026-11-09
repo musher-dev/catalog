@@ -1,27 +1,30 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     Hermes Agent's messaging gateway and web dashboard in one container, signing
-    viewers in through the platform's OpenID Connect provider, with all agent
-    state on one volume.
+    viewers in through the platform's OpenID Connect provider, with agent state
+    on one volume and Hindsight as its long-term memory when one is wired in.
 spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v2026.9.24 is the latest release (2026-09-24). Docker Hub
-      # tags carry the `v` prefix and are multi-arch (amd64, arm64). The
-      # `-desktop` variants add an Xfce desktop (built with
-      # HERMES_BOT_DESKTOP=1) that this item does not need, and `latest` /
-      # `main` move.
+      # PINNED. v0.23.0 is the latest stable release (2026-11-05). Upstream
+      # moved from CalVer tags to SemVer after v2026.9.24 (which was v0.21.5).
+      # Docker Hub tags carry the `v` prefix and are multi-arch (amd64, arm64).
+      # The `-desktop` variants add an Xfce desktop (built with
+      # HERMES_BOT_DESKTOP=1) that this item does not need, `rc.N-*` tags are
+      # pre-releases, and `latest` / `stable` / `main` move.
       #
       # When bumping, re-read docker/s6-rc.d/dashboard/run,
       # docker/main-wrapper.sh and docker/stage2-hook.sh (process model and
       # API_SERVER_KEY handling), plugins/dashboard_auth/self_hosted/ (the OIDC
-      # sign-in below) and hermes_cli/runtime_provider_custom.py (the model
-      # route the boot command writes).
-      image: nousresearch/hermes-agent:v2026.9.24
+      # sign-in below), hermes_cli/config.py (the writer the boot command
+      # calls), hermes_cli/runtime_provider_custom.py (the model route the
+      # boot command writes) and plugin-catalog/hindsight.yaml (the memory
+      # provider the boot command installs).
+      image: nousresearch/hermes-agent:v0.23.0
     # PROCESS MODEL. One container runs both the messaging gateway and the
     # dashboard, which is the layout upstream documents for its image
     # (website/docs/user-guide/docker.md, "Running the dashboard": `-e
@@ -63,7 +66,8 @@ spec:
     # script writes the documented custom-provider shape on every boot:
     #
     #   - providers.llm, a keyed custom provider (configuring-models.md): `api`
-    #     is the base URL, `api_mode: chat_completions` pins the OpenAI wire,
+    #     is the base URL, `api_mode: chat_completions` pins the OpenAI wire
+    #     (the docs spell it `transport`; the resolver reads either),
     #     and `key_env: LLM_API_KEY` names the env var holding the credential.
     #     `_match_new_style_provider` (hermes_cli/runtime_provider_custom.py)
     #     reads the key from that env var at request time, so the credential
@@ -94,31 +98,78 @@ spec:
     # (`build_subprocess_env(scrub_secrets=False)`,
     # hermes_cli/web_server_chat.py), so it resolves `key_env` either way.
     #
+    # Because the terminal tool inherits it, the key also reaches the bash
+    # session snapshot Hermes dumps with `export -p`. On the local backend that
+    # file is on the volume, /opt/data/cache/terminal/hermes-snap-*.sh (mode
+    # 0600, pruned 24 idle hours after its last write; `get_temp_dir`,
+    # tools/environments/local.py; upstream issue #147329). The listing says so.
+    #
+    # `key_env` resolves through `get_secret` (agent/secret_scope.py). A
+    # single-profile host reads the process environment. If a second profile
+    # makes this host multiplex, the launch profile keeps its env-only keys
+    # (`owner_secret_scope`, tui_gateway/launch_profile_policy.py).
+    #
     # TERMINAL BACKEND. The default is `local`: the agent's commands run
     # inside this container. The script switches `docker` or `singularity`
     # back to `local`, because this container has no container runtime to
     # reach. Other remote backends (ssh, modal, daytona and so on) are left
     # as the operator set them.
     #
+    # LONG-TERM MEMORY. The blueprint runs Hindsight on the `memory` node and
+    # hands it here in env vars the plugin reads itself: HINDSIGHT_MODE,
+    # HINDSIGHT_API_URL and HINDSIGHT_API_KEY (`_load_config` and
+    # `_apply_connection_settings`, hindsight-integrations/hermes/__init__.py).
+    # They apply while $HERMES_HOME/hindsight/config.json does not exist, which
+    # is the case until someone saves provider settings by hand, and the key
+    # stays out of the volume. With HINDSIGHT_API_URL absent this script leaves
+    # memory alone. Once the plugin is on the volume, each boot selects it as
+    # memory.provider.
+    #
+    # Hindsight is not in the image. It left Hermes's tree for the plugin
+    # catalog (plugin-catalog/hindsight.yaml: 1.2.4, commit f14cc1eb at this
+    # tag), so the script installs it once, onto the volume, with the command
+    # upstream documents for Docker entrypoints. `--enable` selects the
+    # provider that first time, and writes config.yaml, so it runs after the
+    # write above. The provider stays unselected until then: a selected but
+    # missing provider makes Hermes fetch it during an agent's turn, which
+    # would race this install. It would also leave that gateway without
+    # memory, because a running process cannot switch to a dependency
+    # generation installed after it started (`activate_plugin_now`,
+    # hermes_cli/plugins_activation.py). For the same reason the gateway is
+    # restarted after an install: s6 autostarts it before this script on a
+    # volume where it last ran. On a first boot its slot is down and the
+    # restart does nothing, and `gateway run` below starts it.
+    #
+    # The install follows the catalog's reviewed pin, not a fixed one. An
+    # explicit --ref away from that pin loses the reviewed status that accepts
+    # scanner cautions without a prompt (`_scan_plugin_tree`,
+    # hermes_cli/plugins_cmd.py). Nothing moves an installed plugin afterwards.
+    # A failed install never stops the boot: the agent keeps its built-in
+    # memory and the next boot tries again.
+    #
     # Run on every boot, not behind a first-boot guard, so the connection is
     # authoritative: a replaced connection takes effect on the next restart,
     # and a different model picked in the dashboard reverts to the
     # connection's model then. The listing says so. Hermes re-reads config.yaml
-    # on every turn (load_config is cached on the file's mtime), so a gateway
-    # that s6 restarted before this script finished picks up the new route on
-    # its next turn.
+    # on every turn (load_config is cached on the file's signature), so a
+    # gateway that s6 restarted before this script finished picks up the new
+    # route on its next turn.
     #
-    # `atomic_config_write` (hermes_cli/config.py) is the only config.yaml
-    # writer upstream allows. It keeps comments, deletes keys absent from the
-    # new state, and refuses to replace a config.yaml it cannot parse. A
-    # corrupt config then fails the boot visibly instead of being reset.
+    # `atomic_config_replace` (hermes_cli/config.py) keeps comments, deletes
+    # keys absent from the new state, and refuses to replace a config.yaml it
+    # cannot parse. A corrupt config then fails the boot visibly instead of
+    # being reset. Not `atomic_config_write`: since v0.21.6 it raises when a
+    # write would omit an existing path, so the deliberate removals above (a
+    # stale model.api_key, an extra key under providers.llm) would stop the
+    # container from booting.
     command:
       - python
       - -c
       - |
         import os
+        import subprocess
         from hermes_cli.config import (
-            atomic_config_write, get_config_path, require_readable_config_before_write)
+            atomic_config_replace, get_config_path, require_readable_config_before_write)
 
         base_url = os.environ["LLM_BASE_URL"].strip().rstrip("/")
         model_id = os.environ["LLM_MODEL"].strip()
@@ -141,7 +192,24 @@ spec:
         if isinstance(terminal, dict) and terminal.get("backend") in ("docker", "singularity"):
             terminal["backend"] = "local"
 
-        atomic_config_write(path, cfg)
+        hindsight_url = os.environ.get("HINDSIGHT_API_URL", "").strip()
+        hindsight_plugin = path.parent / "plugins" / "hindsight" / "plugin.yaml"
+        if hindsight_url and hindsight_plugin.exists():
+            memory = cfg.get("memory") if isinstance(cfg.get("memory"), dict) else {}
+            memory["provider"] = "hindsight"
+            cfg["memory"] = memory
+
+        atomic_config_replace(path, cfg)
+
+        if hindsight_url and not hindsight_plugin.exists():
+            try:
+                subprocess.run(["hermes", "plugins", "install", "hindsight", "--enable", "--yes-deps"],
+                               stdin=subprocess.DEVNULL, check=True, timeout=900)
+                subprocess.run(["hermes", "gateway", "restart"],
+                               stdin=subprocess.DEVNULL, check=True, timeout=120)
+            except (OSError, subprocess.SubprocessError) as exc:
+                print(f"Hindsight plugin not ready, continuing without it: {exc}", flush=True)
+
         os.execvp("hermes", ["hermes", "gateway", "run"])
     endpoints:
       # The web dashboard: chat (the full TUI in the browser), sessions,
@@ -157,6 +225,10 @@ spec:
       # configures it: on 127.0.0.1, with a key the cont-init hook generates
       # into /opt/data/.env (docker/stage2-hook.sh), serving only the
       # dashboard's in-container calls such as cron forwarding.
+      #
+      # NOT EXPOSED EITHER: the Webapp (:9120, Hermes Desktop in a browser). It
+      # is off by default (`webapp.enabled`) and this item leaves it off, for
+      # the same one-public-endpoint reason.
       primary:
         targetPort: 9119
         protocol: HTTP
@@ -164,24 +236,31 @@ spec:
         # platform (component §5.2). On a non-loopback bind the dashboard
         # refuses to start without a sign-in provider, and
         # HERMES_DASHBOARD_INSECURE no longer bypasses that
-        # (`should_require_auth` and `_configure_auth_gate`,
-        # hermes_cli/web_server.py). The bundled `self-hosted` provider
-        # (plugins/dashboard_auth/self_hosted/) is a generic OIDC relying
-        # party: authorization code with PKCE (S256), plus the client secret
-        # when one is set, and the ID token is verified against the issuer's
-        # JWKS with `iss` and `aud` pinned. Its callback is
+        # (`should_require_auth`, hermes_cli/web_server_boundary.py, and
+        # `_configure_auth_gate`, hermes_cli/web_server.py). The bundled
+        # `self-hosted` provider (plugins/dashboard_auth/self_hosted/) is a
+        # generic OIDC relying party: authorization code with PKCE (S256), plus
+        # the client secret when one is set (`_token_endpoint_auth`; the
+        # web-dashboard docs still say confidential clients are unsupported),
+        # and the ID token is verified against the issuer's JWKS with `iss` and
+        # `aud` pinned. Its callback is
         # `<HERMES_DASHBOARD_PUBLIC_URL>/auth/callback` (`_redirect_uri`,
         # hermes_cli/dashboard_auth/routes.py).
         #
         # Hermes has no trusted-proxy header mode, so viewerIdentity HEADER is
-        # not an option.
+        # not an option. `dashboard.trusted_proxies` is not one: it only says
+        # whose X-Forwarded-Proto and -For to believe. This item leaves it
+        # empty, because the platform publishes its proxies' addresses
+        # (`trustedProxyCIDRs`) only to a HEADER endpoint and this one is OIDC.
+        # Hermes therefore sees plain HTTP: its session cookies lack `Secure`,
+        # and its PKCE cookie is `SameSite=Lax` rather than `None; Secure`.
         oidc:
           redirectPaths:
             - /auth/callback
     health:
       readiness:
-        # /api/health is the dashboard's liveness route. It answers
-        # `{ok, version, auth_required}` and sits on the auth gate's public
+        # /api/health is the dashboard's liveness route. It answers `ok`, the
+        # version and `auth_required`, and sits on the auth gate's public
         # list, so a probe without a session gets 200 rather than a redirect
         # (hermes_cli/web_routers/status.py,
         # hermes_cli/dashboard_auth/public_paths.py). The dashboard binds
@@ -208,9 +287,9 @@ spec:
     volumes:
       # HERMES_HOME: config.yaml, .env (the API keys and messaging-channel
       # tokens the dashboard saves), auth.json, the session database,
-      # memories, skills, cron jobs, logs, the agent's workspace, and
-      # lazily installed optional packages (HERMES_LAZY_INSTALL_TARGET,
-      # /opt/data/lazy-packages). /opt/hermes, the application tree, is
+      # memories, skills, cron jobs, logs, the agent's workspace, and the
+      # generations of on-demand dependencies (/opt/data/installs,
+      # docker/stage2-hook.sh). /opt/hermes, the application tree, is
       # read-only and not persisted (docker.md).
       data:
         minSizeGiB: 10
@@ -257,7 +336,7 @@ spec:
       # `<publicURL>/auth/callback`, the URI the platform registers for
       # `primary`, instead of one rebuilt from forwarded headers. Hermes also
       # accepts its hostname as an exact Host and WebSocket Origin
-      # (`_dashboard_public_hosts`, hermes_cli/web_server.py).
+      # (`_dashboard_public_hosts`, hermes_cli/web_server_boundary.py).
       dashboardPublicURL:
         schema:
           type: string
@@ -328,6 +407,32 @@ spec:
         target:
           envVar: LLM_MODEL
         description: Model the agent uses by default.
+      # Long-term memory. The names are the Hindsight plugin's own, and it reads
+      # them from this environment. A second profile would read its own .env
+      # instead (`get_secret`, agent/secret_scope.py).
+      hindsightMode:
+        schema:
+          type: string
+        default: local_external
+        target:
+          envVar: HINDSIGHT_MODE
+        description: How the Hindsight plugin reaches its server; `local_external` is a server someone else runs.
+      hindsightAPIURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: HINDSIGHT_API_URL
+        description: >-
+          URL of the Hindsight API. Its presence is what makes the boot command
+          select Hindsight as the agent's memory provider.
+      hindsightAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVar: HINDSIGHT_API_KEY
+        description: Bearer token for the Hindsight API.
     outputs:
       publicURL:
         schema:
