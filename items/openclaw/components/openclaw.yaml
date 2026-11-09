@@ -178,21 +178,32 @@ spec:
     #     volume carried over from the string form keeps the copy it already has,
     #     and takes one on its first boot here because Doctor runs before `config
     #     set`. Requests still use the current key.
-    #   - One model entry, `reasoning: false` and `input: [text]`, stated even
-    #     though they are the custom-provider defaults. The connection supplies
-    #     neither thinking nor vision, and this keeps OpenClaw from asking for
-    #     either.
+    #   - One model entry for each model `GET <base>/models` lists with the
+    #     connection's key, because OpenClaw reads a custom provider's models
+    #     only from its configuration. Each is `reasoning: false` and `input:
+    #     [text]`, stated even though they are the custom-provider defaults, so
+    #     OpenClaw does not ask for thinking or vision. The connection's own model
+    #     is always among them. If the list cannot be read within five seconds,
+    #     the entries are the connection's model and the one already chosen, and
+    #     the boot carries on, so a model endpoint having a bad moment neither
+    #     stops the agent starting nor loses the choice.
     #   - agents.defaults.model, as the whole object rather than `.primary`, so
-    #     it succeeds under `set -e` whatever shape a UI edit left behind. `config
-    #     set` resolves model refs before writing. `llm/<model>` resolves because
-    #     the provider is written in the same batch, but a model id OpenClaw
-    #     cannot parse fails the boot here, visibly.
+    #     it succeeds under `set -e` whatever shape a UI edit left behind. The
+    #     primary is the model already chosen, while the list still has it, and
+    #     otherwise the connection's. `config set` resolves model refs before
+    #     writing. `llm/<model>` resolves because the provider is written in the
+    #     same batch, but a model id OpenClaw cannot parse fails the boot here,
+    #     visibly.
     #
-    # Because the batch runs on every boot, the connection is authoritative.
-    # A rotated credential or replaced connection takes effect at the next
-    # restart. A default model or fallback chosen in the Control UI does not
-    # survive one, and the listing says so. Another provider added under Settings
-    # does, because the batch writes only `models.providers.llm`.
+    # Node builds those two entries because a model id can hold a slash or a
+    # quote, and the shell should not be assembling JSON around one.
+    #
+    # Because the batch runs on every boot, the connection is authoritative for
+    # the provider. A rotated credential or replaced connection takes effect at
+    # the next restart, and models added to the gateway appear then too. A
+    # fallback chosen in the Control UI does not survive one, and the listing
+    # says so. Another provider added under Settings does, because the batch
+    # writes only `models.providers.llm`.
     #
     # EXEC FORM: argv, no shell of the platform's own. The shell this needs is
     # the one named here. The script uses `${VAR%/}` to strip a trailing slash
@@ -208,6 +219,36 @@ spec:
         OPENCLAW_IMAGE_ACTIVATION_CAPTURE_MARKER=/tmp/openclaw-image-activation-capture
         node /app/dist/index.js doctor --fix --non-interactive
         || echo "openclaw: doctor --fix reported an incomplete repair; continuing" >&2;
+        LLM_PICK="$(node /app/dist/index.js config get agents.defaults.model.primary 2>/dev/null || true)";
+        LLM_CONFIG="$(LLM_PICK="$LLM_PICK" node -e '
+        const env = process.env;
+        const base = env.LLM_BASE_URL.replace(/\/+$/, "");
+        const entry = (m) => ({
+          id: m.id, name: m.id, reasoning: false, input: ["text"],
+          ...(m.context_length > 0 ? { contextWindow: m.context_length } : {}),
+          ...(m.max_tokens > 0 ? { maxTokens: m.max_tokens } : {}),
+        });
+        fetch(base + "/models", {
+          headers: { Authorization: "Bearer " + env.LLM_API_KEY },
+          signal: AbortSignal.timeout(5000),
+        })
+          .then((r) => { if (!r.ok) throw new Error("HTTP " + r.status); return r.json(); })
+          .then((body) => body.data.filter((m) => m && typeof m.id === "string" && m.id))
+          .catch((e) => { console.error("openclaw: could not list the gateway models: " + e.message); return []; })
+          .then((listed) => {
+            const pick = (env.LLM_PICK || "").trim();
+            const held = listed.length === 0 && pick.startsWith("llm/") ? [{ id: pick.slice(4) }] : listed;
+            const models = held.some((m) => m.id === env.LLM_MODEL) ? held : [{ id: env.LLM_MODEL }, ...held];
+            const kept = pick.startsWith("llm/") && models.some((m) => "llm/" + m.id === pick);
+            console.log(JSON.stringify([
+              { path: "models.providers.llm", value: {
+                baseUrl: base, api: "openai-completions",
+                apiKey: { source: "env", provider: "default", id: "LLM_API_KEY" },
+                models: models.map(entry) } },
+              { path: "agents.defaults.model", value: { primary: kept ? pick : "llm/" + env.LLM_MODEL } },
+            ]).slice(1, -1));
+          });
+        ')";
         node /app/dist/index.js config set --batch-json
         "[{\"path\":\"gateway.mode\",\"value\":\"local\"},
         {\"path\":\"gateway.bind\",\"value\":\"lan\"},
@@ -216,8 +257,7 @@ spec:
         {\"path\":\"gateway.trustedProxies\",\"value\":${OPENCLAW_TRUSTED_PROXIES}},
         {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
         {\"path\":\"gateway.auth.trustedProxy\",\"value\":{\"userHeader\":\"${OPENCLAW_IDENTITY_HEADER}\",\"deviceAutoApprove\":{\"enabled\":true,\"scopes\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]}}},
-        {\"path\":\"models.providers.llm\",\"value\":{\"baseUrl\":\"${LLM_BASE_URL%/}\",\"api\":\"openai-completions\",\"apiKey\":{\"source\":\"env\",\"provider\":\"default\",\"id\":\"LLM_API_KEY\"},\"models\":[{\"id\":\"${LLM_MODEL}\",\"name\":\"${LLM_MODEL}\",\"reasoning\":false,\"input\":[\"text\"]}]}},
-        {\"path\":\"agents.defaults.model\",\"value\":{\"primary\":\"llm/${LLM_MODEL}\"}}]";
+        ${LLM_CONFIG}]";
         exec node openclaw.mjs gateway
     # One endpoint. The sandbox listener for dashboard widgets and MCP Apps (the
     # gateway port + 1) is not exposed: it needs a second public origin
