@@ -35,7 +35,8 @@ to storefront visitors — nominative use — and remains the property of its
 respective owner. Inclusion here is not an endorsement by those projects, and
 these files are **not** covered by this repository's `LICENSE`. See `NOTICE`.
 
-All 21 items carry an icon; none currently ship screenshots.
+Every item except `llm-endpoint`, which runs nothing, carries an icon; none
+currently ship screenshots.
 
 | Item | Source | Method | License note |
 | --- | --- | --- | --- |
@@ -44,6 +45,7 @@ All 21 items carry an icon; none currently ship screenshots.
 | `doom` | <https://github.com/chocolate-doom.png?size=512> | GitHub org avatar, resampled from its native 221 px to 256 px, the listing v2 minimum | Chocolate Doom mark via the chocolate-doom GitHub org avatar (GPL-2.0-licensed project); nominative use. |
 | `flowise` | <https://github.com/FlowiseAI.png?size=512> | GitHub org avatar | Flowise mark via the FlowiseAI GitHub org avatar; nominative use. |
 | `hermes-agent` | <https://github.com/NousResearch.png?size=512> | GitHub org avatar | Hermes Agent maintainer (Nous Research) GitHub org avatar (MIT-licensed project); nominative use. |
+| `hindsight` | <https://raw.githubusercontent.com/vectorize-io/hindsight/v1.2.0/hindsight-control-plane/public/icon-512.png> | in-repo asset | Hindsight mark from the vectorize-io/hindsight repository (MIT-licensed project); nominative use. |
 | `label-studio` | <https://github.com/HumanSignal.png?size=512> | GitHub org avatar | Label Studio maintainer (HumanSignal) GitHub org avatar; nominative use. |
 | `langflow` | <https://github.com/langflow-ai.png?size=512> | GitHub org avatar | Langflow mark via the langflow-ai GitHub org avatar; nominative use. |
 | `litellm` | <https://github.com/BerriAI.png?size=512> | GitHub org avatar | LiteLLM maintainer (BerriAI) GitHub org avatar; nominative use. |
