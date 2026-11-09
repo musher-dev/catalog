@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 11
+  revision: 12
   description: >-
     OpenClaw agent gateway and Control UI behind the platform edge's sign-in,
     with its config, sessions and credentials on two volumes.
@@ -9,7 +9,7 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 2026.11.1 is the latest stable release (2026-11-05). The tag on
+      # PINNED. 2026.11.2 is the latest stable release (2026-11-08). The tag on
       # ghcr carries no `v` prefix.
       #
       # Known upstream issue at this tag: the Control UI does not load in iOS 18
@@ -28,7 +28,7 @@ spec:
       #     still read as healthy.
       #   - src/gateway/server/ws-connection/connect-pairing-approval-plan.ts,
       #     for the trusted-proxy auto-approve lane.
-      image: ghcr.io/openclaw/openclaw:2026.11.1
+      image: ghcr.io/openclaw/openclaw:2026.11.2
     # BOOT ORDER: Doctor, then `config set`, then the gateway.
     #
     # `command` replaces the image's CMD and keeps its ENTRYPOINT, `tini -s --

@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 11
+  revision: 12
   description: >-
     Open WebUI chat interface for any OpenAI-compatible language-model API,
     signing viewers in as an OpenID Connect client of the platform.
@@ -9,7 +9,7 @@ spec:
   type: SERVICE
   workload:
     source:
-      image: ghcr.io/open-webui/open-webui:v0.11.4
+      image: ghcr.io/open-webui/open-webui:v0.13.3
     endpoints:
       primary:
         targetPort: 8080
@@ -17,7 +17,7 @@ spec:
         # Open WebUI signs viewers in as an OpenID Connect client. These are the
         # routes it receives the authorization response on for its `oidc`
         # provider: /login/callback, plus the legacy /callback it still serves
-        # (main.py, v0.11.4). The platform registers publicURL followed by each.
+        # (main.py, v0.13.3). The platform registers publicURL followed by each.
         oidc:
           redirectPaths:
             - /oauth/oidc/login/callback
@@ -52,12 +52,12 @@ spec:
           endpoint: primary
           path: /health
         # uvicorn binds the socket only after the FastAPI lifespan returns, so
-        # nothing answers on 8080 until the whole first boot has run: ~60
+        # nothing answers on 8080 until the whole first boot has run: ~70
         # alembic migrations, then a cold pull of the default embedding model
         # (sentence-transformers/all-MiniLM-L6-v2) from HuggingFace, then
         # loading it. The image bakes that model in at build time, but into
         # /app/backend/data/cache (SENTENCE_TRANSFORMERS_HOME, Dockerfile at
-        # v0.11.4), which the data volume below mounts over. Every probe until
+        # v0.13.3), which the data volume below mounts over. Every probe until
         # then is connection-refused. The old 30s + 3-failure gate expired
         # while the model was still loading and the agent reaped the container
         # mid-boot (observed live). Same budget shape
@@ -84,7 +84,7 @@ spec:
         default: 'true'
         target:
           envVar: ENABLE_OPENAI_API
-        # Already True by default in v0.11.4 (config.py:319); pinned so the item
+        # Already True by default in v0.13.3 (config.py:309); pinned so the item
         # does not depend on an upstream default it cannot see change.
         description: >-
           Whether the OpenAI-compatible API client is enabled, as the literal
@@ -115,10 +115,10 @@ spec:
         presentationHint: ENDPOINT_URL
         target:
           envVar: OPENAI_API_BASE_URL
-        # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.11.4 reads
-        # these env vars into DEFAULT_CONFIG (config.py:2822), and on every
-        # start main.py:367 calls seed_registered_defaults(). That runs
-        # Config.seed_defaults (models/config.py:241), which writes a row for
+        # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.13.3 reads
+        # these env vars into DEFAULT_CONFIG (config.py:2960), and on every
+        # start main.py:391 calls seed_registered_defaults(). That runs
+        # Config.seed_defaults (models/config.py:249), which writes a row for
         # every key that has none, and Config.get prefers a stored row. So the
         # first boot saves this URL, the key and the model into the database,
         # whether or not an admin ever opens Connections. Every later boot
@@ -132,11 +132,11 @@ spec:
         # both revert every admin setting on each restart. Rejected for that.
         # v0.11.0 made env authoritative again for single sign-on, but only
         # for `oauth.*` keys (ENABLE_OAUTH_PERSISTENT_CONFIG,
-        # models/config.py:136); `openai.*` and `ui.default_models` are still
+        # models/config.py:139); `openai.*` and `ui.default_models` are still
         # captured.
         #
-        # Open WebUI appends /chat/completions (routers/openai.py:1636) and
-        # also lists models from GET {url}/models (routers/openai.py:131). A
+        # Open WebUI appends /chat/completions (routers/openai.py:1555) and
+        # also lists models from GET {url}/models (routers/openai.py:127). A
         # chat for a model missing from that list fails with MODEL_NOT_FOUND,
         # so the endpoint behind this URL has to serve /models too.
         description: >-
@@ -169,7 +169,7 @@ spec:
       # Sign-in through the platform's OpenID Connect provider. Unlike the
       # connection above, `oauth.*` settings are read from the environment on
       # every start (ENABLE_OAUTH_PERSISTENT_CONFIG defaults to False,
-      # config.py, v0.11.4), so a rotated client secret takes effect on the
+      # config.py, v0.13.3), so a rotated client secret takes effect on the
       # next restart. Open WebUI keys accounts on the provider's `sub`.
       oidcClientID:
         schema:
@@ -187,7 +187,7 @@ spec:
           envVar: OAUTH_CLIENT_SECRET
         description: Client secret the platform registered for this endpoint.
       # A discovery document, not the bare issuer: Open WebUI hands this URL
-      # to Authlib as server_metadata_url (utils/oauth.py, v0.11.4).
+      # to Authlib as server_metadata_url (config.py, v0.13.3).
       oidcDiscoveryURL:
         schema:
           type: string
@@ -253,7 +253,7 @@ spec:
           Whether the sign-in page goes straight to the platform's provider, as
           the literal string the image parses.
       # Read from the environment on every start; refuses password sign-in
-      # (routers/auths.py, v0.11.4).
+      # (routers/auths.py, v0.13.3).
       passwordAuth:
         schema:
           type: string

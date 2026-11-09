@@ -22,7 +22,7 @@ spec:
       need the artifacts archived next to them.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.16.1-full`
+    Single-container deployment of `ghcr.io/mlflow/mlflow:v3.18.0-full`
     running `mlflow server` with the tracking UI on port 5000 behind the
     platform's HTTPS edge. The backend store defaults to SQLite and
     artifacts are server-proxied onto the 20 GiB persistent volume at
@@ -31,6 +31,15 @@ spec:
     the app reports ready. Production teams point the two store URIs at
     Postgres or MySQL and at S3, GCS or Azure storage. The `-full` image
     carries those drivers, and both URIs are deploy parameters.
+
+    ## Upgrades
+    When this listing moves to a newer MLflow version, an existing deployment
+    can migrate its database in place the first time it starts on the new
+    version, and the app stays unavailable until that finishes. MLflow notes
+    that these migrations can be slow and are not guaranteed to be
+    transactional, and it asks for a restorable backup first. This deployment
+    has no way to take or restore one of the default SQLite store, so if your
+    run history matters, use Postgres or MySQL with its own backups.
 
     ## Access and security
     The tracking UI sits behind the platform's sign-in, so only people

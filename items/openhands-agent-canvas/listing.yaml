@@ -45,16 +45,16 @@ spec:
     add their credentials in Agent Canvas.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/openhands/agent-canvas:1.24.0`.
+    Single-container deployment of `ghcr.io/openhands/agent-canvas:1.37.0`.
     The agent server, automation backend, web UI and bundled OpenVSCode editor
     share port 8000 behind the platform's HTTPS edge. Open the deployment's
     URL and you land on the UI at `/canvas`, already connected. There's no key
     to paste.
 
     On your first visit Agent Canvas shows its onboarding tour. Close it with
-    **Skip for now** rather than clicking through its model step. Your model is
-    already set up, and saving that step would replace it with OpenHands'
-    suggested default.
+    **Skip for now**, because your model is already set up. If you do open its
+    model step, leave the model as it is. Changing it there saves a new
+    profile and makes that one active.
 
     Conversations run as processes inside the container, not in a separate
     sandbox per conversation. Two persistent volumes keep your work: 5 GiB at
@@ -90,8 +90,9 @@ spec:
   gettingStarted: |
     1. Open the deployment's URL and sign in to Musher. You land on the UI at
        `/canvas`, already connected.
-    2. Close the onboarding tour with **Skip for now**. Clicking through its
-       model step would replace the model you chose.
+    2. Close the onboarding tour with **Skip for now**. Your model is already
+       set up, and changing it in the tour's model step would make a new
+       profile active.
     3. Start a conversation and keep the code it works on under `/projects`,
        which survives a restart.
     4. To use Claude Code, Codex or another ACP agent, add its credentials in

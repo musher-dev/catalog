@@ -18,8 +18,9 @@ spec:
     an encrypted WireGuard tunnel. People reach their workspaces from the
     browser (web terminal, VS Code in the browser and other apps), over SSH
     with the `coder` CLI, or from VS Code and JetBrains desktop IDEs. Idle
-    workspaces can stop on a schedule to save cost. Coder Tasks run AI coding
-    agents in the same governed workspaces.
+    workspaces can stop on a schedule to save cost. Coder Agents delegates
+    development work to an AI coding agent. Its loop runs in the control plane,
+    and it reads, edits and runs commands in the same governed workspaces.
 
     ## When to use
     - You want every developer to get a consistent, reproducible environment
@@ -53,7 +54,7 @@ spec:
 
     ## Defaults
     Two containers and a one-time setup job. The first container runs
-    `ghcr.io/coder/coder:v2.36.6`, the stable release channel, with the
+    `ghcr.io/coder/coder:v2.38.6`, the stable release channel, with the
     dashboard and API on port 7080 behind the platform's HTTPS edge and
     sign-in. Requests from the CLI, workspace agents and IDE extensions pass
     straight through to Coder, which authenticates them itself. It runs three
@@ -65,8 +66,14 @@ spec:
     Usage telemetry to Coder is turned off. Workspace apps are served on paths
     under the deployment's URL. Apps configured for subdomain access are
     unavailable, because there is no wildcard domain. Premium features such as
-    audit logs, template access control, workspace proxies and AI Bridge need a
-    license from Coder.
+    audit logs, template access control, workspace proxies and AI Gateway need
+    a license from Coder.
+
+    ## Upgrades
+    Coder removed Tasks in v2.38 in favor of Coder Agents. When an existing
+    deployment moves to this version, its tasks and task notifications are
+    permanently deleted, and API tokens and OAuth grants scoped only to tasks
+    are revoked. Workspaces and audit entries are kept.
   gettingStarted: |
     1. Copy the **Owner password** from the deployment's Installation tab and
        sign in with the email you deployed with.

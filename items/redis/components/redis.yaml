@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 7
+  revision: 8
   description: >-
     Redis in-memory data store behind a password, with append-only persistence
     on one volume.
@@ -9,7 +9,7 @@ spec:
   type: SERVICE
   workload:
     source:
-      image: redis:8.8.3-alpine
+      image: redis:8.10.3-alpine
     # `command` replaces the image's CMD and keeps its ENTRYPOINT,
     # docker-entrypoint.sh, which is what Docker and Compose mean by the same
     # word.
@@ -23,7 +23,7 @@ spec:
     # The shell then execs docker-entrypoint.sh again, now with `redis-server`
     # first. That is the branch which chowns /data, drops root through setpriv
     # and appends a `--loadmodule` per bundled module
-    # (alpine/docker-entrypoint.sh in docker-library-redis v8.8.3). Started as a
+    # (alpine/docker-entrypoint.sh in docker-library-redis v8.10.3). Started as a
     # bare `sh -c`, the entrypoint sees `sh` first and skips all three.
     #
     # redis-server reads its configuration from stdin when `-` is its first or
@@ -31,7 +31,7 @@ spec:
     # so `-` comes first. An empty REDIS_PASSWORD leaves `requirepass` with no
     # value, which Redis refuses at startup: the server never runs open.
     #
-    # The image compiles protected-mode off (alpine/Dockerfile:83-88), so the
+    # The image compiles protected-mode off (alpine/Dockerfile:84-89), so the
     # password is the only check a client meets.
     command:
       - sh

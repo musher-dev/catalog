@@ -53,6 +53,6 @@ spec:
     - kasmvnc
   homepageURL: https://www.chocolate-doom.org
   sourceRepositoryURL: https://github.com/chocolate-doom/chocolate-doom
-  supportURL: https://kasmweb.com/docs
+  supportURL: https://docs.kasm.com
   license: GPL-2.0-or-later AND LicenseRef-Doom-Shareware
   icon: media/icon.png

@@ -28,9 +28,9 @@ spec:
 
     ## Defaults
     Three nodes. `db` runs `postgres:17.11-alpine` on a private endpoint
-    with a 10 GiB volume; `cache` runs `redis:8.8.3-alpine` with
+    with a 10 GiB volume; `cache` runs `redis:8.10.3-alpine` with
     append-only persistence on a 5 GiB volume; `web` runs
-    `ghcr.io/berriai/litellm:v1.103.2` on port 4000 behind the platform's
+    `ghcr.io/berriai/litellm:v1.108.3` on port 4000 behind the platform's
     HTTPS edge. The database and cache addresses and their credentials are
     wired between the nodes, so nothing is typed at deploy. The four
     secrets the stack runs on — the master key, the credential-encryption

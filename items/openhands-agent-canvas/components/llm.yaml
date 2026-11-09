@@ -15,7 +15,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     The language-model API the OpenHands agent in Agent Canvas sends model
     requests to, taken whole as one connection.
@@ -31,14 +31,17 @@ spec:
           # Streaming and tool calls, both unconditionally. Read from source at
           # the pinned tags, not observed against a mock server:
           #
-          #   - The Canvas frontend starts conversations, and switches their
-          #     model, with `stream: true` on the LLM it sends
+          #   - Conversations stream. The SDK's launch path sets `stream: true`
+          #     on the LLM it resolves for an agent profile
+          #     (openhands-sdk/openhands/sdk/launch/resolve.py), and the Canvas
+          #     frontend sends `stream: true` when it switches a conversation's
+          #     model
           #     (src/api/conversation-service/agent-server-conversation-service.api.ts,
-          #     OpenHands v1.24.0).
+          #     OpenHands v1.37.0).
           #   - The SDK's LLM defaults to `native_tool_calling: true`, and the
           #     OpenHands agent acts only through tools (terminal, file editor,
           #     task tracker) (openhands-sdk/openhands/sdk/llm/llm.py,
-          #     software-agent-sdk v1.49.6, the agent-server the image is built
+          #     software-agent-sdk v1.60.1, the agent-server the image is built
           #     on).
           #
           # The seed job writes the profile with `api_mode: chat`, so requests

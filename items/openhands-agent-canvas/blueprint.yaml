@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: openhands-agent-canvas
-  revision: 2
+  revision: 3
   description: >-
     OpenHands Agent Canvas behind the platform's sign-in, with persistent state
     and projects, telemetry off, and the deployer's language-model connection
@@ -23,7 +23,7 @@ spec:
       # agent server and automation backend (Python), the Node ingress,
       # openvscode-server, and every conversation's shell commands, builds and
       # ACP agent CLIs (Claude Code, Codex) as local processes. Upstream sizes
-      # a single-user VM at 2 vCPU / 4 GB (docs/SELF_HOSTING.md, v1.24.0), and
+      # a single-user VM at 2 vCPU / 4 GB (docs/SELF_HOSTING.md, v1.37.0), and
       # DigitalOcean's 1-Click asks for 4 GB or more. 4 GB is the floor before
       # any of the agent's own work.
       compute:
@@ -87,7 +87,7 @@ spec:
       ui:
         label: Language model
         order: 1
-    # LOCAL_BACKEND_API_KEY. Minted at deploy and shown on the Installation
+    # OH_SESSION_API_KEYS_0. Minted at deploy and shown on the Installation
     # tab. Browsers never need it, because the UI is handed it automatically.
     # It is the key for the agent server's REST API, and the seed job uses
     # it. 32 bytes of hex, the same shape the entrypoint generates itself.

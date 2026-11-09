@@ -2,11 +2,11 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: hermes-agent
-  revision: 2
+  revision: 3
   description: >-
     Hermes Agent gateway and web dashboard on the deployer's language-model
-    connection, with the dashboard signed in through the platform's OpenID
-    Connect provider.
+    connection, with Hindsight as long-term memory on its own PostgreSQL, and
+    the dashboard signed in through the platform's OpenID Connect provider.
 spec:
   nodes:
     llm:
@@ -17,6 +17,53 @@ spec:
       bindings:
         llm:
           parameter: llm
+    memory-db:
+      componentRef: ./components/pgvector.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only inside this
+      # deployment through the address it publishes.
+      bindings:
+        postgresPassword:
+          parameter: memoryDBPassword
+        postgresUser:
+          value: hindsight
+        postgresDb:
+          value: hindsight
+    memory:
+      componentRef: ./components/hindsight.yaml
+      # Upstream asks for 1.5 GB at least and recommends 2 GB for the image
+      # with local models (hindsight-docs/docs/developer/installation.md).
+      compute:
+        profile: general.standard.small
+      # No exposure: only the agent reaches the memory API.
+      bindings:
+        apiKey:
+          parameter: memoryAPIKey
+        # The same generated password the `memory-db` node initialises its
+        # role with, and the same role and database names.
+        pgAddress:
+          node: memory-db
+          output: address
+        pgUser:
+          value: hindsight
+        pgPassword:
+          parameter: memoryDBPassword
+        pgDatabase:
+          value: hindsight
+        # The same connection the agent runs on, from the same node.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
     web:
       componentRef: ./components/hermes-agent.yaml
       compute:
@@ -75,6 +122,13 @@ spec:
         llmModel:
           node: llm
           output: model
+        # Long-term memory: the `memory` node's private URL and the key it
+        # checks. The boot command selects Hindsight when the URL is present.
+        hindsightAPIURL:
+          node: memory
+          output: apiURL
+        hindsightAPIKey:
+          parameter: memoryAPIKey
   parameters:
     # The language model the agent runs on: endpoint, credential and model
     # acquired together as one connection, defaulting to the organization's. A
@@ -85,3 +139,19 @@ spec:
       ui:
         label: Language model
         order: 1
+    # Shared by the agent and Hindsight, and needed by nobody else, so it is
+    # not disclosed.
+    memoryAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    # HEX, not BASE64: the password is placed in the database URL unencoded,
+    # and hex needs no percent-encoding there. Disclosed to whoever manages the
+    # deployment, for direct database access and backups.
+    memoryDBPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Memory database password
+        order: 2

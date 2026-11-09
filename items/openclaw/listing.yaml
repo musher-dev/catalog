@@ -36,7 +36,7 @@ spec:
     add under Settings → Models are kept.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.11.1`
+    Single-container deployment of `ghcr.io/openclaw/openclaw:2026.11.2`
     with the Control UI on port 18789 behind the platform's HTTPS edge.
     Open the deployment's URL and you land in the Control UI, already
     connected. There is no token to copy. The agent is already on the

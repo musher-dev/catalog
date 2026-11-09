@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     Paperclip agent-orchestration server and board UI, with agent workspaces,
     uploads and its secrets key on one volume and its state in an external
@@ -10,14 +10,21 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 2026.1001.0 is the latest stable release (2026-10-02). The tag
-      # on ghcr carries no `v` prefix; `latest` moves on every release, and
+      # PINNED. 2026.1023.0 (2026-10-24) is the newest stable that runs Claude
+      # Code agents on the `llm` connection by default. 2026.1106.0 starts new
+      # Claude agents on the native Paperclip Runner, which passes none of this
+      # server's ANTHROPIC_* on (`buildNativeProviderEnvironment` keeps only
+      # PATH, HOME and the like; server/src/services/native-runtime/
+      # native-session-executor.ts), so those agents would ignore the
+      # connection. 2026.1106.0 also boots `node server/dist-runtime/index.mjs`,
+      # so `command` below would have to change with it. The tag on ghcr
+      # carries no `v` prefix; `latest` moves on every release, and
       # `beta` / `nightly` / `canary` are pre-release channels.
       #
       # The image bundles the Claude Code, Codex, OpenCode, Gemini and Kimi
       # CLIs that Paperclip's local adapters drive, installed at @latest when
       # the image was built, so a bump also moves them.
-      image: ghcr.io/paperclipai/paperclip:2026.1001.0
+      image: ghcr.io/paperclipai/paperclip:2026.1023.0
     # Compose DATABASE_URL from its parts, then exec the server.
     #
     # Bindings interpolate nothing, and the `db` node publishes only its
@@ -56,14 +63,18 @@ spec:
         # Paperclip to judge (component §5.2, ADR 0035).
         #
         # `bearerToken`: every route checks a bearer token a request carries
-        # (server/src/app.ts, v2026.1001.0). `actorMiddleware` is mounted
+        # (server/src/app.ts, v2026.1023.0). `actorMiddleware` is mounted
         # ahead of the Better Auth handler, the API and the static UI, and it
         # answers 401 to any bearer that is not a board API key, an agent API
-        # key or a signed agent JWT (server/src/middleware/auth.ts). The only
-        # routes it lets a bearer past, and the connection-intent routes
-        # mounted before it, validate their own run-scoped token. This is what
-        # the `paperclipai` CLI, board API keys and remote adapters
-        # (openclaw-gateway, hermes-gateway, HTTP) call back with.
+        # key or a signed agent JWT (server/src/middleware/auth.ts). The routes
+        # it lets a bearer past and the ones mounted before it check their own
+        # credential: run- or session-scoped tokens on connection intents and
+        # voice webhooks, a gateway token on /mcp/gateways/gw_*, OAuth on the
+        # public MCP ingress (off unless enablePublicMcp is set), and a signed
+        # permit on the customer-success routes, which stay off unless enabled
+        # by env. This is what the `paperclipai` CLI, board API keys
+        # and remote adapters (openclaw-gateway, hermes-gateway, HTTP) call
+        # back with.
         #
         # `paths`: public routine triggers. Their callers (GitHub and other
         # webhook senders) prove themselves with an HMAC signature header

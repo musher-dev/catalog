@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     OpenHands Agent Canvas all-in-one image (agent server, automation backend,
     web UI and bundled editor) behind one port, with state and project volumes.
@@ -9,61 +9,72 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 1.24.0 is the latest release (2026-09-25). The standalone
+      # PINNED. 1.37.0 is the latest release (2026-11-06). The standalone
       # OpenHands/agent-canvas repository is archived. Agent Canvas now lives at
       # the root of OpenHands/OpenHands, which builds this image from
       # docker/Dockerfile and pushes it on every `v*` tag
-      # (.github/workflows/docker.yml). Release v1.24.0 is commit 7dc6805, and
-      # ghcr's `1.24.0` tag carries `sha-7dc6805`. The tag has no `v` prefix.
+      # (.github/workflows/docker.yml). Release v1.37.0 is commit 6dad556, and
+      # ghcr's `1.37.0` tag carries `sha-6dad556`. The tag has no `v` prefix.
       #
-      # The image is built FROM ghcr.io/openhands/agent-server:1.49.6-python
+      # The image is built FROM ghcr.io/openhands/agent-server:1.60.1-python
       # (config/defaults.json `versions.agentServer`). Citations below to
       # openhands-agent-server/... are to OpenHands/software-agent-sdk at
-      # v1.49.6.
+      # v1.60.1.
       #
       # When bumping, re-read docker/entrypoint.sh (env vars, the session-key
-      # injection, telemetry defaults), scripts/static-server.mjs and the
-      # profiles router the seed job calls (components/seed-llm.yaml).
-      image: ghcr.io/openhands/agent-canvas:1.24.0
+      # injection, telemetry defaults), scripts/static-server.mjs,
+      # scripts/bind-host.mjs and the profiles router the seed job calls
+      # (components/seed-llm.yaml).
+      image: ghcr.io/openhands/agent-canvas:1.37.0
     # No `command`. The image's ENTRYPOINT is
     # `tini -- /opt/agent-canvas/entrypoint.sh`, with no CMD, and the script
     # never reads its arguments. Anything here would be ignored, so no boot
     # script can run before the services start. Everything is configured
     # through env vars, and the language model through the seed job instead.
     #
-    # The entrypoint (docker/Dockerfile, docker/entrypoint.sh, v1.24.0) starts:
-    #   - the agent server on 127.0.0.1:18000
+    # The entrypoint (docker/Dockerfile, docker/entrypoint.sh, v1.37.0) starts:
+    #   - the agent server on 0.0.0.0:18000, because a session key is set, and
+    #     it starts openvscode-server on :8001
     #   - the automation backend on :18001
-    #   - openvscode-server on :8001
-    #   - scripts/static-server.mjs on `--host ::` port $PORT. This is the one
-    #     ingress. It serves the UI under /canvas, sends `/` to it, and routes
-    #     /api, /sockets, /alive, /health, /ready, /server_info, /docs and
-    #     /vscode to the backends.
+    #   - scripts/static-server.mjs on `--host ::` (or `0.0.0.0` on a kernel
+    #     with no IPv6) port $PORT. This is the one ingress. It serves the UI
+    #     under /canvas, sends `/` to it, and routes /api, /sockets, /alive,
+    #     /health, /ready, /server_info, /docs and /vscode to the backends.
     #
-    # BIND. The ingress already listens on every interface (`--host ::`,
-    # dual-stack) in the image. Nothing needs to change for the platform to
-    # reach it. OH_BIND_HOST, `--public` and AGENT_CANVAS_ALLOW_LAN_SESSION_KEY
-    # do not exist at v1.24.0. They belong to the npm launcher
-    # (`npx @openhands/agent-canvas`), not to this image.
+    # BIND. The ingress already listens on every interface (`::`, or `0.0.0.0`
+    # where the kernel has no IPv6) in the image. Nothing needs to change for
+    # the platform to reach it. OH_BIND_HOST and `--public` belong to the npm
+    # launcher (`npx @openhands/agent-canvas`), not to this image.
     #
-    # BROWSER AUTH. Every /api route needs the `X-Session-API-Key` header
-    # (check_session_api_key, openhands-agent-server/.../dependencies.py), and
-    # the automation backend takes the same key. The image's ingress always
-    # passes `--session-api-key`. So static-server.mjs writes the key into the
-    # served index.html (makeConfigInjectionScript), and the browser uses it
-    # without asking. Nobody pastes a key. The npm launcher's `--public` mode,
-    # which shows a key-entry screen instead, has no switch in this image. Its
-    # only counterpart is the PUBLIC_MODE_PORT test listener, which omits the
-    # /vscode route, so it is not used.
+    # BROWSER AUTH. Since v1.25.0 the ingress, which gets the key through
+    # SESSION_API_KEY, writes it into the served index.html
+    # (makeConfigInjectionScript) only on a loopback bind or when told to
+    # (applySessionKeyPolicy, scripts/bind-host.mjs). Otherwise the UI shows a
+    # key-entry screen. The input below sets AGENT_CANVAS_ALLOW_LAN_SESSION_KEY,
+    # so the key stays in the page and the browser uses it without asking.
+    # Upstream's quickstart sets it only with a loopback-published port and
+    # says to omit it on a public interface; here the platform's sign-in
+    # stands in for that. Nobody pastes a key. The
+    # PUBLIC_MODE_PORT test listener, which omits the /vscode route, is not
+    # used.
+    #
+    # The key is set as OH_SESSION_API_KEYS_0, the variable the entrypoint
+    # exports when it generates a key of its own. LOCAL_BACKEND_API_KEY would
+    # not do: the entrypoint gives that one to the automation backend and the
+    # UI only, the agent server then has no session keys, and
+    # check_session_api_key (openhands-agent-server/.../dependencies.py) lets
+    # every /api request through. With a key the agent server binds 0.0.0.0
+    # instead of loopback (openhands-agent-server/.../__main__.py), and the
+    # key is what guards it there.
     #
     # So whoever can load /canvas holds the key. The real gate is the
     # platform's sign-in: the blueprint exposes `primary` with
-    # `access: AUTHENTICATED`, and nothing else reaches this container.
+    # `access: RESTRICTED`, and nothing else reaches this container.
     # Upstream has no trusted-header auth, so no viewer identity is forwarded.
     #
     # The key is a generated blueprint parameter rather than the entrypoint's
-    # own `api-key.txt`. The seed job needs the same value to call the API,
-    # and it is not on the data volume.
+    # own `api-key.txt`. The seed job sends the same value and has no access
+    # to the data volume.
     endpoints:
       primary:
         targetPort: 8000
@@ -103,7 +114,9 @@ spec:
       # run workspaces. All live under ~/.openhands (docker/entrypoint.sh
       # OPENHANDS_DIR). This is the credential-bearing volume. The image
       # pre-creates it owned by `openhands`, so this relies on the platform
-      # mounting it writable by that user.
+      # mounting it writable by that user. The entrypoint exits if it cannot
+      # write automation-kv-secret.txt here, so an unwritable mount stops the
+      # container.
       state:
         minSizeGiB: 5
         mountPath: /home/openhands/.openhands
@@ -129,20 +142,33 @@ spec:
         target:
           envVar: PORT
         description: Port the image's ingress listens on, the `primary` endpoint's target port.
-      # Read by docker/entrypoint.sh. When set, it becomes OH_SESSION_API_KEYS_0
-      # for the agent server and the automation backend's key, and it is the
-      # key injected into the UI. The entrypoint then writes no api-key.txt.
+      # Read by the agent server and by docker/entrypoint.sh, which makes it
+      # the automation backend's key and the key injected into the UI, and then
+      # writes no api-key.txt (BROWSER AUTH, above).
       sessionAPIKey:
         schema:
           type: string
         sensitive: true
         required: true
         target:
-          envVar: LOCAL_BACKEND_API_KEY
+          envVar: OH_SESSION_API_KEYS_0
         description: >-
           Session API key the agent server and automation backend require on
           every API call. The UI receives it automatically, and the seed job
           uses it to write the LLM profile.
+      # Keeps the key in the page the ingress serves (BROWSER AUTH, above).
+      # Upstream's default is off because the key then reaches anyone who can
+      # load the page; here the platform's sign-in decides that.
+      allowLANSessionKey:
+        schema:
+          type: string
+        default: "true"
+        target:
+          envVar: AGENT_CANVAS_ALLOW_LAN_SESSION_KEY
+        description: >-
+          Whether the ingress writes the session API key into the page it
+          serves, as the literal string docker/entrypoint.sh compares with
+          `true`.
       # Encrypts settings, profile API keys and secrets at rest (Config.cipher,
       # openhands-agent-server/.../config.py). Supplied rather than left to
       # the entrypoint, which would generate one into secret-key.txt on the

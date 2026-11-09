@@ -6,8 +6,9 @@ spec:
   itemType: BLUEPRINT
   displayName: Hermes Agent
   summary: >-
-    Nous Research's self-improving AI agent, with a web dashboard and messaging
-    gateway, running on your organization's language model
+    Nous Research's self-improving AI agent, with long-term Hindsight memory, a
+    web dashboard and a messaging gateway, running on your organization's
+    language model
   overview: |
     ## What it is
     Hermes Agent, from Nous Research, is an open-source agent that keeps
@@ -16,7 +17,8 @@ spec:
     gateway connects it to messaging apps such as Telegram, Discord and Slack.
     This deployment runs the gateway together with Hermes's web dashboard,
     where you chat with the agent and manage its configuration, keys,
-    sessions, skills and channels.
+    sessions, skills and channels. Hindsight runs beside it as the agent's
+    long-term memory.
 
     ## When to use
     - You want a persistent agent on infrastructure you control, reachable
@@ -37,10 +39,13 @@ spec:
     starts, so a replaced connection takes effect on the next restart. For
     the same reason, a different main model picked in the dashboard reverts
     to the connection's model on restart. The credential itself is read from
-    the deployment's environment and is never saved to the data volume.
+    the deployment's environment and is not written to Hermes's configuration.
+    The agent's shell commands can read it, and Hermes's terminal snapshots
+    under `/opt/data/cache/terminal` can hold a copy, so treat the data volume
+    as sensitive.
 
     ## Defaults
-    A single container runs `nousresearch/hermes-agent:v2026.9.24` with the
+    A single container runs `nousresearch/hermes-agent:v0.23.0` with the
     dashboard on port 9119, behind the platform's HTTPS edge and sign-in. The
     messaging gateway runs beside it, supervised so that a crash restarts the
     gateway, not the container. No messaging channel is connected at first.
@@ -49,11 +54,36 @@ spec:
 
     Hermes's OpenAI-compatible API server is not exposed. It stays on the
     container's loopback interface, where the dashboard uses it, and other
-    apps cannot call it.
+    apps cannot call it. Hermes's browser Webapp, which serves the Desktop
+    workspace on its own port, stays off and is not exposed either.
 
     A 10 GiB volume at `/opt/data` keeps configuration, saved keys and
-    channel tokens, sessions, memories, skills, cron jobs and logs across
-    restarts. The agent's shell commands run inside this container.
+    channel tokens, sessions, built-in memories, skills, cron jobs and logs
+    across restarts. The agent's shell commands run inside this container.
+
+    ## Long-term memory
+    Hindsight stores what the agent learns as a knowledge graph. After each
+    turn Hermes sends the conversation to it, and before the next turn it
+    recalls what is relevant. The agent also gets tools to retain, recall and
+    reflect on memories. Hermes's built-in memory keeps working alongside it.
+
+    Two more containers run for this, and only this deployment can reach
+    them. One runs `ghcr.io/vectorize-io/hindsight-api:1.2.0`, with its
+    embedding and reranking models built in. The other is a PostgreSQL 17
+    server with pgvector on its own 10 GiB volume. Its password is generated
+    for you, and you can reveal it on the deployment's Installation tab.
+
+    Hindsight processes memories on the language model you chose, so expect
+    extra model usage on every turn. The model must support JSON-schema
+    structured output, or reflecting on memories fails. Memory processing sends
+    your conversations to that model and nowhere else.
+
+    Hermes downloads its Hindsight plugin from GitHub the first time it
+    starts, and later upgrades leave the plugin where it is. If the download
+    fails, the agent runs on its built-in memory and retries at the next
+    restart. Hindsight is written into Hermes's configuration each time it
+    starts, so a different memory provider picked in the dashboard reverts on
+    restart.
 
     ## Access and security
     Signing in to Musher is what gets you in. The platform admits only people

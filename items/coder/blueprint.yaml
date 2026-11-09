@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: coder
-  revision: 2
+  revision: 3
   description: >-
     Coder control plane behind the platform's sign-in, on its own PostgreSQL,
     with an Owner account created for the deployer and members signing in
