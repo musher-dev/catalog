@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     Coder control plane (coderd) with built-in Terraform provisioners, signing
     members in through the platform's OpenID Connect provider and keeping its
@@ -10,24 +10,31 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v2.36.6 is the current stable release (stable since
-      # 2026-09-17); v2.37.x is the mainline channel. The ghcr tag carries the
-      # `v` prefix: `2.36.6`, as the release notes spell it, does not resolve.
+      # PINNED. v2.38.6 is the current stable release (stable since
+      # 2026-11-03; v2.39.x is mainline). The ghcr tag carries the `v` prefix:
+      # `2.38.6` does not resolve.
+      #
+      # v2.38 removes Coder Tasks. Migrations 000592-000595 delete the tasks,
+      # task_snapshots and task_workspace_apps tables and task notifications,
+      # and the listing says so. It also makes embedded NATS the default pubsub.
+      # With no CODER_CLUSTER_HOST or relay URL, coderd logs one error at boot
+      # and uses PostgreSQL pubsub (cli/server.go), the fallback upstream
+      # documents, and that is right for this item's single replica.
       #
       # The image is Alpine with `ENTRYPOINT ["/opt/coder", "server"]` and no
       # CMD, runs as USER 1000 with HOME=/home/coder, and bundles terraform
-      # 1.15.5 for the built-in provisioners (scripts/Dockerfile,
-      # scripts/Dockerfile.base, v2.36.6). No `command`: the entrypoint already
+      # 1.17.1 for the built-in provisioners (scripts/Dockerfile,
+      # scripts/Dockerfile.base, v2.38.6). No `command`: the entrypoint already
       # runs the server, and a `command` would only be appended to it as
       # arguments, so no shell can run here to compose a value.
-      image: ghcr.io/coder/coder:v2.36.6
+      image: ghcr.io/coder/coder:v2.38.6
     endpoints:
       primary:
         targetPort: 7080
         protocol: HTTP
         # Coder signs members in as an OpenID Connect client of the platform.
         # It sends `<CODER_ACCESS_URL>/api/v2/users/oidc/callback` as its
-        # redirect URI (coderd/coderd.go, v2.36.6).
+        # redirect URI (createOIDCConfig, cli/server.go, v2.38.6).
         oidc:
           redirectPaths:
             - /api/v2/users/oidc/callback
@@ -36,7 +43,7 @@ spec:
         # `/api`: the CLI, workspace agents, and the VS Code and JetBrains
         # extensions authenticate with Coder's own `Coder-Session-Token`
         # header, not `Authorization: Bearer` (APITokenFromRequest,
-        # coderd/httpmw/apikey.go, v2.36.6, reads the bearer only as a
+        # coderd/httpmw/apikey.go, v2.38.6, reads the bearer only as a
         # fallback). A `bearerToken` exemption would therefore let none of them
         # through. Coder authenticates every /api/v2 route itself except a
         # short public set (build info, auth methods, login, the OIDC
@@ -58,11 +65,11 @@ spec:
             - /bin
     # No volume. With an external database coderd keeps no state of its own.
     # Upstream's compose says its home volume "is not required in a
-    # production environment" (compose.yaml, v2.36.6). The Terraform provider
+    # production environment" (compose.yaml, v2.38.6). The Terraform provider
     # cache under ~/.cache/coder is rebuilt on demand.
     health:
       # /healthz answers "OK" once the HTTP server is up, outside any auth
-      # (coderd/coderd.go, v2.36.6). That is after the server has connected to
+      # (coderd/coderd.go, v2.38.6). That is after the server has connected to
       # PostgreSQL and applied migrations. Coder retries the database for 30
       # seconds and then exits (ConnectToPostgres, cli/server.go). On a first
       # boot the `db` node may still be initialising, so the budget allows for a
@@ -89,7 +96,7 @@ spec:
       # input, including the constants below. They carry defaults, so no
       # blueprint has to wire them and the deploy form gains no field.
       #
-      # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.36.6), which
+      # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.38.6), which
       # nothing outside the container could reach. 7080 is the port upstream's
       # compose file uses.
       httpAddress:

@@ -22,7 +22,7 @@ spec:
       webhook endpoints on your own domain.
 
     ## Defaults
-    Single-container deployment of `n8nio/n8n:2.41.6` with the web UI on
+    Single-container deployment of `n8nio/n8n:2.46.7` with the web UI on
     port 5678 behind the platform's HTTPS edge and the platform's sign-in:
     only people allowed into this deployment reach the editor.
     Webhooks, forms, MCP triggers, the public API (`/api`, with an n8n API
@@ -32,8 +32,8 @@ spec:
     There is no setup screen. The owner account is the person who installed
     the deployment: it signs in with their verified email and the generated
     owner password on the deployment's Installation tab. n8n re-applies that
-    owner on every start, so a password changed inside n8n reverts at the
-    next restart, and upgrading an existing deployment replaces an owner set
+    owner on every start and doesn't let its email or password be changed
+    inside n8n, and upgrading an existing deployment replaces an owner set
     up by hand with the deployer's email and the generated password. Webhook, editor, and
     host URLs are taken from this deployment's own public https address, so
     webhook URLs are right the first time. The readiness probe
@@ -48,8 +48,8 @@ spec:
     3. Build your first workflow on the canvas. Webhook URLs already use the
        deployment's own address.
 
-    Keep using the generated password: n8n re-applies the owner on every start,
-    so one changed inside n8n reverts at the next restart.
+    Keep using the generated password. n8n manages the owner from the
+    deployment, so its password can't be changed inside n8n.
   category: AUTOMATION
   lifecycleStage: STABLE
   tags:

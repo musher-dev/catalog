@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     ZeroClaw agent daemon with its HTTP gateway and web dashboard behind the
     platform edge's sign-in, keeping config, memory and paired devices on one
@@ -10,9 +10,22 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v0.8.5 is the latest stable release (2026-09-05). The ghcr tag
-      # carries the `v` prefix, and v0.8.5-debian, dist-v0.8.5, minimal-v0.8.5
-      # and default-features-v0.8.5 are siblings of it.
+      # PINNED. v0.8.5 (2026-09-05), held on purpose. v0.8.7 is the latest
+      # stable and carries Wasmtime and TLS-verification fixes, so move to it
+      # once both of these are settled:
+      #   - Since v0.8.6 the daemon refuses to start if data/.lifecycle is
+      #     group-writable or its lock file has group or other bits
+      #     (`check_lock_dir` and `validate_lock_file`,
+      #     crates/zeroclaw-runtime/src/live_config_authority.rs). If the
+      #     platform makes a volume writable with a recursive group chmod on
+      #     mount, every restart after the first would fail, and this image has
+      #     no shell to repair it. Test one restart on the platform.
+      #   - Since v0.8.6 GET /pair/code no longer returns the first-run code,
+      #     which appears only in the startup banner for 10 minutes, so the
+      #     dashboard cannot fill it in (ACCESS, below). The listing would have
+      #     to send the deployer to the deployment's logs.
+      # The ghcr tag carries the `v` prefix, and v0.8.5-debian, dist-v0.8.5,
+      # minimal-v0.8.5 and default-features-v0.8.5 are siblings of it.
       #
       # The published image is built from Dockerfile.ci, not the root
       # Dockerfile (.github/workflows/release-stable-manual.yml, "Build and
@@ -86,7 +99,7 @@ spec:
     # `trust_forwarded_headers` (which only keys rate limits) and TLS
     # settings, nothing that reads an identity header (GatewayConfig in
     # crates/zeroclaw-config/src/schema.rs). The blueprint therefore exposes
-    # `primary` with `access: AUTHENTICATED` and no `viewerIdentity`, and
+    # `primary` with `access: RESTRICTED` and no `viewerIdentity`, and
     # ZeroClaw keeps its own pairing on top:
     #
     #   - `require_pairing` defaults to true in the schema (`GatewayConfig::

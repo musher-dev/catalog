@@ -35,7 +35,7 @@ spec:
     on its next restart.
 
     ## Defaults
-    Two containers. The first runs `ghcr.io/paperclipai/paperclip:2026.1001.0`
+    Two containers. The first runs `ghcr.io/paperclipai/paperclip:2026.1023.0`
     with the board UI and API on port 3100, behind the platform's HTTPS edge and
     sign-in. The second is a private PostgreSQL 17 server that only Paperclip
     can reach.
@@ -65,7 +65,9 @@ spec:
        runs on the language model you chose, and other adapters need their own
        credentials, which you add in Paperclip.
     3. Give the agent a budget and a first ticket, and turn on approvals for
-       anything risky.
+       anything risky. If Paperclip can't price your model, a budget holds the
+       agent: on the **Budgets** tab of **Costs**, clear **Block new work when
+       usage has no reliable price** under that budget's **Advanced settings**.
     4. Plan backups of the database and of the master key on the `/paperclip`
        volume. Secrets can't be decrypted without that key.
   category: AGENTS

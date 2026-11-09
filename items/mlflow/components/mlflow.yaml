@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 11
+  revision: 12
   description: >-
     MLflow tracking server with its own login, its metadata store, user store
     and proxied artifacts on one volume.
@@ -10,13 +10,13 @@ spec:
   workload:
     source:
       # The -full build, not the bare one. The bare image is
-      # `pip install mlflow==$VERSION` (docker/Dockerfile, v3.16.1), and core
+      # `pip install mlflow==$VERSION` (docker/Dockerfile, v3.18.0), and core
       # mlflow carries no psycopg2, PyMySQL, boto3 or google-cloud-storage, so
       # the Postgres, S3 and GCS stores the deploy form offers would fail at
       # boot. docker/Dockerfile.full installs
-      # mlflow[extras,azure,db,gateway,genai,auth] from the same base, for 369 MB
-      # compressed against 291 MB (linux/amd64).
-      image: ghcr.io/mlflow/mlflow:v3.16.1-full
+      # mlflow[extras,azure,db,gateway,genai,auth] from the same base, for 392 MB
+      # compressed against 303 MB (linux/amd64).
+      image: ghcr.io/mlflow/mlflow:v3.18.0-full
     # The official image ships NO ENTRYPOINT/CMD (its Dockerfile is a bare
     # `pip install`); without an explicit server command the container
     # inherits python:slim's `python3`, reads EOF, and exits immediately. The
@@ -27,7 +27,7 @@ spec:
     # `--app-name basic-auth` turns on MLflow's own login (mlflow[auth], in
     # the -full image). Its user store defaults to `sqlite:///basic_auth.db`,
     # relative to the working directory and so off the volume, and only a
-    # config file moves it (server/auth/config.py, basic_auth.ini, v3.16.1).
+    # config file moves it (server/auth/config.py, basic_auth.ini, v3.18.0).
     # The script writes that file onto the volume from the inputs below, on
     # every start, then execs the server. The admin username and password
     # come from MLFLOW_AUTH_ADMIN_*, which take precedence over the file.
@@ -49,9 +49,11 @@ spec:
         protocol: HTTP
         # The routes the MLflow client and trace exporters call: the REST API
         # (/api/2.0 and /api/3.0, proxied artifacts included), the two artifact
-        # downloads and OTLP trace ingest (server/__init__.py, v3.16.1). A
-        # blueprint may let them past the platform's sign-in, because no client
-        # holds a viewer session. MLflow's own basic auth still checks every one.
+        # downloads (server/__init__.py, v3.18.0) and OTLP trace ingest
+        # (server/otel_api.py). A blueprint may let them past the platform's
+        # sign-in, because no client holds a viewer session. MLflow's own basic
+        # auth still checks each one, except the secret-free server-info route
+        # it leaves public on purpose (server/auth/__init__.py).
         # The browser UI calls /ajax-api, which stays behind sign-in.
         exemptibleRequests:
           paths:
@@ -60,6 +62,21 @@ spec:
             - /model-versions/get-artifact
             - /v1/traces
     health:
+      startup:
+        # An existing deployment's first start on a newer MLflow migrates its
+        # database before the server listens: SqlAlchemyStore finds new ORM
+        # tables missing and runs the migrations inside `mlflow server`
+        # (_all_tables_exist and _upgrade_db, store/db/utils.py, v3.18.0).
+        # Upstream warns they can be slow and are not guaranteed to be
+        # transactional, so a restart partway through is the outcome to avoid.
+        # 30 + 180 x 10 = 1830 s.
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 180
       readiness:
         # /health is MLflow's dedicated auth-bypassing 200 "OK"; the root
         # serves the heavy React bundle (mlflow/server/__init__.py). The auth
@@ -103,7 +120,7 @@ spec:
       # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
       # protection) whose default allowlist rejects gateway traffic on the
       # public hostname. The health probe is not affected: /health and /version
-      # are exempt (HEALTH_ENDPOINTS, mlflow/server/security_utils.py, v3.16.1).
+      # are exempt (HEALTH_ENDPOINTS, mlflow/server/security_utils.py, v3.18.0).
       # The container port binds loopback-only on the compute host and is
       # reachable solely through the platform edge, so Host validation adds
       # nothing here — disable it rather than chase every proxied hostname
@@ -162,7 +179,7 @@ spec:
       # MLflow's own login. The admin is created only the first time the auth
       # app starts against an empty user store; after that both values are
       # ignored, and the password is changed in MLflow
-      # (create_admin_user, server/auth/__init__.py, v3.16.1).
+      # (create_admin_user, server/auth/__init__.py, v3.18.0).
       authAdminUsername:
         schema:
           type: string
@@ -183,7 +200,7 @@ spec:
           requires more than 12 characters. Copy it from the deployment's
           Installation tab.
       # The auth app refuses to start without it: it signs the CSRF token of
-      # the user-creation form (server/auth/__init__.py, v3.16.1).
+      # the user-creation form (server/auth/__init__.py, v3.18.0).
       flaskSecretKey:
         schema:
           type: string
@@ -219,7 +236,7 @@ spec:
       # This deployment's own origin, bound from the output below. Without it
       # the UI cannot write. MLflow rejects any POST, PUT, PATCH or DELETE to
       # /api/ or /ajax-api/ whose Origin is not localhost or on this list
-      # (should_block_cors_request, security_utils.py, v3.16.1), and browsers
+      # (should_block_cors_request, security_utils.py, v3.18.0), and browsers
       # send Origin on same-origin POSTs. MLflow's UI searches and edits over
       # POST. Observed against 3.14.0 and 3.16.1 servers: a POST to
       # /ajax-api/2.0/mlflow/experiments/search with this origin was

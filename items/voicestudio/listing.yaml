@@ -14,8 +14,8 @@ spec:
     with no third-party API behind it. It clones a voice from a short sample,
     designs new voices from a description, and narrates stories and
     audiobooks with several voices. It also dubs video into other languages
-    and transcribes audio. It bundles 16 text-to-speech and 11
-    speech-recognition engines covering 646 languages. Programs use it
+    and transcribes audio. Its engine catalogue lists 18 text-to-speech and
+    12 speech-recognition engines, covering 646 languages. Programs use it
     through an OpenAI-compatible audio API, and AI agents use it through a
     built-in MCP server.
 
@@ -29,7 +29,7 @@ spec:
       cover.
 
     ## Defaults
-    Single-container deployment of `ghcr.io/debpalash/voicestudio:0.5.6`.
+    Single-container deployment of `ghcr.io/debpalash/voicestudio:0.5.7`.
     The web UI, REST and OpenAI-compatible API, and the MCP server at `/mcp/`
     are all on port 3900, behind the platform's HTTPS edge and sign-in.
 
@@ -40,6 +40,11 @@ spec:
     model is about 2.4 GB, so allow several minutes for the first job. Startup
     after an install or upgrade also takes a few minutes, because the image is
     about 6 GB.
+
+    Models without a plainly commercial licence, the default model included,
+    must have their licence accepted once in the Model Catalogue. Until then,
+    API and MCP requests that use them return a licence error, so accept it in
+    the web UI before pointing clients at the deployment.
 
     An API key is generated for you, and you can reveal it on the
     deployment's Installation tab. The web UI asks for it once after the
@@ -59,10 +64,13 @@ spec:
        can take a few minutes, because the image is about 6 GB.
     2. When the web UI asks for it, enter the **API key** from the deployment's
        Installation tab.
-    3. Run a first text-to-speech job. The first use of an engine downloads its
-       weights, and the default model is about 2.4 GB, so allow several minutes.
+    3. Run a first text-to-speech job, accepting the model's licence when the
+       web UI asks. The first use of an engine downloads its weights, and the
+       default model is about 2.4 GB, so allow several minutes.
 
-    API and MCP clients send the same key as `Authorization: Bearer <key>`.
+    API and MCP clients send the same key as `Authorization: Bearer <key>`, and
+    get a licence error until the model's licence has been accepted in the web
+    UI.
     Clone only voices you have the owner's permission to use.
   category: MODELS
   lifecycleStage: BETA
@@ -72,7 +80,7 @@ spec:
     - speech
     - transcription
     - voice-cloning
-  homepageURL: https://github.com/debpalash/VoiceStudio
+  homepageURL: https://voicestudio.sh
   sourceRepositoryURL: https://github.com/debpalash/VoiceStudio
   license: AGPL-3.0-only
   icon: media/icon.png

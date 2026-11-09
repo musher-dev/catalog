@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: litellm
-  revision: 7
+  revision: 8
   description: LiteLLM proxy with a generated master key, reachable over a public HTTP API.
 spec:
   nodes:

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: code-server
-  revision: 7
+  revision: 8
   description: code-server behind the platform's sign-in, with a persistent home directory.
 spec:
   nodes:

@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     LiteLLM proxy with its database and cache, issuing virtual keys and
     recording spend in front of many model providers.
@@ -13,20 +13,31 @@ spec:
       # publishing `-stable` / `-stable.patch.N` tags; pre-releases carry
       # -rc.N / -dev.N instead
       # (docs.litellm.ai/blog/cleaner-release-versions).
-      image: ghcr.io/berriai/litellm:v1.103.2
+      image: ghcr.io/berriai/litellm:v1.108.3
     endpoints:
       primary:
         targetPort: 4000
         protocol: HTTP
     health:
+      startup:
+        # The whole migration chain (221 at v1.108.3) runs before the port
+        # binds, so a first boot or a large upgrade gets more room than the
+        # readiness gate below. 30 + 60 x 10 = 630 s.
+        http:
+          endpoint: primary
+          path: /health/readiness
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
       readiness:
         # With a database configured, proxy_cli.run_server builds DATABASE_URL
         # and applies the Prisma migrations BEFORE uvicorn binds 4000
-        # (proxy/proxy_cli.py, v1.103.2), so on a first deploy nothing
+        # (proxy/proxy_cli.py, v1.108.3), so on a first deploy nothing
         # answers until the whole migration chain has run against an empty
         # database. /health/readiness is public and reports the database too:
         # it answers 503 while the database is unreachable
-        # (proxy/health_endpoints/_health_endpoints.py, v1.103.2).
+        # (proxy/health_endpoints/_health_endpoints.py, v1.108.3).
         http:
           endpoint: primary
           path: /health/readiness
@@ -43,7 +54,7 @@ spec:
         required: true
         target:
           envVar: LITELLM_MASTER_KEY
-        # Presented exactly as generated. v1.103.2 compares it to the request's
+        # Presented exactly as generated. v1.108.3 compares it to the request's
         # key with secrets.compare_digest (proxy/auth/user_api_key_auth.py) and
         # adds no prefix. With the database below it is also the admin
         # dashboard's password, for the username `admin`.
@@ -68,7 +79,7 @@ spec:
       # template reads only endpoint properties (COMP-PLACEHOLDER-001), so nothing can
       # compose a URL carrying the password. LiteLLM assembles it itself:
       # with no DATABASE_URL and no config file, run_server calls
-      # construct_database_url_from_env_vars (proxy/utils.py, v1.103.2),
+      # construct_database_url_from_env_vars (proxy/utils.py, v1.108.3),
       # which percent-encodes the username, password and database name and
       # uses the host verbatim, so `host:port` is what it wants.
       databaseHost:
@@ -113,7 +124,7 @@ spec:
           Whether model definitions are stored in the database, as the literal
           string the image parses.
       # The default, DEV, is the one value that makes the CLI call
-      # load_dotenv() on start (proxy/proxy_cli.py, v1.103.2), reading a stray
+      # load_dotenv() on start (proxy/proxy_cli.py, v1.108.3), reading a stray
       # .env out of the working directory.
       mode:
         schema:
@@ -125,13 +136,16 @@ spec:
       # Read only once caching is switched on. No environment variable reaches
       # that switch (`litellm_settings.cache`): it is set once from the
       # dashboard or with POST /config/update, and STORE_MODEL_IN_DB keeps it
-      # in the database for every start.
+      # in the database for every start. The proxy's env fallback for
+      # cross-pod coordination (_init_coordination_redis_env_fallback,
+      # proxy_server.py, v1.108.3) runs only from load_config, and this item
+      # starts with no config file.
       #
       # The three parts of the Redis connection, rather than one URL. A
       # component template reads only endpoint properties (COMP-PLACEHOLDER-001), so
       # no URL can carry the password, and REDIS_URL would lose it anyway: when
       # a URL is set, _get_redis_client_logic drops the host, port and
-      # password it found in the environment (_redis.py, v1.103.2). With no
+      # password it found in the environment (_redis.py, v1.108.3). With no
       # URL it maps each REDIS_* variable to the redis-py argument of the same
       # name, and coerces the port to an integer.
       redisHost:
