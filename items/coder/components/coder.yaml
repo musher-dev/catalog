@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     Coder control plane (coderd) with built-in Terraform provisioners, signing
     members in through the platform's OpenID Connect provider and keeping its
@@ -140,6 +140,15 @@ spec:
         target:
           envVar: CODER_TELEMETRY_ENABLE
         description: Whether Coder sends anonymized usage telemetry upstream, as the literal string Coder parses.
+      # One build at a time, not upstream's three: each daemon runs terraform
+      # in this container, and the blueprint sizes the node for one.
+      provisionerDaemons:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: CODER_PROVISIONER_DAEMONS
+        description: Number of built-in provisioner daemons, each running one workspace build at a time.
       oidcSignInText:
         schema:
           type: string
