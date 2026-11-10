@@ -2,14 +2,16 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: meilisearch
-  revision: 9
+  revision: 10
   description: Meilisearch with a generated master key and a publicly reachable search API.
 spec:
   nodes:
     web:
       componentRef: ./components/meilisearch.yaml
+      # Meilisearch reads the container's memory limit and CPU quota, and the
+      # component caps indexing at 512 MiB, so a trial index fits in 1 GiB.
       compute:
-        profile: general.standard.nano
+        profile: general.economy.nano
       volumes:
         data:
           sizeGiB: 8
