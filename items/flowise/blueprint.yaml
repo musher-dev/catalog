@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: flowise
-  revision: 9
+  revision: 10
   description: >-
     Flowise behind the platform's sign-in, with its chat and flow APIs reachable
     and a generated credential-encryption key.
@@ -10,8 +10,12 @@ spec:
   nodes:
     web:
       componentRef: ./components/flowise.yaml
+      # One Node process whose heap Node 24 sizes from the container's memory
+      # limit; the image sets no NODE_OPTIONS heap override. 2 GiB covers a trial
+      # user's flows, though a scraper node that launches the bundled Chromium
+      # adds to it.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 5
