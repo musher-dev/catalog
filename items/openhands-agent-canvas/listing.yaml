@@ -64,7 +64,7 @@ spec:
     elsewhere in the container is lost on restart.
 
     Product telemetry is off in the browser, the agent server and the
-    automation backend. The deployment runs on 4 vCPU and 8 GiB of memory.
+    automation backend. The deployment runs on 2 vCPU and 4 GiB of memory.
 
     ## Access and security
     Signing in to Musher is what gets you in. The platform admits only people

@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 12
+  revision: 13
   description: >-
     Open WebUI chat interface for any OpenAI-compatible language-model API,
     signing viewers in as an OpenID Connect client of the platform.
@@ -47,6 +47,17 @@ spec:
             - /api/v1/channels/webhooks
             - /openai
     health:
+      # The first boot below runs on one vCPU, so it gets a budget of its own
+      # rather than resting on the readiness gate's retries: 30 + 90 x 10 =
+      # 930 s. Readiness and liveness are suspended until it passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
       readiness:
         http:
           endpoint: primary
@@ -103,6 +114,16 @@ spec:
         description: >-
           Whether the native Ollama client is enabled, as the literal string the
           image parses.
+      # PyTorch sizes its thread pool from the host's cores, not the node's
+      # vCPU quota, so the embedding model would run dozens of threads on one
+      # vCPU. One thread matches the profile the blueprint gives this node.
+      ompNumThreads:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: OMP_NUM_THREADS
+        description: Threads PyTorch and its math libraries use for the local embedding model.
       # The three inputs below carry one language-model connection. They are not
       # supplied independently: the blueprint wires all three to the outputs of
       # the `llm` node, which takes the connection whole (components/llm.yaml).

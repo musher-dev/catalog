@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 13
+  revision: 14
   description: >-
     OpenClaw agent gateway and Control UI behind the platform edge's sign-in,
     with its config, sessions and credentials on two volumes.
@@ -364,6 +364,16 @@ spec:
         description: >-
           Whether mDNS advertising is off, as the literal string the gateway
           runtime parses.
+      # Upstream's own heap cap for a 2 GB machine (docs/install/fly.md,
+      # v2026.11.2), so V8 collects before the node's memory limit is reached
+      # rather than after.
+      nodeOptions:
+        schema:
+          type: string
+        default: --max-old-space-size=1536
+        target:
+          envVar: NODE_OPTIONS
+        description: Options Node.js reads at startup; caps the gateway's heap at 1536 MiB.
       # State and config paths, pinned the way upstream compose pins them, so
       # they cannot drift from the volume mounts above if a default moves.
       stateDir:

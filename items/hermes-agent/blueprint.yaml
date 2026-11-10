@@ -2,11 +2,12 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: hermes-agent
-  revision: 3
+  revision: 4
   description: >-
     Hermes Agent gateway and web dashboard on the deployer's language-model
     connection, with Hindsight as long-term memory on its own PostgreSQL, and
-    the dashboard signed in through the platform's OpenID Connect provider.
+    the dashboard signed in through the platform's OpenID Connect provider and
+    Hindsight's memory UI behind the platform's sign-in.
 spec:
   nodes:
     llm:
@@ -19,8 +20,11 @@ spec:
           parameter: llm
     memory-db:
       componentRef: ./components/pgvector.yaml
+      # Hindsight's guide gives PostgreSQL 512 MB to 1 GB
+      # (hindsight-docs/docs/developer/installation.md, v1.2.0), and one
+      # agent's memory banks are small.
       compute:
-        profile: general.standard.small
+        profile: general.economy.nano
       volumes:
         data:
           sizeGiB: 10
@@ -35,11 +39,15 @@ spec:
           value: hindsight
     memory:
       componentRef: ./components/hindsight.yaml
-      # Upstream asks for 1.5 GB at least and recommends 2 GB for the image
-      # with local models (hindsight-docs/docs/developer/installation.md).
+      # Not standard.nano, although upstream asks for 1.5 GB and recommends
+      # 2 GB (hindsight-docs/docs/developer/installation.md). That table assumes
+      # a ~90 MB MiniLM reranker, and v1.2.0 loads hindsight-ai/hs-rerank-1, a
+      # 114M-parameter float32 model, beside bge-small-en-v1.5, both on CPU
+      # PyTorch (config.py). Retain and recall then run near 2 GiB, and the
+      # memory limit is a hard one.
       compute:
         profile: general.standard.small
-      # No exposure: only the agent reaches the memory API.
+      # No exposure: only the agent and `memory-ui` reach the memory API.
       bindings:
         apiKey:
           parameter: memoryAPIKey
@@ -64,6 +72,28 @@ spec:
         llmModel:
           node: llm
           output: model
+    memory-ui:
+      componentRef: ./components/hindsight-control-plane.yaml
+      # A Next.js server; upstream gives it 128 MB, 256 MB recommended
+      # (hindsight-docs/docs/developer/installation.md).
+      compute:
+        profile: general.economy.nano
+      # Signed in, no identity forwarded. The UI has no accounts of its own,
+      # only an optional shared key this item leaves unset, and whoever reaches
+      # it acts with the API key: browsing, editing and deleting memories, and
+      # running recall and reflect on the deployer's model. So the platform
+      # admits only viewers its access policy allows, and no path is exempt.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+      bindings:
+        dataplaneAPIURL:
+          node: memory
+          output: apiURL
+        dataplaneAPIKey:
+          parameter: memoryAPIKey
     web:
       componentRef: ./components/hermes-agent.yaml
       compute:
@@ -139,8 +169,8 @@ spec:
       ui:
         label: Language model
         order: 1
-    # Shared by the agent and Hindsight, and needed by nobody else, so it is
-    # not disclosed.
+    # Shared by the agent, Hindsight and its memory UI, and needed by nobody
+    # else, so it is not disclosed.
     memoryAPIKey:
       generator:
         byteLength: 32

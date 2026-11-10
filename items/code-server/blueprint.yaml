@@ -2,14 +2,17 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: code-server
-  revision: 8
+  revision: 9
   description: code-server behind the platform's sign-in, with a persistent home directory.
 spec:
   nodes:
     web:
       componentRef: ./components/code-server.yaml
+      # Upstream asks for "1 GB of RAM / 2 CPU cores" (docs/requirements.md,
+      # v4.145.2). Memory is the hard limit, so 2 GiB leaves room for the extension
+      # host and a language server; on one vCPU it is slower, not broken.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 8

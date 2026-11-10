@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: opencode
-  revision: 3
+  revision: 4
   description: >-
     OpenCode coding agent on the deployer's language-model connection, behind
     the platform's sign-in and its own generated basic-auth password.
@@ -18,8 +18,11 @@ spec:
           parameter: llm
     web:
       componentRef: ./components/opencode.yaml
+      # Upstream states no floor. The server stays well under 2 GiB for one
+      # user; what grows it is the agent's own work, such as an npm install or a
+      # TypeScript language server on a large repository.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         config:
           sizeGiB: 1

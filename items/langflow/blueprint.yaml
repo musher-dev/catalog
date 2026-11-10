@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: langflow
-  revision: 10
+  revision: 11
   description: >-
     Langflow behind the platform's sign-in, signing viewers in from its signed
     assertion, with a generated admin password and flow-secret key.
@@ -10,8 +10,11 @@ spec:
   nodes:
     web:
       componentRef: ./components/langflow.yaml
+      # Upstream: "the backend service requires a minimum of 1Gi RAM and 0.5
+      # CPU" (docs.langflow.org deployment-prod-best-practices), and it runs one
+      # worker by default. The 630 s startup budget absorbs a slower boot.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 5

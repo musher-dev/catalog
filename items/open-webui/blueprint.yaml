@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: open-webui
-  revision: 10
+  revision: 11
   description: >-
     Open WebUI behind the platform's sign-in, signing viewers in through its
     OpenID Connect provider, wired to the language model the deployer selects.
@@ -32,8 +32,12 @@ spec:
           parameter: llm
     web:
       componentRef: ./components/open-webui.yaml
+      # Open WebUI loads PyTorch and the all-MiniLM-L6-v2 embedding model into
+      # its one worker at startup and idles near 1 GB; 2 GiB holds that and a
+      # document upload. The component pins one PyTorch thread and gives the
+      # first boot a 930 s startup budget for one vCPU.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 8

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: coder
-  revision: 3
+  revision: 4
   description: >-
     Coder control plane behind the platform's sign-in, on its own PostgreSQL,
     with an Owner account created for the deployer and members signing in
@@ -11,8 +11,11 @@ spec:
   nodes:
     db:
       componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, and Coder opens at most 10 connections
+      # (CODER_PG_CONN_MAX_OPEN), so one trial deployment fits in 1 GiB.
       compute:
-        profile: general.standard.small
+        profile: general.economy.nano
       volumes:
         data:
           sizeGiB: 10
@@ -27,12 +30,14 @@ spec:
           value: coder
     web:
       componentRef: ./components/coder.yaml
-      # coderd plus its three built-in provisioner daemons
-      # (CODER_PROVISIONER_DAEMONS defaults to 3), each running terraform for a
-      # workspace build in this container. Workspaces themselves run wherever
-      # their template puts them, not here.
+      # coderd plus one built-in provisioner daemon (the component sets
+      # CODER_PROVISIONER_DAEMONS to 1; upstream's default is 3), running
+      # terraform for a workspace build in this container. Upstream's floor is
+      # "1 CPU core and 2 GB of memory per coderd replica" (docs/install/
+      # validate/scale-testing.md, v2.38.6), which standard.nano meets.
+      # Workspaces themselves run wherever their template puts them, not here.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       # The platform signs viewers in, and Coder signs them in again as an
       # OpenID Connect client of the platform, with no second password. Coder
       # needs an email to create an account and takes the display name from

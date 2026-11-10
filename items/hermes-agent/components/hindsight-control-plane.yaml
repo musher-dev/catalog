@@ -1,0 +1,93 @@
+# Hindsight's Control Plane: the web UI for the memory the `memory` node keeps.
+#
+# It is a separate image from the API (`cp-only` in docker/standalone/
+# Dockerfile, v1.2.0), so it runs as its own node. The combined `hindsight`
+# image would need a second public endpoint on the `memory` node, and a
+# component's one readiness probe would have to poll both. A separate node also
+# keeps this Node.js process out of the API's memory limit, where a crash would
+# cost the API minutes to reload its models.
+#
+# The browser never calls the memory API. Pages call the Control Plane's own
+# /api routes, and its server calls the API with the key it holds
+# (hindsight-control-plane/src/lib/api.ts and src/lib/hindsight-client.ts,
+# v1.2.0). So the `memory` node stays PRIVATE.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Hindsight Control Plane, the web UI for browsing, searching and managing an
+    agent's memory banks, calling a Hindsight API it holds the key for.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED to the same release as the API (components/hindsight.yaml).
+      # Keep the two in step: the UI calls the API through the bundled
+      # TypeScript client of its own release.
+      image: ghcr.io/vectorize-io/hindsight-control-plane:1.2.0
+    # No command: the image's CMD is start-all.sh, which in this image starts
+    # only the Control Plane (HINDSIGHT_ENABLE_API=false is baked in) and runs
+    # `node server.js` on HINDSIGHT_CP_HOSTNAME:HINDSIGHT_CP_PORT.
+    endpoints:
+      primary:
+        targetPort: 9999
+        protocol: HTTP
+    health:
+      # /api/health answers 200 once Next.js is serving. It also reports
+      # whether the API is reachable, but in the body only: the status is 200
+      # either way (src/app/api/health/route.ts), so the UI is ready even while
+      # the `memory` node is still loading its models. It needs no session: the
+      # middleware passes every /api route when no access key is set
+      # (src/middleware.ts).
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 5
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 6
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # Not a loopback address: start-all.sh rewrites one to `localhost`
+      # because Next.js would redirect every page to itself (#1926).
+      hostname:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HINDSIGHT_CP_HOSTNAME
+        description: Address the Control Plane listens on inside the container.
+      port:
+        schema:
+          type: string
+        default: '9999'
+        target:
+          envVar: HINDSIGHT_CP_PORT
+        description: Port the Control Plane listens on, the `primary` endpoint's target port.
+      dataplaneAPIURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: HINDSIGHT_CP_DATAPLANE_API_URL
+        description: URL of the Hindsight API whose memory banks this UI shows.
+      # Sent as `Authorization: Bearer` on every call to the API
+      # (getDataplaneHeaders, src/lib/hindsight-client.ts), which is what the
+      # API's ApiKeyTenantExtension checks.
+      dataplaneAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: HINDSIGHT_CP_DATAPLANE_API_KEY
+        description: Bearer token the Control Plane sends to the API above.
+    outputs: {}

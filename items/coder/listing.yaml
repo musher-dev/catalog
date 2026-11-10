@@ -57,8 +57,9 @@ spec:
     `ghcr.io/coder/coder:v2.38.6`, the stable release channel, with the
     dashboard and API on port 7080 behind the platform's HTTPS edge and
     sign-in. Requests from the CLI, workspace agents and IDE extensions pass
-    straight through to Coder, which authenticates them itself. It runs three
-    built-in Terraform provisioners for workspace builds. The second container
+    straight through to Coder, which authenticates them itself. It runs one
+    built-in Terraform provisioner, so workspace builds run one at a time. The
+    second container
     is a private PostgreSQL 17 server that only Coder can reach, holding all of
     Coder's state on a 10 GiB volume. The database password is generated, and
     you can reveal it on the Installation tab.

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: litellm-stack
-  revision: 3
+  revision: 4
   description: >-
     LiteLLM proxy with its own Postgres for virtual keys, teams and spend, and
     its own password-protected Redis for shared cache and rate limits.
@@ -12,8 +12,10 @@ spec:
   nodes:
     db:
       componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, so one trial deployment's database fits in 1 GiB.
       compute:
-        profile: general.standard.small
+        profile: general.economy.nano
       volumes:
         data:
           sizeGiB: 10
@@ -27,8 +29,10 @@ spec:
           value: litellm
     cache:
       componentRef: ./components/redis.yaml
+      # Single-threaded, a few megabytes when empty, and holding only a
+      # trial's rate-limit counters and cached responses.
       compute:
-        profile: general.standard.small
+        profile: general.economy.nano
       volumes:
         data:
           sizeGiB: 5
@@ -38,12 +42,14 @@ spec:
           parameter: cachePassword
     web:
       componentRef: ./components/litellm.yaml
-      # The single-container `litellm` item runs on general.economy.nano because
-      # a stateless proxy is mostly idle sockets. This one is not: the first
-      # boot runs the Prisma migrations, and every request afterwards carries a
-      # key lookup and a spend write.
+      # One notch above the single-container `litellm` item's
+      # general.economy.nano: importing the proxy takes about 560 MiB, and the
+      # Prisma migrations on first boot peak near 630 MiB (BerriAI/litellm
+      # #47076), which leaves too little of 1 GiB for the key lookups and spend
+      # writes every request carries. One worker by default (NUM_WORKERS), not
+      # one per core.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       # PUBLIC, not behind the platform's sign-in. Its callers are API
       # clients holding a LiteLLM key, and none of them holds a viewer session.
       exposure:

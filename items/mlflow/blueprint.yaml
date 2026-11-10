@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: mlflow
-  revision: 11
+  revision: 12
   description: >-
     MLflow tracking server behind the platform's sign-in and its own login, on
     local SQLite and volume-backed artifacts, both overridable at deploy.
@@ -10,8 +10,10 @@ spec:
   nodes:
     web:
       componentRef: ./components/mlflow.yaml
+      # One request worker and no background job workers (components/mlflow.yaml),
+      # so the server is a single Python process; 2 GiB holds it and an upload.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 20
