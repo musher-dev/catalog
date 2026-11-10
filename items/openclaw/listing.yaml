@@ -34,8 +34,10 @@ spec:
     the next restart. Every model the connection's gateway offers is there to
     pick from in the Control UI, and models added to the gateway appear at the
     next restart. A default model you pick is kept while the gateway still
-    offers it. A fallback picked in the Control UI reverts on restart. Other
-    providers you add under Settings → Models are kept.
+    offers it. Otherwise the default is the connection's model, so moving the
+    connection to another model moves the agent with it. A fallback picked in
+    the Control UI reverts on restart. Other providers you add under Settings →
+    Models are kept.
 
     ## Defaults
     Single-container deployment of `ghcr.io/openclaw/openclaw:2026.11.2`
