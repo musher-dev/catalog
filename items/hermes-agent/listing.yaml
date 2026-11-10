@@ -73,6 +73,19 @@ spec:
     server with pgvector on its own 10 GiB volume. Its password is generated
     for you, and you can reveal it on the deployment's Installation tab.
 
+    ## Memory UI
+    A fourth container runs Hindsight's Control Plane
+    (`ghcr.io/vectorize-io/hindsight-control-plane:1.2.0`), a web UI for what
+    the agent remembers. It has its own address, listed with the deployment's
+    endpoints, behind the same Musher sign-in as the dashboard. There you can
+    browse memory banks, documents, entities and the knowledge graph, and try
+    recall and reflect against a bank. The UI calls the memory API from its
+    own server, so the API itself stays private.
+
+    The memory UI has full control of the agent's memory. Whoever it admits
+    can edit and delete memories and banks, and recall, reflect and retain
+    there run on your language model like the agent's own memory processing.
+
     Hindsight processes memories on the language model you chose, so expect
     extra model usage on every turn. The model must support JSON-schema
     structured output, or reflecting on memories fails. Memory processing sends
@@ -102,7 +115,7 @@ spec:
     Channels that connect outward, such as Telegram, Discord and Slack, need
     no extra exposure. Channels that wait for inbound webhooks, such as
     Microsoft Teams or Hermes's generic webhook endpoint, cannot be reached,
-    because only the dashboard is exposed. Each connected channel lets the
+    because only the dashboard and the memory UI are exposed. Each connected channel lets the
     people it allows talk to the agent. Use the channel's allowlist or the
     dashboard's **Pairing** page to control who that is.
   gettingStarted: |
@@ -115,6 +128,8 @@ spec:
        there.
     4. Use the channel's allowlist or the **Pairing** page to control who can
        talk to the agent.
+    5. After a few turns, open the `memory-ui` endpoint to see what Hindsight
+       has learned, in the bank Hermes writes to.
   category: AGENTS
   lifecycleStage: BETA
   tags:
