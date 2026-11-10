@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: openclaw
-  revision: 13
+  revision: 14
   description: >-
     OpenClaw agent gateway on the deployer's language-model connection, reached
     through the platform's sign-in with the viewer's identity forwarded, and
@@ -19,8 +19,12 @@ spec:
           parameter: llm
     web:
       componentRef: ./components/openclaw.yaml
+      # Upstream: "Recommended: 1-2 vCPU, 2 GB+ RAM" (docs/help/faq-first-run/
+      # providers-and-hosting.md, v2026.11.2). The component caps the heap at
+      # 1536 MiB, as upstream's fly.md does; the 990 s startup budget covers a
+      # slower boot on one vCPU.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         config:
           sizeGiB: 10
