@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 12
+  revision: 13
   description: >-
     OpenClaw agent gateway and Control UI behind the platform edge's sign-in,
     with its config, sessions and credentials on two volumes.
@@ -189,18 +189,27 @@ spec:
     #     stops the agent starting nor loses the choice.
     #   - agents.defaults.model, as the whole object rather than `.primary`, so
     #     it succeeds under `set -e` whatever shape a UI edit left behind. The
-    #     primary is the model already chosen, while the list still has it, and
-    #     otherwise the connection's. `config set` resolves model refs before
-    #     writing. `llm/<model>` resolves because the provider is written in the
-    #     same batch, but a model id OpenClaw cannot parse fails the boot here,
-    #     visibly.
+    #     primary is a model the user chose, while the list still has it, and
+    #     otherwise the connection's. A primary is the user's choice only when
+    #     it differs from the connection model this boot last wrote, which it
+    #     records in `musher-connection-model` in the state directory once
+    #     `config set` succeeds. Without that, the boot's own write would read
+    #     as a choice, and a deployment whose connection moved to another model
+    #     would keep the old one as its default. With no record yet, on a first
+    #     boot or the first under this revision, the primary follows the
+    #     connection: before this revision a pick did not survive a restart, so
+    #     any primary a volume holds then was written by a boot. `config set`
+    #     resolves model refs before writing. `llm/<model>` resolves because the
+    #     provider is written in the same batch, but a model id OpenClaw cannot
+    #     parse fails the boot here, visibly.
     #
     # Node builds those two entries because a model id can hold a slash or a
     # quote, and the shell should not be assembling JSON around one.
     #
     # Because the batch runs on every boot, the connection is authoritative for
     # the provider. A rotated credential or replaced connection takes effect at
-    # the next restart, and models added to the gateway appear then too. A
+    # the next restart, and models added to the gateway appear then too, as
+    # does a new connection model when no one has picked another default. A
     # fallback chosen in the Control UI does not survive one, and the listing
     # says so. Another provider added under Settings does, because the batch
     # writes only `models.providers.llm`.
@@ -236,16 +245,20 @@ spec:
           .then((body) => body.data.filter((m) => m && typeof m.id === "string" && m.id))
           .catch((e) => { console.error("openclaw: could not list the gateway models: " + e.message); return []; })
           .then((listed) => {
+            const record = env.OPENCLAW_STATE_DIR + "/musher-connection-model";
+            let wrote = null;
+            try { wrote = require("fs").readFileSync(record, "utf8"); } catch {}
             const pick = (env.LLM_PICK || "").trim();
-            const held = listed.length === 0 && pick.startsWith("llm/") ? [{ id: pick.slice(4) }] : listed;
+            const chosen = wrote !== null && pick.startsWith("llm/") && pick !== "llm/" + wrote ? pick : "";
+            const held = listed.length === 0 && chosen ? [{ id: chosen.slice(4) }] : listed;
             const models = held.some((m) => m.id === env.LLM_MODEL) ? held : [{ id: env.LLM_MODEL }, ...held];
-            const kept = pick.startsWith("llm/") && models.some((m) => "llm/" + m.id === pick);
+            const kept = chosen !== "" && models.some((m) => "llm/" + m.id === chosen);
             console.log(JSON.stringify([
               { path: "models.providers.llm", value: {
                 baseUrl: base, api: "openai-completions",
                 apiKey: { source: "env", provider: "default", id: "LLM_API_KEY" },
                 models: models.map(entry) } },
-              { path: "agents.defaults.model", value: { primary: kept ? pick : "llm/" + env.LLM_MODEL } },
+              { path: "agents.defaults.model", value: { primary: kept ? chosen : "llm/" + env.LLM_MODEL } },
             ]).slice(1, -1));
           });
         ')";
@@ -258,6 +271,7 @@ spec:
         {\"path\":\"gateway.auth.mode\",\"value\":\"trusted-proxy\"},
         {\"path\":\"gateway.auth.trustedProxy\",\"value\":{\"userHeader\":\"${OPENCLAW_IDENTITY_HEADER}\",\"deviceAutoApprove\":{\"enabled\":true,\"scopes\":[\"operator.read\",\"operator.write\",\"operator.approvals\",\"operator.questions\",\"operator.admin\"]}}},
         ${LLM_CONFIG}]";
+        printf '%s' "$LLM_MODEL" > "$OPENCLAW_STATE_DIR/musher-connection-model";
         exec node openclaw.mjs gateway
     # One endpoint. The sandbox listener for dashboard widgets and MCP Apps (the
     # gateway port + 1) is not exposed: it needs a second public origin
