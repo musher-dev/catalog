@@ -31,9 +31,11 @@ spec:
 
     The connection is written into OpenClaw's configuration each time it
     starts, so a rotated credential or a replaced connection takes effect on
-    the next restart. For the same reason, a different default model or
-    fallback picked in the Control UI reverts on restart. Other providers you
-    add under Settings → Models are kept.
+    the next restart. Every model the connection's gateway offers is there to
+    pick from in the Control UI, and models added to the gateway appear at the
+    next restart. A default model you pick is kept while the gateway still
+    offers it. A fallback picked in the Control UI reverts on restart. Other
+    providers you add under Settings → Models are kept.
 
     ## Defaults
     Single-container deployment of `ghcr.io/openclaw/openclaw:2026.11.2`
