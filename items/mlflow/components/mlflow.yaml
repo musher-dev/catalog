@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 12
+  revision: 13
   description: >-
     MLflow tracking server with its own login, its metadata store, user store
     and proxied artifacts on one volume.
@@ -117,6 +117,30 @@ spec:
         target:
           envVar: MLFLOW_PORT
         description: Port the MLflow server listens on inside the container.
+      # One request worker, not the four `mlflow server` starts by default
+      # (--workers, mlflow/utils/cli_args.py, v3.18.0). Each is a full Python
+      # process, and the node is sized for one user.
+      workers:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: MLFLOW_WORKERS
+        description: Number of server processes handling requests.
+      # Off: by default the server also starts a job runner and a huey
+      # consumer per job function, about nine more Python processes. They run
+      # GenAI scorers, evaluations and prompt optimisation, which need a model
+      # key this deployment does not configure (MLFLOW_SERVER_ENABLE_JOB_EXECUTION,
+      # mlflow/environment_variables.py, v3.18.0).
+      enableJobExecution:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: MLFLOW_SERVER_ENABLE_JOB_EXECUTION
+        description: >-
+          Whether this server runs MLflow's background job workers, as the
+          literal string MLflow parses.
       # MLflow 3.x ships a Host-header validation middleware (DNS-rebinding
       # protection) whose default allowlist rejects gateway traffic on the
       # public hostname. The health probe is not affected: /health and /version
