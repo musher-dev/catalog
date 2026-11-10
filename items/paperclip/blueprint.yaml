@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: paperclip
-  revision: 3
+  revision: 4
   description: >-
     Paperclip agent orchestration behind the platform's sign-in, on its own
     PostgreSQL, with Claude Code agents on the deployer's language-model
@@ -19,8 +19,10 @@ spec:
           parameter: llm
     db:
       componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, so one trial deployment's database fits in 1 GiB.
       compute:
-        profile: general.standard.small
+        profile: general.economy.nano
       volumes:
         data:
           sizeGiB: 10
@@ -35,11 +37,12 @@ spec:
           value: paperclip
     web:
       componentRef: ./components/paperclip.yaml
-      # `medium`, the largest offered profile: agent runs spawn the Claude
-      # Code / Codex CLIs, git and build tools inside this container beside
-      # the Node server.
+      # Agent runs spawn the Claude Code / Codex CLIs, git and build tools
+      # inside this container beside the Node server. Upstream sizes the server
+      # task at 2 vCPU and 4 GB (docs/deploy/aws-ecs.md, v2026.1023.0), which
+      # holds one agent run at a time; several waking at once can run out.
       compute:
-        profile: general.standard.medium
+        profile: general.standard.small
       volumes:
         data:
           sizeGiB: 20

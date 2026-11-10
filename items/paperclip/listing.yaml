@@ -55,8 +55,9 @@ spec:
     with the database, because secrets can't be decrypted without it. A 10 GiB
     volume holds the database.
 
-    Paperclip runs on 4 vCPU and 8 GiB of memory, because agent runs start
-    CLIs, git and build tools inside the same container.
+    Paperclip runs on 2 vCPU and 4 GiB of memory, upstream's own size for the
+    server. Agent runs start CLIs, git and build tools inside the same
+    container, so keep to one or two agents working at once.
   gettingStarted: |
     1. Do this right after deploying: open the deployment's URL, sign in to
        Musher, create a Paperclip account and choose **Claim this instance**.
