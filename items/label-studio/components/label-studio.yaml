@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 11
+  revision: 12
   description: Label Studio data-labelling platform, with its database and media on one volume.
 spec:
   type: SERVICE
@@ -22,6 +22,17 @@ spec:
           paths:
             - /api
     health:
+      # The migration chain below runs on one vCPU, so it gets a budget of its
+      # own rather than resting on the readiness gate's retries: 30 + 90 x 10
+      # = 930 s. Readiness is suspended until it passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
       readiness:
         http:
           endpoint: primary
