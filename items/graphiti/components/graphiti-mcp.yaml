@@ -1,0 +1,293 @@
+# Graphiti's MCP server: the tools an agent calls to add episodes to a temporal
+# knowledge graph and to search the entities and facts Graphiti extracts from
+# them. It checks no credential of its own, so it is never exposed directly;
+# the `gateway` component puts an API key in front of it.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Graphiti MCP server over streamable HTTP, building a temporal knowledge
+    graph in Neo4j with an OpenAI-compatible model for extraction and an
+    OpenAI-compatible embeddings API.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.1.3-graphiti-0.31.2-standalone is MCP server 1.1.3 on
+      # graphiti-core 0.31.2, the latest stable releases (2026-10-20). The
+      # `-standalone` image runs only the server and talks to an external
+      # database; the image without the suffix bundles FalkorDB, and
+      # `latest`, `standalone` and `1.1.3-standalone` float. The image is
+      # amd64 and arm64, runs as root from /app/mcp with CMD `uv run
+      # --no-sync main.py`, and is about 3.4 GB compressed because the
+      # `providers` extra pulls in sentence-transformers and torch
+      # (docker/Dockerfile.standalone, mcp-v1.1.3).
+      image: zepai/knowledge-graph-mcp:1.1.3-graphiti-0.31.2-standalone
+    # The image has no ENTRYPOINT, so this is the whole argv, run by sh.
+    #
+    # The server builds its Neo4j indices before it listens, and exits if the
+    # database refuses (GraphitiService.initialize, src/graphiti_mcp_server.py,
+    # mcp-v1.1.3). Nothing orders this node after `graph-db`, so a short wait
+    # with the server's own Neo4j driver runs a query until one succeeds, for
+    # up to 10 minutes, rather than letting the container exit and be
+    # restarted. The final `exec` is the image's own CMD.
+    command:
+      - sh
+      - -c
+      - |
+        uv run --no-sync python - <<'EOF'
+        import os, time
+        from neo4j import GraphDatabase
+        uri = os.environ["NEO4J_URI"]
+        auth = (os.environ["NEO4J_USER"], os.environ["NEO4J_PASSWORD"])
+        deadline = time.time() + 600
+        while True:
+            try:
+                with GraphDatabase.driver(uri, auth=auth) as driver:
+                    driver.execute_query("RETURN 1", database_=os.environ["NEO4J_DATABASE"])
+                print("Neo4j is answering at " + uri, flush=True)
+                break
+            except Exception as e:
+                if time.time() > deadline:
+                    print("Neo4j still not answering, starting anyway: " + type(e).__name__, flush=True)
+                    break
+                print("Waiting for Neo4j: " + type(e).__name__, flush=True)
+                time.sleep(5)
+        EOF
+        exec uv run --no-sync main.py
+    endpoints:
+      # Streamable HTTP at /mcp (the SDK's default path; the server logs it as
+      # /mcp/ and Starlette redirects that to /mcp), plus /health.
+      primary:
+        targetPort: 8000
+        protocol: HTTP
+    health:
+      # /health is a static route registered on the MCP app
+      # (graphiti_mcp_server.py, mcp-v1.1.3), which only listens once the
+      # graph client is built and the Neo4j indices exist. The image's own
+      # HEALTHCHECK polls it. First boot pulls a 3.4 GB image and may wait
+      # for Neo4j, so allow 30 + 90 x 10 = 930 s.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    # Configuration is pydantic-settings over the image's config/config.yaml:
+    # environment variables beat the file, and `__` separates nested keys,
+    # so EMBEDDER__PROVIDERS__OPENAI__API_URL sets embedder.providers.openai.
+    # api_url without touching the LLM's (GraphitiConfig, src/config/schema.py,
+    # mcp-v1.1.3). The file's own ${VAR} placeholders, such as MODEL_NAME and
+    # LLM_STRUCTURED_OUTPUT_MODE, are expanded from the environment too.
+    inputs:
+      # --- Graph database ---------------------------------------------------
+      databaseProvider:
+        schema:
+          type: string
+        default: neo4j
+        target:
+          envVar: DATABASE__PROVIDER
+        description: Graph database driver Graphiti uses. The image's config defaults to falkordb.
+      neo4jURI:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: NEO4J_URI
+        description: Bolt URI of the Neo4j database, such as `bolt://graph-db.internal:7687`.
+      neo4jUser:
+        schema:
+          type: string
+        default: neo4j
+        target:
+          envVar: NEO4J_USER
+        description: Neo4j user Graphiti signs in as.
+      neo4jPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: NEO4J_PASSWORD
+        description: Password of the Neo4j user above.
+      neo4jDatabase:
+        schema:
+          type: string
+        default: neo4j
+        target:
+          envVar: NEO4J_DATABASE
+        description: Neo4j database the graph lives in. Community edition has only `neo4j`.
+      # --- Language model ---------------------------------------------------
+      # openai, the image's default, with a base URL other than
+      # api.openai.com: the server then builds graphiti-core's generic
+      # chat-completions client rather than its Responses API one
+      # (is_non_openai_provider, src/services/factories.py, mcp-v1.1.3).
+      # Graphiti's Anthropic client is unusable in this image
+      # (components/llm.yaml).
+      llmProvider:
+        schema:
+          type: string
+        default: openai
+        target:
+          envVar: LLM__PROVIDER
+        description: LLM client Graphiti builds.
+      llmBaseURL:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LLM__PROVIDERS__OPENAI__API_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, usually
+          ending in /v1; the client appends /chat/completions.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LLM__PROVIDERS__OPENAI__API_KEY
+        description: Bearer credential for the chat-completions API above.
+      # json_schema, upstream's default: the generic client sends each
+      # answer's Pydantic schema as `response_format: json_schema`
+      # (openai_generic_client.py, v0.31.2). Not verified live. json_object,
+      # which writes the schema into the prompt and asks only for "a JSON
+      # object", was tried on the default Claude connection and failed: entity
+      # extraction parsed, but edge extraction came back as `{}` and the
+      # episode was dropped with "1 validation error for ExtractedEdges ...
+      # Field required" (run vdem4c10a). Graphiti retries only unparseable
+      # JSON and rate limits, not schema mismatches.
+      structuredOutputMode:
+        schema:
+          type: string
+          enum:
+            - json_object
+            - json_schema
+        default: json_schema
+        target:
+          envVar: LLM_STRUCTURED_OUTPUT_MODE
+        description: >-
+          How Graphiti asks the model for structured output: json_object puts
+          the schema in the prompt, json_schema relies on the API to enforce it.
+      llmModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MODEL_NAME
+        description: Model Graphiti sends every extraction and deduplication prompt to.
+      # --- Embeddings -------------------------------------------------------
+      # openai, the image's default provider, pointed at an OpenAI-compatible
+      # embeddings API such as Text Embeddings Inference. Graphiti truncates
+      # each vector to `embedderDimensions` and calls no other route on it
+      # (graphiti_core/embedder/openai.py, v0.31.2).
+      #
+      # The server also builds a cross-encoder from the LLM's provider, an
+      # OpenAI reranker on the model's URL (CrossEncoderFactory,
+      # src/services/factories.py, mcp-v1.1.3). It is never called: the MCP
+      # tools search with the RRF and node-distance recipes, which rerank
+      # without it. Having one is what keeps the server from downloading a
+      # 2.3 GB local BGE reranker instead.
+      embedderProvider:
+        schema:
+          type: string
+        default: openai
+        target:
+          envVar: EMBEDDER__PROVIDER
+        description: Embedder client Graphiti builds.
+      embedderBaseURL:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: EMBEDDER__PROVIDERS__OPENAI__API_URL
+        description: OpenAI-compatible embeddings base URL, ending in /v1; the client appends /embeddings.
+      embedderAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: EMBEDDER__PROVIDERS__OPENAI__API_KEY
+        description: Bearer token for the embeddings API above.
+      embedderModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: EMBEDDER__MODEL
+        description: Embedding model to request, such as BAAI/bge-small-en-v1.5.
+      # The config file says 1536, OpenAI's text-embedding-3-small. Vectors
+      # are cut to this length, so it must not exceed the model's own size:
+      # 384 for bge-small-en-v1.5. Changing it after data is stored leaves old
+      # and new vectors incomparable.
+      embedderDimensions:
+        schema:
+          type: string
+        default: '384'
+        target:
+          envVar: EMBEDDER__DIMENSIONS
+        description: Length of the embedding vectors Graphiti stores, as the literal string the image parses.
+      # --- Graphiti ---------------------------------------------------------
+      groupID:
+        schema:
+          type: string
+        default: main
+        target:
+          envVar: GRAPHITI_GROUP_ID
+        description: Graph namespace tools use when a call names no group_id.
+      # Episodes processed at once, each several model calls. Upstream's
+      # guidance for Anthropic's default tier is 5 to 8 (src/graphiti_mcp_server.py
+      # and .env.example, mcp-v1.1.3); the image default of 10 suits OpenAI's
+      # tier 3.
+      semaphoreLimit:
+        schema:
+          type: string
+        default: '5'
+        target:
+          envVar: SEMAPHORE_LIMIT
+        description: Episodes processed concurrently, as the literal string the image parses.
+      # graphiti-core reports anonymous usage to PostHog unless this is false
+      # (graphiti_core/telemetry/telemetry.py, v0.31.2).
+      telemetryEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GRAPHITI_TELEMETRY_ENABLED
+        description: Whether graphiti-core sends anonymous usage data, as the literal string the image parses.
+      # The image sets SERVER__HOST=0.0.0.0 over the config file's 127.0.0.1;
+      # restated, because on a loopback host the MCP SDK also turns on its
+      # DNS-rebinding check, which refuses every Host but localhost
+      # (mcp/server/mcpserver/server.py, mcp 2.3.0).
+      serverHost:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: SERVER__HOST
+        description: Address the server binds.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the MCP server, resolvable only by
+          workloads in the same deployment. It checks no credential, so expose
+          it only through a gateway that does.
+        from:
+          endpoint: primary
+          property: privateAddress

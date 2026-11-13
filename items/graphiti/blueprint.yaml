@@ -1,0 +1,141 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: graphiti
+  revision: 1
+  description: >-
+    Graphiti's MCP server on the deployer's OpenAI-compatible model
+    connection, with its knowledge graph in Neo4j, embeddings from a private
+    Text Embeddings Inference node, and an API-key gateway as its only public
+    endpoint.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the three
+      # members of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    graph-db:
+      componentRef: ./components/neo4j.yaml
+      # Not standard.nano. Upstream's compose gives Neo4j a 1 GiB maximum heap
+      # and a 512 MiB page cache (docker-compose-neo4j.yml, mcp-v1.1.3), and
+      # the JVM's metaspace, threads and direct buffers come on top: close to
+      # 2 GiB with no headroom. 4 GiB leaves room for both to grow.
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only inside this
+      # deployment through the Bolt URI it publishes.
+      bindings:
+        adminPassword:
+          parameter: graphDBPassword
+    embeddings:
+      componentRef: ./components/text-embeddings-inference.yaml
+      # The default bge-small-en-v1.5 runs comfortably in 2 GiB
+      # (items/text-embeddings-inference listing).
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: only the MCP server calls it.
+      bindings:
+        apiKey:
+          parameter: embeddingsAPIKey
+        # Graphiti embeds every new entity and fact of an episode in one
+        # request (create_batch, graphiti_core/embedder/openai.py, v0.31.2),
+        # and TEI refuses a request with more inputs than this with 422
+        # rather than splitting it. 32, TEI's default, is too few for a long
+        # episode.
+        maxClientBatchSize:
+          value: '256'
+    mcp:
+      componentRef: ./components/graphiti-mcp.yaml
+      # Upstream states no memory figure. The server is one Python process
+      # holding the graph client and its episode queue; it loads a local
+      # model (a 2.3 GB BGE reranker) only when no provider reranker exists,
+      # which this configuration avoids (CrossEncoderFactory,
+      # src/services/factories.py, mcp-v1.1.3). Upstream's own resource-limit
+      # example gives it 1 GiB (docker/README.md); 2 GiB leaves room for large
+      # episodes in flight.
+      compute:
+        profile: general.standard.nano
+      # No exposure: the server checks no credential. The `gateway` node is
+      # its public face.
+      bindings:
+        neo4jURI:
+          node: graph-db
+          output: boltURI
+        # The same generated password the `graph-db` node sets for `neo4j`.
+        neo4jPassword:
+          parameter: graphDBPassword
+        # The three members of the one connection the `llm` node holds.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+        # The embeddings node's OpenAI-compatible base URL, key and model.
+        embedderBaseURL:
+          node: embeddings
+          output: baseURL
+        embedderAPIKey:
+          node: embeddings
+          output: apiKey
+        embedderModel:
+          node: embeddings
+          output: model
+    gateway:
+      componentRef: ./components/gateway.yaml
+      # Caddy proxying one server idles in a few tens of MiB.
+      compute:
+        profile: general.economy.nano
+      # PUBLIC, not behind the platform's sign-in. Its callers are MCP
+      # clients holding the API key, and none of them holds a viewer session.
+      # The key check is the gateway's own.
+      exposure:
+        primary: PUBLIC
+      bindings:
+        apiKey:
+          parameter: mcpAPIKey
+        upstream:
+          node: mcp
+          output: address
+  parameters:
+    # The model Graphiti extracts entities and facts with: endpoint,
+    # credential and model acquired together as one connection, defaulting to
+    # the organization's. A connection parameter binds only to a connection
+    # input, and the `llm` node's is the only one here (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # The key MCP clients send. Disclosed on the Installation tab.
+    mcpAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: MCP API key
+        order: 2
+    # Shared by Neo4j and the MCP server, and needed by nobody else: the
+    # database has no public endpoint, so it is not disclosed.
+    graphDBPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+    # Shared by the embeddings node and the MCP server only.
+    embeddingsAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
