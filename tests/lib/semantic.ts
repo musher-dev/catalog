@@ -26,6 +26,17 @@ import {
   type LoadedDocument,
 } from './catalog.ts';
 import { declaredMediaPaths, mediaPathPatternFrom } from './media.ts';
+import {
+  categoryOf,
+  endpointsOf,
+  inputsOf,
+  isConnectionInput,
+  isRequired,
+  outputsOf,
+  runsNothing,
+  volumesOf,
+  workloadOf,
+} from './model.ts';
 import { scanOverview } from './markdown.ts';
 import { rel } from './paths.ts';
 import { loadSchema, protocolRegistry, validatorFor, type ProtocolRecord } from './spec-schemas.ts';
@@ -723,22 +734,6 @@ export function checkInputOrigins(context: SemanticContext): Diagnostic[] {
 
 /* ------------------------------------------------------------- connections */
 
-const contractOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(record(record(component ?? {})['spec'])['contract']);
-
-const inputsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(contractOf(component)['inputs']);
-
-const outputsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(contractOf(component)['outputs']);
-
-/**
- * Component spec §6.1 — the key that is present says which kind of input this
- * is. A connection input declares `connection` and no `schema`; a value input
- * declares `schema`. The schema makes them exclusive, so one test decides it.
- */
-const isConnectionInput = (input: Record<string, unknown>): boolean => isRecord(input['connection']);
-
 /**
  * Component spec §6.4 — COMP-CONNECTION-002. Each protocol fixes its members,
  * which of them are sensitive, and whether each is guaranteed: required,
@@ -772,29 +767,6 @@ function protocolMember(input: Record<string, unknown>, name: string): MemberCon
   return members && Object.hasOwn(members, name) ? members[name] : undefined;
 }
 
-/**
- * COMP-CONNECTION-002 — a connection input is always required, and declares no
- * `required` of its own to say so.
- */
-const isRequired = (input: Record<string, unknown>): boolean =>
-  isConnectionInput(input) || input['required'] !== false;
-
-/** Component spec §5 — the category, which ADR 0031 made a tag rather than a shape. */
-const categoryOf = (component: Record<string, unknown> | null): string => {
-  const type = record(record(component ?? {})['spec'])['type'];
-  return typeof type === 'string' ? type : '';
-};
-
-const runsNothing = (component: Record<string, unknown> | null): boolean => categoryOf(component) === 'EXTERNAL';
-
-const workloadOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(record(record(component ?? {})['spec'])['workload']);
-
-const endpointsOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(workloadOf(component)['endpoints']);
-
-const volumesOf = (component: Record<string, unknown> | null): Record<string, unknown> =>
-  record(workloadOf(component)['volumes']);
 
 /**
  * The effective exposure a node selects for one endpoint, whichever form states
