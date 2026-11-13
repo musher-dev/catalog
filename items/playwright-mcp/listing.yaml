@@ -1,0 +1,89 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: playwright-mcp
+spec:
+  itemType: COMPONENT
+  displayName: Playwright MCP
+  summary: >-
+    Microsoft's Playwright MCP server with headless Chromium, giving your agents
+    a browser they can navigate, read and click through over MCP
+  overview: |
+    ## What it is
+    Playwright MCP is Microsoft's official Model Context Protocol server for
+    browser automation. It runs a headless Chromium and gives MCP clients
+    tools to open pages, read them as accessibility snapshots, click, type,
+    fill forms, manage tabs and take screenshots. Agents work from the
+    structured page snapshot rather than from pixels, so any model that can
+    call tools can use it without vision.
+
+    ## When to use
+    - An agent in your stack needs to read or act on web pages, and a full
+      desktop sandbox would be more than it needs.
+    - You want one shared browser service that several agents call over the
+      network, each in its own browser context.
+    - You already run an MCP-capable agent, such as Open WebUI, Hermes Agent
+      or OpenCode, and want to add browsing to it.
+
+    ## Defaults
+    A single container runs `mcr.microsoft.com/playwright/mcp:v0.0.85` with
+    headless Chromium. It listens on port 8931 as a private endpoint, which
+    your other workloads can reach and the public internet can't. MCP clients
+    connect to `/mcp` over streamable HTTP. The legacy SSE transport is
+    available at `/sse` for clients that still need it.
+
+    Each MCP session gets its own in-memory browser context in one shared
+    Chromium, so cookies and logins don't leak between sessions and nothing
+    is written to disk. A browser idle for an hour is closed and starts again
+    on the next tool call. There is no volume.
+
+    Only the core browser tools are on. Optional tool groups, such as
+    coordinate-based `vision` actions and `pdf` export, can be turned on with
+    the **caps** setting.
+
+    One session browsing ordinary pages fits in 1 vCPU and 2 GiB. Give it
+    2 vCPU and 4 GiB if several agents browse at once.
+
+    ## Access and security
+    Playwright MCP has no sign-in of its own. Anything that can reach the
+    endpoint can drive the browser, including opening internal addresses in
+    your deployment. Keep the endpoint private. Don't expose it publicly,
+    even behind a URL nobody knows.
+
+    The server's DNS-rebinding host check is turned off (`allowedHosts` is
+    `*`), because callers reach it by a private hostname. That check only
+    protects a server on a developer's own machine from web pages in their
+    browser.
+
+    The origin allow and block lists only filter what the browser requests.
+    Upstream states they are not a security boundary, since redirects
+    aren't checked.
+
+    ## Limitations
+    - Chromium only. The image ships no Firefox or WebKit.
+    - Sessions live in memory, so a restart ends every open MCP session and
+      clients must reconnect.
+    - Files the browser saves, such as screenshots and downloads, stay in
+      the container and are lost on restart.
+  gettingStarted: |
+    1. Point an MCP-capable workload at the deployment's private address on
+       port 8931, at the path `/mcp`, using the streamable HTTP transport. No
+       key or header is needed.
+    2. Ask the agent to open a page, for example "Go to example.com and tell
+       me the heading". It calls `browser_navigate`, then reads the page from
+       the snapshot.
+    3. Use `/sse` instead of `/mcp` only for clients that support just the
+       legacy SSE transport.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - mcp
+    - browser-automation
+    - playwright
+    - agents
+    - headless-browser
+  homepageURL: https://github.com/microsoft/playwright-mcp
+  sourceRepositoryURL: https://github.com/microsoft/playwright-mcp
+  supportURL: https://playwright.dev/docs/getting-started-mcp
+  license: Apache-2.0
+  icon: media/icon.png
