@@ -1,9 +1,8 @@
+# copy-of: items/valkey/components/valkey.yaml@2
+#
 # The Valkey server Sim uses for pub/sub (live execution and table events),
 # the Socket.IO adapter between the app and the realtime server, and shared
-# caches. A copy of the `valkey` item's component (items/valkey/components/
-# valkey.yaml, revision 1): a repo-local componentRef cannot leave its item
-# directory, so a blueprint that needs one carries its own. Keep the two in
-# step.
+# caches.
 #
 # Valkey rather than Redis: upstream's compose runs redis:7-alpine, and Sim
 # talks to it through the `redis` client with plain commands and pub/sub

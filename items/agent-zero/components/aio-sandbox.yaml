@@ -1,8 +1,7 @@
+# copy-of: items/aio-sandbox/components/aio-sandbox.yaml@1
+#
 # The computer Agent Zero drives through MCP: a Chromium browser, a shell and
-# file and code-execution APIs in a container of their own. A copy of the
-# `aio-sandbox` item's component (items/aio-sandbox/components/aio-sandbox.yaml,
-# revision 1): a repo-local componentRef cannot leave its item directory, so a
-# blueprint that needs one carries its own. Keep the two in step.
+# file and code-execution APIs in a container of their own.
 specVersion: v2
 kind: COMPONENT
 metadata:

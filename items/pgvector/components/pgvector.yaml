@@ -10,9 +10,9 @@
 # - a readiness probe. Probes are HTTP only and PostgreSQL speaks none, so a
 #   small Perl supervisor in the container answers one (see `command`).
 #
-# A blueprint that embeds this component carries its own copy, with the header
-# "A copy of the `pgvector` item's component (items/pgvector/components/
-# pgvector.yaml, revision N) ... Keep the two in step".
+# A blueprint that embeds this component carries its own copy, which names
+# this file and its revision in a `# copy-of:` header; the catalog's tests hold
+# the copy to it (docs/authoring.md).
 specVersion: v2
 kind: COMPONENT
 metadata:

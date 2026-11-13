@@ -1,8 +1,13 @@
-# The Hindsight memory server the Hermes agent keeps its long-term memory in. A
-# copy of the `hindsight` item's component (items/hindsight/components/
-# hindsight.yaml, revision 1): a repo-local componentRef cannot leave its item
-# directory, so a blueprint that needs one carries its own. Keep the two in step
-# when bumping the image.
+# copy-of: items/hindsight/components/hindsight.yaml@2
+# copy-differs: /metadata/description, /spec/contract/inputs/databaseURL
+# copy-differs: /spec/contract/inputs/llmAPIKey/description, /spec/contract/inputs/llmBaseURL/description
+# copy-differs: /spec/contract/inputs/llmBaseURL/required, /spec/contract/inputs/llmModel/description
+# copy-differs: /spec/contract/inputs/llmProvider/description, /spec/contract/inputs/pgAddress
+# copy-differs: /spec/contract/inputs/pgDatabase, /spec/contract/inputs/pgPassword
+# copy-differs: /spec/contract/inputs/pgUser, /spec/contract/outputs/apiURL/description
+# copy-differs: /spec/workload/command, /spec/workload/volumes
+#
+# The Hindsight memory server the Hermes agent keeps its long-term memory in.
 #
 # This copy differs in one way. Its database is the blueprint's `memory-db`
 # node, which upstream recommends over embedded pg0 for production, so it holds

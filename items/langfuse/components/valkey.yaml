@@ -1,8 +1,7 @@
+# copy-of: items/valkey/components/valkey.yaml@2
+#
 # The Valkey server Langfuse queues ingestion and evaluation jobs in (BullMQ)
-# and caches API keys and prompts in. A copy of the `valkey` item's component
-# (items/valkey/components/valkey.yaml, revision 1): a repo-local componentRef
-# cannot leave its item directory, so a blueprint that needs one carries its
-# own. Keep the two in step.
+# and caches API keys and prompts in.
 #
 # Langfuse needs `maxmemory-policy noeviction`, or BullMQ can lose queued jobs
 # (docker-compose.yml, v4.79.0, starts Redis with it). That is Valkey's

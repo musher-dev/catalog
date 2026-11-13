@@ -1,9 +1,8 @@
+# copy-of: items/llm-endpoint/components/endpoint.yaml@6
+#
 # The language model Langfuse's own AI features run on (Halo, its in-app
-# assistant, and Ask AI), as a node this platform does not run (component
-# spec §5.6). A copy of the `llm-endpoint` item's building block
-# (items/llm-endpoint/components/endpoint.yaml, revision 6): a repo-local
-# componentRef cannot leave its item directory, so a blueprint that needs one
-# carries its own. Keep the two in step.
+# assistant, and Ask AI), as a node this platform does not run (component spec
+# §5.6).
 #
 # The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
 # and `worker` nodes each declare three ordinary string inputs and the

@@ -1,8 +1,13 @@
-# Open WebUI on the deployment's own Ollama server. A copy of the
-# `open-webui` item's component (items/open-webui/components/open-webui.yaml,
-# revision 13): a repo-local componentRef cannot leave its item directory, so
-# a blueprint that needs one carries its own. Keep the two in step when
-# bumping the image or changing sign-in.
+# copy-of: items/open-webui/components/open-webui.yaml@13
+# copy-differs: /metadata/description, /spec/contract/inputs/defaultModelParams
+# copy-differs: /spec/contract/inputs/defaultModels/required, /spec/contract/inputs/enableOllamaAPI/default
+# copy-differs: /spec/contract/inputs/enableOpenAIAPI/default, /spec/contract/inputs/initModel
+# copy-differs: /spec/contract/inputs/initTimeoutSeconds, /spec/contract/inputs/ollamaBaseURL
+# copy-differs: /spec/contract/inputs/openaiApiBaseURL, /spec/contract/inputs/openaiApiKey
+# copy-differs: /spec/contract/outputs/privateURL, /spec/workload/command
+# copy-differs: /spec/workload/health/startup/failureThreshold
+#
+# Open WebUI on the deployment's own Ollama server.
 #
 # Changes from the original, all for the Ollama node beside it:
 #

@@ -1,8 +1,7 @@
+# copy-of: items/redis/components/redis.yaml@9
+#
 # The Redis server Firecrawl keeps crawl state, rate-limit counters and its
-# BullMQ queues in. A copy of the `redis` item's component
-# (items/redis/components/redis.yaml, revision 8): a repo-local componentRef
-# cannot leave its item directory, so a blueprint that needs one carries its
-# own. Keep the two in step when bumping the image.
+# BullMQ queues in.
 #
 # Redis rather than Valkey: upstream's compose runs `redis:alpine` and calls
 # Valkey "untested and not guaranteed to work" (docker-compose.yaml,

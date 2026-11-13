@@ -1,8 +1,7 @@
+# copy-of: items/seaweedfs/components/seaweedfs.yaml@1
+#
 # The S3-compatible blob store Langfuse writes every ingested event to before
-# the worker processes it. A copy of the `seaweedfs` item's component
-# (items/seaweedfs/components/seaweedfs.yaml, revision 1): a repo-local
-# componentRef cannot leave its item directory, so a blueprint that needs one
-# carries its own. Keep the two in step.
+# the worker processes it.
 #
 # SeaweedFS rather than MinIO, which upstream's docker-compose.yml uses: its
 # compose service creates the bucket by starting MinIO through `sh`, and the

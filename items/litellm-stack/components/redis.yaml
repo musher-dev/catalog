@@ -1,3 +1,5 @@
+# copy-of: items/redis/components/redis.yaml@9
+# copy-differs: /metadata/description, /spec/contract/inputs/redisPassword/description
 specVersion: v2
 kind: COMPONENT
 metadata:

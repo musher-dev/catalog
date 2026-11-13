@@ -1,14 +1,9 @@
-# The PostgreSQL server Coder keeps its state in. A copy of the `postgres`
-# item's component (items/postgres/components/postgres.yaml, revision 7): a
-# repo-local componentRef cannot leave its item directory, so a blueprint that
-# needs one carries its own. Keep the two in step when bumping the image.
+# copy-of: items/postgres/components/postgres.yaml@9
+#
+# The PostgreSQL server Coder keeps its state in.
 #
 # Upstream's compose (compose.yaml, coder v2.36.6) runs Coder beside
 # postgres:17 and names 13 as the minimum. This pins the same major.
-#
-# One addition to the original: `hostname` and `port` beside `address`. Coder
-# reaches the database through libpq environment variables, which take the
-# host and the port separately (components/coder.yaml).
 specVersion: v2
 kind: COMPONENT
 metadata:

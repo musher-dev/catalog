@@ -1,7 +1,7 @@
 # The PostgreSQL server Firecrawl's NuQ job queue lives in. Built on the
-# `postgres` item's component (items/postgres/components/postgres.yaml,
-# revision 8): the same data volume, PGDATA subdirectory and first-boot
-# inputs. Keep the two in step. It differs in three ways:
+# `postgres` item's component (items/postgres/components/postgres.yaml): the
+# same data volume, PGDATA subdirectory and first-boot inputs, on upstream's
+# own image, so it declares no copy. It differs in three ways:
 #
 # - The image is upstream's own nuq-postgres, not the official one. It is
 #   postgres:17 with pg_cron preloaded and the queue schema, its indexes and

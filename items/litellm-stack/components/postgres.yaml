@@ -1,3 +1,4 @@
+# copy-of: items/postgres/components/postgres.yaml@9
 specVersion: v2
 kind: COMPONENT
 metadata:

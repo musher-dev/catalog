@@ -1,7 +1,7 @@
-# A copy of the `text-embeddings-inference` item's component
-# (items/text-embeddings-inference/components/text-embeddings-inference.yaml,
-# revision 1). A repo-local componentRef cannot leave its item directory, so a
-# blueprint that needs it carries its own. Keep the two in step.
+# copy-of: items/text-embeddings-inference/components/text-embeddings-inference.yaml@2
+#
+# . A repo-local componentRef cannot leave its item directory, so a blueprint
+# that needs it carries its own. Keep the two in step.
 #
 # Here it is the embedder for Graphiti: Graphiti's embedder must be OpenAI,
 # Azure OpenAI, Gemini or Voyage (mcp_server/src/services/factories.py,

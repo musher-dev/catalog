@@ -1,8 +1,7 @@
+# copy-of: items/valkey/components/valkey.yaml@2
+#
 # The Valkey server ContextForge shares its cache, session registry and
-# cross-worker events through. A copy of the `valkey` item's component
-# (items/valkey/components/valkey.yaml, revision 1): a repo-local
-# componentRef cannot leave its item directory, so a blueprint that needs one
-# carries its own. Keep the two in step.
+# cross-worker events through.
 #
 # Valkey rather than Redis: upstream documents a Redis server reached through
 # REDIS_URL with CACHE_TYPE=redis (docker-compose.yml, v1.1.1), and speaks

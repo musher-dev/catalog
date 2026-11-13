@@ -1,9 +1,8 @@
+# copy-of: items/postgres/components/postgres.yaml@9
+#
 # The PostgreSQL server Gitea keeps its users, issues, pull requests, access
 # tokens, the sign-in source and every other database record in. Repository
-# contents live on the `web` node's volume, not here. A copy of the `postgres`
-# item's component (items/postgres/components/postgres.yaml, revision 8): a
-# repo-local componentRef cannot leave its item directory, so a blueprint that
-# needs one carries its own. Keep the two in step.
+# contents live on the `web` node's volume, not here.
 #
 # Gitea supports PostgreSQL 12 and later (docs.gitea.com, "Database
 # Preparation"); this pins 17, the canonical item's major.

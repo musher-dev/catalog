@@ -1,8 +1,7 @@
+# copy-of: items/valkey/components/valkey.yaml@2
+#
 # The Valkey server Activepieces runs its BullMQ job queue, locks and caches
-# on. A copy of the `valkey` item's component (items/valkey/components/
-# valkey.yaml, revision 1): a repo-local componentRef cannot leave its item
-# directory, so a blueprint that needs one carries its own. Keep the two in
-# step.
+# on.
 #
 # Valkey rather than Redis: upstream documents only a Redis-compatible server
 # (AP_REDIS_* in docs/install/reference/environment-variables.mdx, 0.93.0),

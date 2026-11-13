@@ -1,10 +1,9 @@
+# copy-of: items/postgres/components/postgres.yaml@9
+#
 # The PostgreSQL server Langfuse keeps its transactional data in: users,
 # organizations, projects, API keys, prompts, datasets, evaluator and LLM
 # connection settings. Traces, observations and scores live in ClickHouse
-# (components/clickhouse.yaml), not here. A copy of the `postgres` item's
-# component (items/postgres/components/postgres.yaml, revision 8): a repo-local
-# componentRef cannot leave its item directory, so a blueprint that needs one
-# carries its own. Keep the two in step.
+# (components/clickhouse.yaml), not here.
 specVersion: v2
 kind: COMPONENT
 metadata:

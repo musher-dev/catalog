@@ -1,7 +1,6 @@
-# The Valkey server Open WebUI shares its live state through. A copy of the
-# `valkey` item's component (items/valkey/components/valkey.yaml, revision 1):
-# a repo-local componentRef cannot leave its item directory, so a blueprint
-# that needs one carries its own. Keep the two in step.
+# copy-of: items/valkey/components/valkey.yaml@2
+#
+# The Valkey server Open WebUI shares its live state through.
 specVersion: v2
 kind: COMPONENT
 metadata:

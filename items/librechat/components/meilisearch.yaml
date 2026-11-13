@@ -1,8 +1,8 @@
+# copy-of: items/meilisearch/components/meilisearch.yaml@10
+# copy-differs: /spec/contract/outputs/url
+#
 # The Meilisearch server LibreChat indexes conversations and messages in, for
-# the search box in its sidebar. A copy of the `meilisearch` item's component
-# (items/meilisearch/components/meilisearch.yaml, revision 10): a repo-local
-# componentRef cannot leave its item directory, so a blueprint that needs one
-# carries its own. Keep the two in step.
+# the search box in its sidebar.
 #
 # One addition: the `url` output at the end, so the blueprint can hand
 # LibreChat the server's private address (MEILI_HOST). The canonical item
