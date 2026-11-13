@@ -78,6 +78,13 @@ spec:
     # 4. `env -u` keeps the owner's email and password, the raw parts of the
     #    URLs and the unstripped base URL out of the app's environment; only
     #    the background shell holds them.
+    #
+    # WORKAROUND(platform-api#1448): the database and Redis URLs are composed
+    #   from inputs.
+    # WORKAROUND(platform-api#1443): the runtime overrides HOSTNAME, so the
+    #   listen address is exported here.
+    # WORKAROUND(platform-api#1445): no node can run after the app is ready,
+    #   so the first account is created in-process.
     command:
       - sh
       - -c

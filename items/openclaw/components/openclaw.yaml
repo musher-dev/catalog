@@ -220,6 +220,9 @@ spec:
     # arrives as a compact JSON array and is spliced into the batch as it is.
     # If it is empty or missing, the batch is not valid JSON and `config set`
     # fails the boot under `set -e`, which fails closed.
+    #
+    # WORKAROUND(platform-api#1447): the gateway reads its settings from a
+    #   config file, which the start writes with `config set`.
     command:
       - sh
       - -c

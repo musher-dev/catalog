@@ -45,6 +45,8 @@ spec:
     # exactly as the original does. WEBSOCKET_REDIS_URL defaults to
     # REDIS_URL (env.py), so one URL serves both. The password is hex, so it
     # needs no escaping in a URL.
+    #
+    # WORKAROUND(platform-api#1448): the Redis URL is composed from inputs.
     command:
       - bash
       - -c

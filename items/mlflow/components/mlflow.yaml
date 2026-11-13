@@ -33,6 +33,9 @@ spec:
     # come from MLFLOW_AUTH_ADMIN_*, which take precedence over the file.
     # The printf format is one single-quoted shell word; folding it would put
     # a space inside the file it writes.
+    #
+    # WORKAROUND(platform-api#1447): the auth store is set only by a config
+    #   file, which the start writes from the inputs.
     # yamllint disable rule:line-length
     command:
       - sh

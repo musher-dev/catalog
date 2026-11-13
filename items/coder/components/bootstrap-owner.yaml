@@ -57,6 +57,10 @@ spec:
     # -f` turn any non-2xx into a failed run, which the platform records for
     # the deployment. That includes a 409 from losing the race described
     # above, which then needs a look rather than silence.
+    #
+    # WORKAROUND(platform-api#1445): nothing can run after another node is
+    #   ready, so the job polls the app until it answers, then creates the
+    #   first account.
     command:
       - sh
       - -c

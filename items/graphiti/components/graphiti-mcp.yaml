@@ -32,6 +32,9 @@ spec:
     # with the server's own Neo4j driver runs a query until one succeeds, for
     # up to 10 minutes, rather than letting the container exit and be
     # restarted. The final `exec` is the image's own CMD.
+    #
+    # WORKAROUND(platform-api#1445): the start waits for Neo4j to answer a
+    #   query, since nothing orders the nodes.
     command:
       - sh
       - -c

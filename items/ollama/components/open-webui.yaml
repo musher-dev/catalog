@@ -54,6 +54,9 @@ spec:
     # The model name is checked against Ollama's name characters before it
     # goes into JSON. A model deleted in Open WebUI is pulled again on the
     # next restart while it is still the chosen model.
+    #
+    # WORKAROUND(platform-api#1445): the start waits for Ollama and pulls the
+    #   chosen model, since nothing orders the nodes.
     command:
       - bash
       - -c

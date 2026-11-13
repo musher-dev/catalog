@@ -80,6 +80,9 @@ spec:
     # Exec form: argv, no shell of the platform's own. `set -eu` plus
     # `curl -f` turns any non-2xx into a failed run, which the platform records
     # for the deployment.
+    #
+    # WORKAROUND(platform-api#1445): nothing can run after the app is ready,
+    #   so the job polls it until it answers, then seeds its model settings.
     command:
       - sh
       - -c

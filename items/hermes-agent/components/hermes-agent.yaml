@@ -162,6 +162,9 @@ spec:
     # write would omit an existing path, so the deliberate removals above (a
     # stale model.api_key, an extra key under providers.llm) would stop the
     # container from booting.
+    #
+    # WORKAROUND(platform-api#1447): the agent reads its settings from a
+    #   config file, which the start writes from the inputs.
     command:
       - python
       - -c

@@ -65,6 +65,9 @@ spec:
     # src/backend/postmaster/postmaster.c, REL_17_STABLE). With Perl as PID 1
     # the postmaster has no unknown children. A connection that sends nothing
     # is cut after 4 s, so the single-threaded loop cannot be held.
+    #
+    # WORKAROUND(platform-api#1446): probes are HTTP-only, so a Perl
+    #   supervisor serves an HTTP readiness check that runs pg_isready.
     command:
       - perl
       - -e

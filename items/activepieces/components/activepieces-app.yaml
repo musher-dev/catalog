@@ -60,6 +60,9 @@ spec:
     # every start and changes nothing once an account exists, so a rotated
     # password parameter does not reach the account. If it fails, the sign-up
     # page, behind the platform's sign-in, is the fallback.
+    #
+    # WORKAROUND(platform-api#1445): no node can run after the app is ready,
+    #   so the first account is created in-process once the API answers.
     command:
       - sh
       - -c

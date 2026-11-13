@@ -48,6 +48,10 @@ spec:
     # The image compiles protected-mode off (9.1/alpine/Dockerfile in
     # valkey-io/valkey-container), so the password is the only check a client
     # meets.
+    #
+    # WORKAROUND(platform-api#1447): the password has to reach the server
+    #   through a config file rather than argv, and a component can mount no
+    #   file.
     command:
       - sh
       - -c

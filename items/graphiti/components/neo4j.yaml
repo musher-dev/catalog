@@ -44,6 +44,11 @@ spec:
     # (docker-entrypoint.sh, 2026.10.2). The DB_* variables are deliberately
     # not NEO4J_-prefixed: the entrypoint would turn them into settings too,
     # and strict validation refuses unknown ones.
+    #
+    # WORKAROUND(platform-api#1448): NEO4J_AUTH is `neo4j/<password>`,
+    #   composed from an input.
+    # WORKAROUND(platform-api#1447): Neo4j settings are lower-case environment
+    #   variables, which an input cannot target.
     command:
       - sh
       - -c

@@ -26,6 +26,9 @@ spec:
     # environment, out of argv. `command` replaces CMD, and the image has no
     # ENTRYPOINT, so this is the whole process line. SQLAlchemy and redis-py
     # both decode percent-encoded credentials.
+    #
+    # WORKAROUND(platform-api#1448): the database and Redis URLs are composed
+    #   from inputs and percent-encoded.
     command:
       - python3
       - -c

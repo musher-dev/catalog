@@ -44,6 +44,9 @@ spec:
     # password is never in argv. It exits 1 on any error. The steps and paths
     # are upstream's setup-postgres.sh. The first create-database is retried
     # until PostgreSQL, on its own first boot, accepts a connection.
+    #
+    # WORKAROUND(platform-api#1445): nothing orders the nodes, so the job
+    #   retries until PostgreSQL and then Temporal answer.
     command:
       - sh
       - -c

@@ -74,6 +74,11 @@ spec:
     # (initialize_mcp in initialize.py, MCPClientBase.update_tools in
     # helpers/mcp_handler.py, v2.15), so the start waits, bounded, for the
     # sandbox's API to answer with the key.
+    #
+    # WORKAROUND(platform-api#1447): settings the image reads only from files
+    #   are written before its own start.
+    # WORKAROUND(platform-api#1445): the start waits for the sandbox API,
+    #   since nothing orders the two nodes.
     command:
       - /opt/venv-a0/bin/python
       - -c

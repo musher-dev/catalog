@@ -42,6 +42,9 @@ spec:
     # - `admin off` leaves no admin API listening; `auto_https off` because
     #   the platform's edge terminates TLS. Caddy writes no access log
     #   unless told to, so keys are never logged.
+    #
+    # WORKAROUND(platform-api#1447): Caddy takes its configuration from a
+    #   file, which a component cannot mount, so the shell writes it.
     command:
       - sh
       - -c

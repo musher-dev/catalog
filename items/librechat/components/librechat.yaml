@@ -34,6 +34,8 @@ spec:
     # shell does, from the four MONGO_* inputs below (which LibreChat itself
     # does not read), drops them from the environment and execs the image's
     # own start. The values are hex and host:port, so nothing needs escaping.
+    #
+    # WORKAROUND(platform-api#1448): the MongoDB URL is composed from inputs.
     command:
       - sh
       - -c

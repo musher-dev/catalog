@@ -59,6 +59,11 @@ spec:
     #
     # A failed migration leaves the server unstarted and the container
     # exits, so the platform restarts it and the next start migrates again.
+    #
+    # WORKAROUND(platform-api#1448): the database and Redis URLs are composed
+    #   from inputs.
+    # WORKAROUND(platform-api#1445): nothing orders the nodes, so the
+    #   migrations run here before the server starts.
     command:
       - sh
       - -c

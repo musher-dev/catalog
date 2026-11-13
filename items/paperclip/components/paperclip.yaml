@@ -47,6 +47,8 @@ spec:
     # Upstream's compose files also set `pids_limit: 2048` as a backstop
     # against leaked agent processes. The spec has no equivalent; tini is what
     # keeps the count down.
+    #
+    # WORKAROUND(platform-api#1448): the database URL is composed from inputs.
     command:
       - sh
       - -c

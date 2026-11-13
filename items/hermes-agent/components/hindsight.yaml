@@ -40,6 +40,8 @@ spec:
     #
     # If `memory-db` is still initialising on a first boot, the API exits and
     # the container restarts until the database answers.
+    #
+    # WORKAROUND(platform-api#1448): the database URL is composed from inputs.
     command:
       - sh
       - -c

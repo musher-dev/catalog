@@ -54,7 +54,13 @@ spec:
     # because the image ships no nc. In a live deploy test without the
     # wait, the container exited nonzero 20 s in and the platform then held
     # the node in SCHEDULING/BindingHost for 38 minutes without starting it
-    # again.
+    # again (platform-api#1439).
+    #
+    # WORKAROUND(platform-api#1448): the Redis and RabbitMQ URLs are composed
+    #   from inputs.
+    # WORKAROUND(platform-api#1439): the start waits for its databases, since
+    #   nothing orders the nodes and an early crash can stall a node (also
+    #   platform-api#1445).
     command:
       - sh
       - -c
