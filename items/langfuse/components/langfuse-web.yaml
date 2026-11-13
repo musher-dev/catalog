@@ -22,14 +22,28 @@ spec:
       # queue payloads and the database schema.
       #
       # The image runs as uid 1001 with ENTRYPOINT `dumb-init --
-      # ./web/entrypoint.sh` and a CMD that starts `node ./web/server.js`
-      # (web/Dockerfile, v4.79.0). No `command`: the entrypoint composes
-      # DATABASE_URL from the four DATABASE_* inputs below, applies the
-      # PostgreSQL migrations (prisma migrate deploy) and the ClickHouse
-      # migrations (packages/shared/clickhouse/scripts/up.sh), and only then
-      # execs the server. If either database is not ready yet it exits, and
-      # the container restarts until both answer.
+      # ./web/entrypoint.sh` and a CMD that starts `node ./web/server.js
+      # --keepAliveTimeout 110000` (web/Dockerfile, v4.79.0; crane config).
+      # The entrypoint composes DATABASE_URL from the four DATABASE_* inputs
+      # below, applies the PostgreSQL migrations (prisma migrate deploy) and
+      # the ClickHouse migrations (packages/shared/clickhouse/scripts/up.sh),
+      # and only then execs its arguments. If either database is not ready yet
+      # it exits, and the container restarts until both answer.
       image: langfuse/langfuse:4.79.0
+    # WORKAROUND(platform-api#1443): the runtime sets HOSTNAME to the
+    # container's own name, over the image's and the spec's, and Next.js'
+    # standalone server listens only on HOSTNAME. The listen address therefore
+    # arrives under a name of its own (`host` below) and is exported as
+    # HOSTNAME here, just before the server starts, the form `sim` uses
+    # (items/sim/components/sim-app.yaml). `command` replaces the CMD and keeps
+    # the ENTRYPOINT, which runs the migrations and then execs this. The CMD's
+    # other branch, dd-trace for Langfuse Cloud regions, does not apply.
+    command:
+      - sh
+      - -c
+      - |
+        export HOSTNAME="$LANGFUSE_LISTEN_HOST"
+        exec node ./web/server.js --keepAliveTimeout 110000
     endpoints:
       primary:
         targetPort: 3000
@@ -93,15 +107,17 @@ spec:
       # blueprint has to wire them and the deploy form gains no field.
       #
       # Next.js's standalone server binds HOSTNAME, which the runtime sets to
-      # the pod's name. Upstream's Helm chart sets it to 0.0.0.0 for the same
-      # reason (templates/web/deployment.yaml).
-      hostname:
+      # the container's name. Upstream's Helm chart sets it to 0.0.0.0 for the
+      # same reason (templates/web/deployment.yaml). The runtime's value would
+      # win over an input targeting HOSTNAME itself (platform-api#1443), so
+      # this targets a name of its own and `command` exports it.
+      host:
         schema:
           type: string
         default: 0.0.0.0
         target:
-          envVar: HOSTNAME
-        description: Address the web server listens on inside the container.
+          envVar: LANGFUSE_LISTEN_HOST
+        description: Address the web server listens on inside the container; all interfaces.
       port:
         schema:
           type: string
