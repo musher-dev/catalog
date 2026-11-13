@@ -1,0 +1,156 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: contextforge
+  revision: 1
+  description: >-
+    IBM ContextForge MCP gateway behind the platform's sign-in, with its own
+    Postgres for the registry and a password-protected Valkey cache.
+# Three nodes. Producers first: map order is graph order, and the two nodes the
+# wires come from read before the node they arrive at.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, so one gateway's registry fits in 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only from this deployment.
+      bindings:
+        postgresPassword:
+          parameter: databasePassword
+        postgresUser:
+          value: contextforge
+        postgresDb:
+          value: contextforge
+    cache:
+      componentRef: ./components/valkey.yaml
+      # Single-threaded, a few megabytes when empty, and holding only cached
+      # registry lookups, sessions and auth results.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: PRIVATE, like `db`, and behind a password as well.
+      bindings:
+        valkeyPassword:
+          parameter: cachePassword
+    gateway:
+      componentRef: ./components/contextforge.yaml
+      # Upstream's Helm chart requests 768 MiB and limits the pod to 2 GiB and
+      # 2 vCPUs for two gunicorn workers (charts/mcp-stack/values.yaml,
+      # v1.1.1). general.standard.nano's 2 GB would sit exactly at that limit
+      # with nothing left for the migration run on first boot, so this is
+      # one notch up: 2 vCPUs and 4 GB for the same two workers.
+      compute:
+        profile: general.standard.small
+      # Behind the platform's sign-in, and ContextForge's own email sign-in
+      # inside it: the admin UI is where MCP servers, credentials and API
+      # tokens are managed. MCP clients and scripts have no viewer session, so
+      # a request carrying a bearer token is let through to ContextForge,
+      # which validates it (components/contextforge.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - BEARER
+      bindings:
+        # This node's own allocated address. A node reading its own endpoint
+        # output is a discovery dependency and not a value cycle (BP-BIND-002):
+        # an endpoint address is allocated before anything runs.
+        appDomain:
+          node: gateway
+          output: publicURL
+        # The role and database `db` is initialised with, and one generated
+        # password shared by both ends: one parameter, so the two always agree.
+        databaseAddress:
+          node: db
+          output: address
+        databaseUser:
+          value: contextforge
+        databasePassword:
+          parameter: databasePassword
+        databaseName:
+          value: contextforge
+        cacheAddress:
+          node: cache
+          output: address
+        cachePassword:
+          parameter: cachePassword
+        jwtSecretKey:
+          parameter: jwtSecretKey
+        authEncryptionSecret:
+          parameter: authEncryptionSecret
+        platformAdminEmail:
+          parameter: adminEmail
+        platformAdminPassword:
+          parameter: adminPassword
+        defaultUserPassword:
+          parameter: defaultUserPassword
+        ssrfAllowPrivateNetworks:
+          parameter: allowPrivateNetworks
+  parameters:
+    # The deploying user's email, captured once when the deployment is
+    # created (BP-PARAM-011), rather than a field on the deploy form.
+    adminEmail:
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment. 24 bytes in HEX is 48
+    # characters, well over ContextForge's 12-character password floor.
+    adminPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Admin password
+        order: 1
+    # 32 bytes in HEX is 64 characters, over ContextForge's 32-character
+    # floor, with about 3.8 bits of entropy per character against its 3.5.
+    jwtSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: JWT signing key
+        order: 3
+    authEncryptionSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Credential encryption key
+        order: 4
+    defaultUserPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Temporary password for new users
+        order: 5
+    allowPrivateNetworks:
+      default: 'false'
+      ui:
+        label: Allow MCP servers on private addresses
+        order: 2
+    # HEX, so it is safe unencoded in a URL as well.
+    databasePassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 6
+    # HEX, because Valkey reads the password as one word of its configuration.
+    cachePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Cache password
+        order: 7

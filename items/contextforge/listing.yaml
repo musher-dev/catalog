@@ -1,0 +1,109 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: contextforge
+spec:
+  itemType: BLUEPRINT
+  displayName: ContextForge MCP Gateway
+  summary: >-
+    IBM's MCP gateway and registry with its own Postgres and Valkey. Federate
+    MCP servers, wrap REST APIs as tools and give agents one authenticated
+    endpoint.
+  overview: |
+    ## What it is
+    ContextForge is IBM's open-source gateway and registry for the Model
+    Context Protocol (MCP). Register remote MCP servers (streamable HTTP or
+    SSE) and plain REST APIs once. ContextForge discovers their tools,
+    prompts and resources, and lets you group any subset into a *virtual
+    server*. Each virtual server has its own MCP endpoint, so an agent needs
+    one URL and one token instead of a credential per upstream. Users, teams,
+    role-based access, scoped API tokens, rate limits and per-tool metrics
+    are built in. You manage all of it from an admin UI or the REST API.
+
+    ## When to use
+    - Your agents (Hermes Agent, OpenClaw, opencode, Claude Code or your own)
+      should reach several MCP servers through one endpoint and one token.
+    - You want to keep upstream API keys and OAuth secrets in one place,
+      encrypted, rather than in every agent's configuration.
+    - You want to expose an existing REST API to agents as MCP tools without
+      writing an MCP server.
+    - You need to see which tools agents call, and how often they fail.
+
+    ## Defaults
+    Three nodes, wired together at deploy, with nothing to type:
+
+    - `gateway` runs `ghcr.io/ibm/mcp-context-forge:v1.1.1` on port 4444
+      behind the platform's HTTPS edge, with two gunicorn workers on 2 vCPUs
+      and 4 GB. It keeps no volume.
+    - `db` runs `postgres:17.11-alpine` with a 10 GiB volume, on 1 vCPU and
+      1 GB.
+    - `cache` runs `valkey/valkey:9.1.3-alpine` behind a password, with
+      append-only persistence on a 5 GiB volume, on 1 vCPU and 1 GB.
+
+    Only `gateway` is reachable from outside. ContextForge applies its
+    schema to the empty database on first boot, so the first deploy takes a
+    few minutes longer than a restart.
+
+    The administrator account uses your Musher email and the generated
+    **Admin password**. Both are read only on the first boot. After that,
+    change the password inside ContextForge. The JWT signing key, the
+    credential encryption key, the temporary password for new users, and
+    the database and cache passwords are also generated. You can copy them
+    from the deployment's Installation tab.
+
+    The built-in admin UI is on. Upstream now marks it as deprecated in
+    favour of a separate web UI, which this blueprint doesn't include.
+    Telemetry and trace export are off.
+
+    ## Access and security
+    Opening the deployment's URL in a browser requires Musher sign-in and
+    then ContextForge's own email and password sign-in. A request that
+    carries an `Authorization: Bearer` header skips the Musher sign-in and
+    goes straight to ContextForge, which then checks the token. That is how
+    MCP clients and scripts connect. Every route except the health checks,
+    static assets and the sign-in pages needs a valid ContextForge token.
+    Treat API tokens like passwords.
+
+    By default ContextForge refuses to register MCP servers or tools at
+    private network addresses. Turn on **Allow MCP servers on private
+    addresses** to federate servers on mesh-internal addresses. Cloud
+    metadata addresses stay blocked either way.
+
+    ## Limitations
+    - ContextForge reaches upstream MCP servers over HTTP (streamable HTTP or
+      SSE). A server that only speaks stdio needs a bridge in front of it,
+      deployed separately.
+    - Single sign-on with the platform's identity is not wired up. Users
+      sign in with ContextForge's own email accounts.
+
+    ## Upgrades
+    Keep the **Credential encryption key** fixed. If you rotate it after
+    saving an upstream credential, ContextForge can no longer read that
+    credential. Rotating the **JWT signing key** invalidates every issued
+    token.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. Then sign in to
+       ContextForge with your Musher email and the **Admin password** from
+       the deployment's Installation tab.
+    2. Under **MCP Servers**, register each upstream MCP server by its
+       streamable HTTP or SSE URL. ContextForge discovers its tools.
+    3. Under **Virtual Servers**, group the tools an agent should see. Each
+       virtual server's MCP endpoint is
+       `https://<deployment URL>/servers/<server id>/mcp`.
+    4. Under **API Tokens**, create a scoped token. Give the agent the
+       endpoint and the token, sent as `Authorization: Bearer <token>`.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - mcp
+    - gateway
+    - agents
+    - tools
+    - registry
+    - postgres
+    - valkey
+  homepageURL: https://ibm.github.io/mcp-context-forge/
+  sourceRepositoryURL: https://github.com/IBM/mcp-context-forge
+  supportURL: https://ibm.github.io/mcp-context-forge/
+  license: Apache-2.0
+  icon: media/icon.png
