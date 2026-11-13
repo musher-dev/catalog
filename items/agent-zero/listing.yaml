@@ -1,0 +1,127 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: agent-zero
+spec:
+  itemType: BLUEPRINT
+  displayName: Agent Zero
+  summary: >-
+    Agent Zero, an open-source autonomous agent that works on its own computer,
+    paired with a private AIO Sandbox it drives over MCP and running on your
+    organization's language model
+  overview: |
+    ## What it is
+    Agent Zero is an open-source, general-purpose AI agent. You give it a task
+    in a chat-style web UI and it plans, writes and runs code, uses a terminal,
+    searches the web, browses, remembers what it learns and hands subtasks to
+    subordinate agents. Its computer is its own Linux container, so it can
+    install software and keep files between tasks.
+
+    This deployment pairs it with AIO Sandbox, a second computer with a
+    Chromium browser, a shell and a file system. Agent Zero reaches the
+    sandbox as an MCP server named `sandbox`, so it can browse and run
+    commands there, apart from its own container.
+
+    ## When to use
+    - You want an agent that carries out multi-step tasks such as research,
+      coding, data wrangling or file work, not just answers questions.
+    - You want to watch the agent's reasoning and tool use live, and step in
+      or stop it from a browser.
+    - You want the agent on infrastructure you control, with its own
+      browser-and-shell sandbox as well as its own container.
+    - You want to send tasks to an agent from scripts or other agents through
+      an HTTP API.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model name travel
+    together as a single connection. Any API that speaks the OpenAI
+    chat-completions protocol with streaming will do, including an engine
+    you run yourself. Agent Zero reads tool calls from the model's reply
+    text, so the API doesn't need native tool calls. Embeddings for the
+    agent's memory are computed locally, so the API doesn't need an
+    embeddings endpoint either.
+
+    The **sandbox API key** is generated for you. Agent Zero sends it to the
+    sandbox, and you can reveal it on the deployment's Installation tab.
+
+    ## Defaults
+    The `agent-zero` node runs `agent0ai/agent-zero:v2.15` on port 8080, behind
+    the platform's HTTPS edge and sign-in, with 2 vCPUs and 4 GiB of memory. A
+    10 GiB volume at `/a0/usr` keeps settings, chats, memory, knowledge,
+    projects, uploads and the agent's work directory (`/a0/usr/workdir`).
+    Anything the agent installs outside that directory is gone after a
+    restart. Agent Zero's own update check is off.
+
+    Agent Zero's models come from presets. On every start, the main and
+    utility models of the **Default** preset are set to your connection on
+    the "Other OpenAI compatible" provider, with a 128,000-token context
+    window. A different model you choose for Default reverts on restart, so
+    to use another model, add a preset of your own and select it. The
+    embedding model is the local `sentence-transformers/all-MiniLM-L6-v2`.
+
+    The `sandbox` node runs `ghcr.io/agent-infra/sandbox:1.11.0` with 1 vCPU,
+    2 GiB of memory and a 10 GiB volume for the sandbox user's home. Only
+    Agent Zero can reach it. JupyterLab and code-server are turned off.
+
+    ## Access and security
+    Signing in to Musher is what gets you in. Agent Zero's own login is off,
+    so everyone the platform admits has full control of the agent, which runs
+    code as root in its container and can reach the internet. Limit who can
+    open the deployment.
+
+    Agent Zero's external API (`/api/api_message` and the other `/api/api_*`
+    routes) and its MCP and A2A servers (`/mcp`, `/a2a`) skip the platform's
+    sign-in so that scripts and other agents can call them. Agent Zero checks
+    its own API token on each of them, and its MCP and A2A servers stay off
+    until you turn them on. `/api/health` is open as well and returns only the
+    version. Treat the API token like a password: it gives full control of
+    the agent.
+
+    Agent Zero derives that token from an ID it keeps in `/a0/usr/.env`. The
+    upstream image ships with one fixed ID, which would give every
+    deployment of the image the same token. On every start, this deployment
+    replaces it with a random ID of its own, and doesn't start if it can't.
+
+    The model credential and the sandbox API key are in the agent's
+    environment, so code the agent runs can read them. Once Agent Zero's MCP
+    settings are saved, the sandbox key is also kept in
+    `/a0/usr/settings.json`.
+
+    ## Limitations
+    - Upgrade by deploying a newer revision of this item. Agent Zero's in-app
+      **Self Update** only changes a copy of the code that the next restart
+      replaces from the image.
+    - Agent Zero connects to the sandbox once, at startup. The start waits up
+      to 10 minutes for the sandbox. If the sandbox restarts later, or the
+      wait runs out, reconnect it from Agent Zero's MCP settings.
+    - The sandbox's browser and VNC view aren't published, so you watch the
+      agent's own browser in Agent Zero, not the sandbox's.
+    - Both images are large, about 3 GB for Agent Zero and 3.6 GB for the
+      sandbox, so the first start on a node takes several minutes.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. Agent Zero is already
+       on the language model you chose.
+    2. Start a chat and give it a task, for example "Find today's top story
+       on Hacker News and save a summary to a file". You can watch each step
+       and stop or redirect it.
+    3. To use the sandbox, ask for it by name, for example "Use the sandbox
+       MCP tools to open example.com and tell me its title". Its tools are
+       listed in Agent Zero's MCP settings.
+    4. To call the agent from a script, copy the API token from **Settings >
+       External Services** and `POST` to `/api/api_message` with an
+       `X-API-KEY` header and a JSON body such as `{"message": "..."}`.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - agents
+    - autonomous-agent
+    - sandbox
+    - mcp
+    - browser
+  homepageURL: https://agent-zero.ai
+  sourceRepositoryURL: https://github.com/agent0ai/agent-zero
+  supportURL: https://github.com/agent0ai/agent-zero/tree/main/docs
+  license: MIT AND Apache-2.0
+  icon: media/icon.png

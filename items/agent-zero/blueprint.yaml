@@ -1,0 +1,107 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: agent-zero
+  revision: 1
+  description: >-
+    Agent Zero behind the platform's sign-in, thinking with the language model
+    the deployer selects and driving a private AIO Sandbox computer through MCP
+    for browsing, shell and code.
+# Three nodes, one of which runs nothing. Producers first: map order is graph
+# order, and the nodes the wires come from read before `agent-zero`, which they
+# all arrive at.
+#
+# The language model is an EXTERNAL node (`llm`): it takes the connection whole
+# and publishes the endpoint, the credential and the model as outputs that
+# `agent-zero` wires to. Agent Zero embeds its memory locally with
+# all-MiniLM-L6-v2, so the connection needs no embeddings API.
+#
+# `sandbox` is a second computer for the agent, reachable only inside the
+# deployment. Agent Zero already runs its terminal, code and browser agent in
+# its own container; the sandbox adds an isolated Chromium, shell and file
+# system it drives as the `sandbox` MCP server, over streamable HTTP with the
+# sandbox's key as a bearer token.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002).
+      bindings:
+        llm:
+          parameter: llm
+    sandbox:
+      componentRef: ./components/aio-sandbox.yaml
+      # Upstream's Kubernetes example limits the sandbox to 1 vCPU and 2 GiB
+      # (agent-infra/sandbox README, Kubernetes deployment). JupyterLab and
+      # code-server are off below, since nothing here can open them, which
+      # leaves nginx, the API server, Xvnc and Chromium.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        home:
+          sizeGiB: 10
+      # No exposure: only `agent-zero` calls the sandbox, over the private
+      # network. The sandbox still checks its own API key.
+      bindings:
+        apiKey:
+          parameter: sandboxAPIKey
+        disableJupyter:
+          value: 'true'
+        disableCodeServer:
+          value: 'true'
+    agent-zero:
+      componentRef: ./components/agent-zero.yaml
+      # Upstream asks for 2 GB of RAM at least and recommends 4 GB or more
+      # (docs/setup/vps-deployment.md, v2.15). Besides the UI the container
+      # runs SearXNG, sshd, cron, the local embedding model and, when the
+      # agent browses, Chromium.
+      compute:
+        profile: general.standard.small
+      volumes:
+        usr:
+          sizeGiB: 10
+      # The platform signs viewers in and Agent Zero's own login stays off
+      # (AUTH_LOGIN unset, helpers/login.py, v2.15), so there is no second
+      # password. The external API and Agent Zero's MCP and A2A servers are
+      # exempt for clients holding Agent Zero's API token
+      # (components/agent-zero.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - PATHS
+      bindings:
+        # The three members of the one connection the `llm` node holds.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+        sandboxMCPURL:
+          node: sandbox
+          output: mcpURL
+        sandboxAPIKey:
+          parameter: sandboxAPIKey
+  parameters:
+    # A connection parameter: it names one atomic connection the organization
+    # has configured, and binds only to the `llm` node's connection input
+    # (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    sandboxAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Sandbox API key
+        order: 2

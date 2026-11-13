@@ -1,0 +1,371 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Agent Zero, a general-purpose autonomous agent with a web UI that uses its
+    own container as its computer, with settings, chats, memory and the
+    agent's work directory kept on a volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v2.15 is the latest stable release (2026-11-01). Docker Hub tags
+      # carry the `v` prefix. `latest` moves with every release, and upstream
+      # says a new major line needs a new image rather than an in-app update
+      # (docs/setup/installation.md, v2.15).
+      #
+      # A Kali Linux image of about 3 GB compressed. Besides Agent Zero it runs
+      # supervisord, sshd, cron, a local SearXNG for the agent's web search,
+      # and the Chromium the browser agent drives
+      # (docker/run/fs/etc/supervisor/conf.d/supervisord.conf, v2.15). It
+      # starts as root and needs neither privileged mode nor a Docker socket:
+      # the agent's terminal and code run inside this container.
+      image: agent0ai/agent-zero:v2.15
+    # Replaces the image's CMD (`/exe/initialize.sh $BRANCH`) to move the web
+    # UI off port 80, write the model configuration and the sandbox's MCP entry
+    # first, then exec that same entry point. No shell: the image's own Python environment
+    # (/opt/venv-a0, docker/base/fs/ins/install_python.sh) has PyYAML, which
+    # Agent Zero reads its presets with (helpers/yaml.py, v2.15).
+    #
+    # Runtime ID. Agent Zero's API, MCP and A2A token is a hash of the
+    # persistent runtime ID and the login, which is empty here
+    # (create_auth_token in helpers/settings.py, v2.15). The image ships a
+    # runtime ID in /git/agent-zero/usr/.env, written when the build ran
+    # preload.py, and copy_A0.sh copies it into an empty /a0/usr. Agent Zero
+    # loads that file over the environment (load_dotenv(override=True),
+    # helpers/dotenv.py), so every deployment of the image would share one
+    # token anyone can read out of the public image. The start gives this
+    # deployment its own random ID in /a0/usr/.env before the copy, and
+    # replaces the image's ID on a volume that already holds it. It refuses
+    # to start if it cannot, because the API routes below skip the
+    # platform's sign-in. An A0_PERSISTENT_RUNTIME_ID in the environment, if
+    # one is ever set, is written there instead.
+    #
+    # Port. Upstream hard-codes `--port=80` where its bootstrap manager starts
+    # the UI and its tunnel API (self_update_manager.py launch_ui_process and
+    # run_tunnel_api.sh, v2.15), and the platform cannot bind a port below
+    # 1024 (ERR_PRIVILEGED_PORT at publication). A command-line --port wins
+    # over WEB_UI_PORT (runtime.get_web_ui_port), so the start rewrites that
+    # argument in both files, and points the manager's own health wait
+    # (A0_SELF_UPDATE_HEALTH_URL) at the new port. If upstream moves the
+    # argument, the step logs it and the UI stays on 80, so readiness fails
+    # visibly instead of serving the wrong port.
+    #
+    # Models. Agent Zero has no environment variable for its models: every
+    # model comes from a preset in /a0/usr/plugins/_model_config/presets.yaml,
+    # and the selected preset defaults to `Default`
+    # (plugins/_model_config/README.md and default_config.yaml, v2.15). Each
+    # start rewrites the main and utility models of `Default` to this
+    # deployment's connection on the "Other OpenAI compatible" provider
+    # (`other`, which reads its key from API_KEY_OTHER: models.py
+    # get_api_key_raw and conf/model_providers.yaml, v2.15). Every other
+    # preset, the embedding model and the preset selection are left as the
+    # user saved them. With the file in place, Agent Zero's own first-start
+    # download of upstream's OpenRouter presets does not run
+    # (startup_migration/_20_bootstrap_model_presets.py, v2.15).
+    #
+    # Sandbox. When the blueprint wires one, the AIO Sandbox's MCP server is
+    # added through A0_SET_mcp_servers, the environment default for the
+    # `mcp_servers` setting (get_default_value in helpers/settings.py,
+    # v2.15). It applies until someone saves the MCP settings, which then
+    # persist in /a0/usr/settings.json. Agent Zero connects to its MCP
+    # servers once at startup and does not retry one that fails
+    # (initialize_mcp in initialize.py, MCPClientBase.update_tools in
+    # helpers/mcp_handler.py, v2.15), so the start waits, bounded, for the
+    # sandbox's API to answer with the key.
+    command:
+      - /opt/venv-a0/bin/python
+      - -c
+      - |
+        import json, os, re, secrets, sys, time, urllib.request
+        import yaml
+
+        def log(msg):
+            print(f"[musher-bootstrap] {msg}", flush=True)
+
+        def configure_models():
+            base = os.environ["LLM_BASE_URL"].strip().rstrip("/")
+            model = os.environ["LLM_MODEL"].strip()
+            ctx = int(os.environ.get("LLM_CONTEXT_LENGTH") or "128000")
+            path = "/a0/usr/plugins/_model_config/presets.yaml"
+            presets = []
+            if os.path.exists(path):
+                with open(path, encoding="utf-8") as f:
+                    loaded = yaml.safe_load(f)
+                if not isinstance(loaded, list):
+                    raise ValueError(f"{path} is not a preset list; left unchanged")
+                presets = loaded
+            default = next((p for p in presets if isinstance(p, dict)
+                            and str(p.get("name", "")).casefold() == "default"), None)
+            if default is None:
+                default = {"name": "Default"}
+                presets.insert(0, default)
+            link = {"provider": "other", "name": model, "api_base": base, "ctx_length": ctx}
+            slots = {"chat": {"ctx_history": 0.7, "vision": False},
+                     "utility": {"ctx_input": 0.7}}
+            for slot, extra in slots.items():
+                old = default.get(slot) if isinstance(default.get(slot), dict) else {}
+                if old.get("provider") != "other":
+                    old = {}
+                default[slot] = {**extra, "rl_requests": 0, "rl_input": 0, "rl_output": 0,
+                                 "kwargs": {}, **old, **link}
+            if not isinstance(default.get("embedding"), dict):
+                default["embedding"] = {"provider": "huggingface",
+                                        "name": "sentence-transformers/all-MiniLM-L6-v2",
+                                        "api_base": "", "rl_requests": 0, "rl_input": 0,
+                                        "kwargs": {}}
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + ".tmp", "w", encoding="utf-8") as f:
+                yaml.safe_dump(presets, f, allow_unicode=True, sort_keys=False)
+            os.replace(path + ".tmp", path)
+            log(f"Default preset: main and utility model {model!r} at {base}")
+
+        def configure_sandbox():
+            url = os.environ.get("SANDBOX_MCP_URL", "").strip()
+            key = os.environ.get("SANDBOX_API_KEY", "").strip()
+            if not url:
+                return
+            headers = {"Authorization": f"Bearer {key}"} if key else {}
+            os.environ["A0_SET_mcp_servers"] = json.dumps({"mcpServers": {"sandbox": {
+                "type": "streamable-http", "url": url, "headers": headers,
+                "description": "AIO Sandbox: a separate computer with a Chromium browser,"
+                               " a shell, files and code execution.",
+                "init_timeout": 30, "tool_timeout": 300}}})
+            probe = url.rsplit("/mcp", 1)[0] + "/v1/sandbox"
+            last = None
+            deadline = time.monotonic() + int(os.environ.get("SANDBOX_WAIT_SECONDS") or "0")
+            while True:
+                try:
+                    req = urllib.request.Request(probe, headers=headers)
+                    with urllib.request.urlopen(req, timeout=5) as r:
+                        if r.status == 200:
+                            log("sandbox is up; its MCP server is configured")
+                            return
+                except Exception as exc:
+                    last = exc
+                if time.monotonic() > deadline:
+                    log(f"sandbox not answering ({last}); starting without waiting."
+                        " Reconnect it in the MCP settings once it is up.")
+                    return
+                time.sleep(5)
+
+        def own_runtime_id():
+            key = "A0_PERSISTENT_RUNTIME_ID"
+            path, baked = "/a0/usr/.env", "/git/agent-zero/usr/.env"
+            def read(p):
+                if not os.path.exists(p):
+                    return "", []
+                with open(p, encoding="utf-8") as f:
+                    lines = f.read().splitlines()
+                vals = [l.split("=", 1)[1].strip() for l in lines
+                        if re.match(rf"^\s*{key}\s*=", l)]
+                return (vals[-1] if vals else ""), lines
+            current, lines = read(path)
+            image_id, _ = read(baked)
+            wanted = os.environ.get(key, "").strip()
+            if wanted:
+                new = wanted
+            elif current and current != image_id:
+                return
+            else:
+                new = secrets.token_hex(16)
+            if new == current:
+                return
+            lines = [l for l in lines if not re.match(rf"^\s*{key}\s*=", l)] + [f"{key}={new}"]
+            os.makedirs(os.path.dirname(path), exist_ok=True)
+            with open(path + ".tmp", "w", encoding="utf-8") as f:
+                f.write("\n".join(lines) + "\n")
+            os.chmod(path + ".tmp", 0o600)
+            os.replace(path + ".tmp", path)
+            log("persistent runtime ID set for this deployment")
+
+        def move_port():
+            port = int(os.environ.get("WEB_UI_PORT") or "8080")
+            os.environ["A0_SELF_UPDATE_HEALTH_URL"] = f"http://127.0.0.1:{port}/api/health"
+            for path, old, new in (
+                    ("/exe/self_update_manager.py", '"--port=80"', f'"--port={port}"'),
+                    ("/exe/run_tunnel_api.sh", "--port=80 ", f"--port={port} ")):
+                with open(path, encoding="utf-8") as f:
+                    text = f.read()
+                if old in text:
+                    with open(path, "w", encoding="utf-8") as f:
+                        f.write(text.replace(old, new))
+                elif new not in text:
+                    raise RuntimeError(f"{path}: no {old} to move; the UI keeps port 80")
+            log(f"web UI on port {port}")
+
+        try:
+            own_runtime_id()
+        except Exception as exc:
+            log(f"own_runtime_id failed, not starting: {exc}")
+            sys.exit(1)
+
+        for step in (move_port, configure_models, configure_sandbox):
+            try:
+                step()
+            except Exception as exc:
+                log(f"{step.__name__} failed: {exc}")
+
+        os.execv("/exe/initialize.sh", ["/exe/initialize.sh", os.environ.get("BRANCH") or "main"])
+    endpoints:
+      primary:
+        # Upstream starts the UI on port 80 (--port=80 --host=0.0.0.0,
+        # docker/run/fs/exe/self_update_manager.py launch_ui_process, v2.15);
+        # the command above moves it to the `webUIPort` input. The web UI, its
+        # Socket.IO connection, the API, and Agent Zero's own MCP and A2A
+        # servers (/mcp, /a2a) all share it (helpers/ui_server.py, v2.15).
+        targetPort: 8080
+        protocol: HTTP
+        # Agent Zero's external API and its MCP and A2A servers are for
+        # machine clients with no viewer session, and Agent Zero checks each
+        # itself. The /api/api_* handlers require the instance's API token in
+        # `X-API-KEY` or the body's `api_key` (requires_api_key in
+        # helpers/api.py; api/api_message.py, v2.15; the token is shown under
+        # Settings > External Services). /mcp and /a2a carry the same token in
+        # the path and answer nothing until enabled in the settings. Every
+        # other /api route is the UI's own, under CSRF, and stays behind the
+        # platform's sign-in. /api/health is unauthenticated upstream and
+        # returns only the version (api/health.py, v2.15).
+        exemptibleRequests:
+          paths:
+            - /api/api_message
+            - /api/api_log_get
+            - /api/api_reset_chat
+            - /api/api_terminate_chat
+            - /api/api_files_get
+            - /api/health
+            - /mcp
+            - /a2a
+    health:
+      # GET /api/health needs no login and no CSRF token and answers once the
+      # UI server is up (api/health.py, v2.15); upstream's own updater waits
+      # on it (DEFAULT_HEALTH_URL in self_update_manager.py).
+      #
+      # Readiness only, with no startup or liveness probe: supervisord restarts
+      # the UI if it dies, and a slow start should hold traffic back, not
+      # restart the container. A start copies the app from /git/agent-zero
+      # into /a0, sets up the venv, loads the local embedding model, and may
+      # first wait for the sandbox (SANDBOX_WAIT_SECONDS).
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # Upstream's own install mounts only /a0/usr: settings, chats, memory,
+      # knowledge, projects, the agent's work directory (/a0/usr/workdir),
+      # uploads, custom plugins and /a0/usr/.env, which keeps the instance's
+      # persistent runtime ID and so its API token
+      # (docs/setup/installation.md "Persistent storage and backups";
+      # helpers/dotenv.py, helpers/runtime.py, v2.15). The application code
+      # in /a0 is copied from the image on every start
+      # (docker/run/fs/ins/copy_A0.sh), so an image upgrade takes effect and
+      # the volume keeps only user data.
+      usr:
+        minSizeGiB: 5
+        mountPath: /a0/usr
+  contract:
+    inputs:
+      # Must equal the endpoint's targetPort above.
+      webUIPort:
+        schema:
+          type: string
+        default: '8080'
+        target:
+          envVar: WEB_UI_PORT
+        description: >-
+          Port the web UI and API listen on inside the container, as a whole
+          number; it must match the endpoint's target port.
+      # The three inputs below carry one language-model connection. The
+      # blueprint wires all three to the outputs of the `llm` node, which
+      # takes the connection whole (components/llm.yaml).
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: LLM_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API, ending in its
+          version segment such as /v1, written into the Default preset's main
+          and utility models at every start.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        # The `other` provider's key. Agent Zero reads it from the environment
+        # at call time and never writes it into the preset file (models.py,
+        # v2.15). The agent's own shell commands can read it.
+        target:
+          envVar: API_KEY_OTHER
+        description: Bearer credential for the API above.
+      llmModel:
+        schema:
+          type: string
+        target:
+          envVar: LLM_MODEL
+        description: >-
+          Model the Default preset's main and utility models ask that API for.
+      # Agent Zero trims chat history to fit this many tokens (ctx_length and
+      # ctx_history in mode_presets_fallback.yaml, v2.15). The connection does
+      # not report its model's window, so this is a conservative figure that
+      # most current chat models exceed.
+      llmContextLength:
+        schema:
+          type: string
+        default: '128000'
+        target:
+          envVar: LLM_CONTEXT_LENGTH
+        description: >-
+          Context window, in tokens, Agent Zero assumes for that model, as a
+          whole number.
+      sandboxMCPURL:
+        schema:
+          type: string
+        required: false
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: SANDBOX_MCP_URL
+        description: >-
+          Streamable-HTTP MCP endpoint of an AIO Sandbox, ending in /mcp, added
+          as the `sandbox` MCP server. Leave it unset for no sandbox.
+      sandboxAPIKey:
+        schema:
+          type: string
+        required: false
+        sensitive: true
+        target:
+          envVar: SANDBOX_API_KEY
+        description: >-
+          API key of that sandbox, sent as a bearer token. It is stored in
+          Agent Zero's settings once they are saved, and the agent's own shell
+          commands can read it.
+      sandboxWaitSeconds:
+        schema:
+          type: string
+        default: '600'
+        target:
+          envVar: SANDBOX_WAIT_SECONDS
+        description: >-
+          How long a start waits for the sandbox's API to answer before Agent
+          Zero starts without it, in seconds, as a whole number.
+      # Upstream's update check posts the version and an ID hashed from the
+      # instance's runtime ID to api.agent-zero.ai after UI messages
+      # (helpers/update_check.py, v2.15). Off, because this deployment is
+      # upgraded by its image tag: the in-app Self Update rewrites only the
+      # copy of the code in /a0, which the next start replaces from the image.
+      updateCheckEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: A0_SET_UPDATE_CHECK_ENABLED
+        description: >-
+          Whether Agent Zero checks api.agent-zero.ai for new versions, as the
+          literal string the image parses (`true` or `false`).
+    outputs: {}
