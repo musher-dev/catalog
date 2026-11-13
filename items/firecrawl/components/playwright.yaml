@@ -1,0 +1,84 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Firecrawl's Playwright service: a private HTTP API that loads a page in
+    headless Chromium and returns its rendered HTML.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. Upstream publishes this image only as `latest` and as
+      # `sha-<12-char commit>` (deploy-playwright.yml). sha-8b950c45c8ca is the
+      # newest build (2026-11-12, commit 8b950c4) and the digest `latest`
+      # points at today. Keep it in step with the API image
+      # (components/firecrawl.yaml): the two share the /scrape request shape.
+      image: ghcr.io/firecrawl/playwright-service:sha-8b950c45c8ca
+    # No command. The image runs `pnpm start` (node dist/api.js) as the
+    # unprivileged `node` user (apps/playwright-service-ts/Dockerfile,
+    # 8b950c4). Chromium launches with --no-sandbox, --disable-setuid-sandbox
+    # and --disable-dev-shm-usage (initializeBrowser, api.ts), so it needs
+    # neither extra seccomp privileges nor a large /dev/shm: upstream's compose
+    # drops every capability and sets no shm_size (docker-compose.yaml).
+    #
+    # No volume: the service keeps nothing between requests. Upstream's
+    # compose gives it a 1 GB tmpfs at /tmp/.cache, which the container's own
+    # filesystem stands in for.
+    endpoints:
+      primary:
+        targetPort: 3000
+        protocol: HTTP
+    health:
+      # /health opens and closes a browser context and a page, so a 200 means
+      # Chromium is up and can render (api.ts, 8b950c4); it answers 503
+      # otherwise.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # The image bakes an empty PORT, and the service then falls back to 3003
+      # (api.ts, 8b950c4). Upstream's compose sets 3000.
+      port:
+        schema:
+          type: integer
+        default: 3000
+        target:
+          envVar: PORT
+        description: Port the Playwright service listens on.
+      # Upstream's compose passes CRAWL_CONCURRENT_REQUESTS (default 10) here,
+      # for a container capped at 2 vCPU / 4 GB. Four pages fit this node's
+      # 2 GiB; a request past the limit waits for a free page rather than
+      # failing.
+      maxConcurrentPages:
+        schema:
+          type: integer
+        default: 4
+        target:
+          envVar: MAX_CONCURRENT_PAGES
+        description: Most pages Chromium renders at once.
+      blockMedia:
+        schema:
+          type: string
+        default: 'False'
+        target:
+          envVar: BLOCK_MEDIA
+        description: >-
+          Whether images, video and fonts are blocked while a page loads, as the
+          literal string the image parses (`True` or `False`).
+    outputs:
+      scrapeURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal URL of the service's /scrape route, the value
+          Firecrawl's PLAYWRIGHT_MICROSERVICE_URL takes.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}/scrape"

@@ -1,0 +1,143 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: firecrawl
+  revision: 1
+  description: >-
+    Self-hosted Firecrawl scrape, crawl and map API behind an API-key gateway,
+    with its Playwright browser service, NuQ PostgreSQL queue, RabbitMQ and
+    Redis.
+# Six nodes: upstream's compose (docker-compose.yaml, firecrawl eaa56e8) minus
+# FoundationDB, which only its experimental NUQ_BACKEND=fdb uses, plus the
+# `gateway` that checks the API key self-hosted Firecrawl does not. Producers
+# first: map order is graph order.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/nuq-postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers) rather than
+      # sized from the machine; nuq.sql adds a 64 MB WAL buffer. One
+      # deployment's queue fits in 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only from this deployment.
+      bindings:
+        postgresPassword:
+          parameter: databasePassword
+    queue:
+      componentRef: ./components/rabbitmq.yaml
+      # An idle broker is about 150 MiB of Erlang VM, and the broker blocks
+      # publishers at 60% of the memory it detects rather than growing past
+      # it (vm_memory_high_watermark, RabbitMQ 4.x default).
+      compute:
+        profile: general.economy.nano
+      # No exposure: PRIVATE, like `db`, and behind a password as well.
+      bindings:
+        defaultPassword:
+          parameter: queuePassword
+    cache:
+      componentRef: ./components/redis.yaml
+      # Single-threaded, a few megabytes when empty, and holding crawl state,
+      # rate-limit counters and BullMQ jobs for one deployment.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: PRIVATE, and behind a password.
+      bindings:
+        redisPassword:
+          parameter: cachePassword
+    browser:
+      componentRef: ./components/playwright.yaml
+      # Upstream's compose caps this container at 2 vCPU / 4 GB for 10
+      # concurrent pages. The component renders four at a time, about the
+      # same memory per page in half the room.
+      #
+      # No exposure: only `api` calls it, and it fetches any URL it is given.
+      compute:
+        profile: general.standard.nano
+    api:
+      componentRef: ./components/firecrawl.yaml
+      # Upstream's compose caps the harness container at 4 vCPU / 8 GB for
+      # the API plus nine worker processes (docker-compose.yaml). This node
+      # runs seven, with two NuQ scrape workers instead of five, so 2 vCPU /
+      # 4 GiB.
+      compute:
+        profile: general.standard.small
+      # No exposure: PRIVATE. Self-hosted Firecrawl serves every request
+      # without checking a key, so only `gateway` reaches it.
+      bindings:
+        postgresHost:
+          node: db
+          output: hostname
+        postgresPort:
+          node: db
+          output: port
+        # The same generated password `db` initialises its superuser with:
+        # one parameter, so the two always agree.
+        postgresPassword:
+          parameter: databasePassword
+        redisAddress:
+          node: cache
+          output: address
+        redisPassword:
+          parameter: cachePassword
+        rabbitmqAddress:
+          node: queue
+          output: address
+        rabbitmqPassword:
+          parameter: queuePassword
+        playwrightURL:
+          node: browser
+          output: scrapeURL
+    gateway:
+      componentRef: ./components/gateway.yaml
+      # Caddy proxying one API idles in a few tens of MiB.
+      compute:
+        profile: general.economy.nano
+      # PUBLIC, not behind the platform's sign-in. Its callers are SDKs,
+      # agents and MCP servers holding the API key, and none of them holds a
+      # viewer session. The key check is the gateway's own.
+      exposure:
+        primary: PUBLIC
+      bindings:
+        apiKey:
+          parameter: apiKey
+        upstream:
+          node: api
+          output: address
+  parameters:
+    apiKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: API key
+        order: 1
+    # HEX for all three: each one ends up inside a URL (redis://, amqp://,
+    # postgresql://), and HEX needs no percent-encoding there.
+    databasePassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 2
+    cachePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Cache password
+        order: 3
+    queuePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Queue password
+        order: 4
