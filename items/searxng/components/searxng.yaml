@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     SearXNG metasearch engine, configured from the environment alone, with no
     accounts of its own and no state to keep.

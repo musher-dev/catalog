@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: temporal
-  revision: 1
+  revision: 2
   description: >-
     Temporal server on its own PostgreSQL, with a one-shot job that sets up the
     schema and the default namespace, and the Temporal Web UI behind the

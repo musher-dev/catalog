@@ -17,7 +17,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: The language-model API Agent Zero sends its chat and utility requests to, taken whole as one connection.
 spec:
   type: EXTERNAL

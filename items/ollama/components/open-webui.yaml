@@ -24,7 +24,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Open WebUI chat interface for an Ollama server, pulling and loading the
     chosen model before it starts, and signing viewers in as an OpenID

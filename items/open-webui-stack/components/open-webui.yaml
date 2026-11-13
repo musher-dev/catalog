@@ -26,7 +26,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Open WebUI chat interface for any OpenAI-compatible language-model API,
     keeping its data and document embeddings in PostgreSQL with pgvector and

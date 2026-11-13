@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: uptime-kuma
-  revision: 1
+  revision: 2
   description: >-
     Uptime Kuma behind the platform's sign-in, with its status pages, badges
     and push URLs public, and an admin account created for the deployer.

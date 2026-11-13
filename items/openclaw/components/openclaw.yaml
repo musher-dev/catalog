@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 14
+  revision: 15
   description: >-
     OpenClaw agent gateway and Control UI behind the platform edge's sign-in,
     with its config, sessions and credentials on two volumes.

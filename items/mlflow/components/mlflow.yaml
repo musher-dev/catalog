@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 13
+  revision: 14
   description: >-
     MLflow tracking server with its own login, its metadata store, user store
     and proxied artifacts on one volume.

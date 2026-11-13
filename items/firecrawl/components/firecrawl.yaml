@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Firecrawl API and its queue workers in one container, turning web pages into
     markdown through a headless-browser service, with its job queue in

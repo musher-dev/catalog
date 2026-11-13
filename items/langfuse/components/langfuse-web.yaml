@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Langfuse web server and public API, signing viewers in through the
     platform's OpenID Connect provider beside its own email and password, and

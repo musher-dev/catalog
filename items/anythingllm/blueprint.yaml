@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: anythingllm
-  revision: 1
+  revision: 2
   description: >-
     AnythingLLM behind the platform's sign-in, chatting with documents through
     its built-in embedder and LanceDB, on the language model the deployer

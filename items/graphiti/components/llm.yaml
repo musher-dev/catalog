@@ -14,7 +14,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     The OpenAI-compatible chat-completions API Graphiti sends its extraction
     and deduplication prompts to, taken whole as one connection.

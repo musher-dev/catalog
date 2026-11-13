@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Langfuse background worker that turns ingested events into ClickHouse rows
     and runs evaluations and other queued jobs.

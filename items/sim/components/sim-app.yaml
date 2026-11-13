@@ -8,7 +8,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Sim's workflow editor, API and executor (Next.js on Bun), on an external
     PostgreSQL with pgvector and a Redis-compatible store, with a separate

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: activepieces
-  revision: 1
+  revision: 2
   description: >-
     Activepieces community edition behind the platform's sign-in: app and a
     separate flow worker, on their own PostgreSQL with pgvector and Valkey, with

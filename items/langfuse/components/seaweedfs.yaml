@@ -10,7 +10,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     SeaweedFS object store answering the S3 API behind one access key, with
     its bucket created at startup and its data on one volume.

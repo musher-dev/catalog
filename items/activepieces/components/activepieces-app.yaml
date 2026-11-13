@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Activepieces community edition API and web UI (app role), on an external
     PostgreSQL and Redis-compatible queue, with flows run by separate workers.

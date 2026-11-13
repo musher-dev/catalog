@@ -10,7 +10,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     PostgreSQL 17 with the pgvector extension enabled, a single persistent data
     volume and an HTTP readiness check.

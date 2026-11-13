@@ -10,7 +10,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 10
+  revision: 11
   description: Meilisearch search engine serving its HTTP API from one data volume.
 spec:
   type: SERVICE

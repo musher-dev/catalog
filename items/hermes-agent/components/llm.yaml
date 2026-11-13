@@ -17,7 +17,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: The language-model API the Hermes agent sends model requests to, taken whole as one connection.
 spec:
   type: EXTERNAL

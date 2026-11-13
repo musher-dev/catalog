@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: hermes-agent
-  revision: 4
+  revision: 5
   description: >-
     Hermes Agent gateway and web dashboard on the deployer's language-model
     connection, with Hindsight as long-term memory on its own PostgreSQL, and

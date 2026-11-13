@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: sim
-  revision: 1
+  revision: 2
   description: >-
     Sim's AI-agent workflow builder behind the platform's sign-in, with its
     realtime collaboration server on a second public address, PostgreSQL with

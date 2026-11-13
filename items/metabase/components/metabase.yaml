@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Metabase open-source BI server: dashboards, questions and SQL over your
     databases, with an MCP server for AI clients, keeping its own state in an

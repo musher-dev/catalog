@@ -15,7 +15,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hindsight agent-memory API with its embedding and reranking models built in,
     keeping memory banks in an external PostgreSQL with pgvector.

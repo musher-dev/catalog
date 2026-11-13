@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: metabase
-  revision: 1
+  revision: 2
   description: >-
     Metabase behind the platform's sign-in, on its own PostgreSQL application
     database, with an admin account created for the deployer and the API, MCP

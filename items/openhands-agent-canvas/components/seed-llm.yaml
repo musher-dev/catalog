@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     One-shot job that writes the deployment's language-model connection into
     Agent Canvas as its active LLM profile, through the agent server's own API.

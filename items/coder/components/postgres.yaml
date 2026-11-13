@@ -7,7 +7,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE

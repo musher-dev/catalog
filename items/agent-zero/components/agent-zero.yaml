@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Agent Zero, a general-purpose autonomous agent with a web UI that uses its
     own container as its computer, with settings, chats, memory and the

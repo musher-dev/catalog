@@ -19,7 +19,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: PostgreSQL with the pgvector extension and a single persistent data volume.
 spec:
   type: SERVICE

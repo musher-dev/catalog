@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: >-
     Coder control plane (coderd) with built-in Terraform provisioners, signing
     members in through the platform's OpenID Connect provider and keeping its

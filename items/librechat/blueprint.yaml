@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: librechat
-  revision: 1
+  revision: 2
   description: >-
     LibreChat behind the platform's sign-in, signing viewers in through its
     OpenID Connect provider, with its data in FerretDB on PostgreSQL,

@@ -8,7 +8,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Neo4j Community graph database on one persistent volume, reached over Bolt
     by workloads in the same deployment and checked over its HTTP discovery

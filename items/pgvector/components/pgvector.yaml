@@ -1,6 +1,6 @@
 # PostgreSQL with the pgvector extension, for applications that keep
 # embeddings beside their relational data. It follows the `postgres` item's
-# component (items/postgres/components/postgres.yaml, revision 8): the same
+# component (items/postgres/components/postgres.yaml): the same
 # inputs, the same volume and the same PGDATA handling, because the pgvector
 # image is the official Debian postgres image with the extension compiled in
 # (Dockerfile, v0.8.7). It adds two things that item does not have:
@@ -16,7 +16,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     PostgreSQL 17 with the pgvector extension enabled, a single persistent data
     volume and an HTTP readiness check.

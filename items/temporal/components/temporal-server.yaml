@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Temporal server running its frontend, history, matching and internal worker
     services in one process, on an external PostgreSQL whose schema is set up

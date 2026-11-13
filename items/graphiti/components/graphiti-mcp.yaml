@@ -5,7 +5,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Graphiti MCP server over streamable HTTP, building a temporal knowledge
     graph in Neo4j with an OpenAI-compatible model for extraction and an

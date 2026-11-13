@@ -9,7 +9,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Redis in-memory data store behind a password, with append-only persistence
     on one volume.

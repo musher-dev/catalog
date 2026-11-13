@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hugging Face Text Embeddings Inference on CPU, serving one embedding model
     behind an API key with an OpenAI-compatible /v1/embeddings route, and

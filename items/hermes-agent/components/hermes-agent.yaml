@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     Hermes Agent's messaging gateway and web dashboard in one container, signing
     viewers in through the platform's OpenID Connect provider, with agent state

@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Sim's Socket.IO realtime server for live workflow editing, which applies
     Sim's database migrations before it starts.

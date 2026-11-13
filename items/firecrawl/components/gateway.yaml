@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Caddy reverse proxy that admits only requests carrying the deployment's
     API key as a bearer token, in front of a private API that checks none.

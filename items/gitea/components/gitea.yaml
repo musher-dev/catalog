@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Gitea, a self-hosted Git forge with repositories, issues, pull requests,
     a package registry and Actions, serving Git over HTTPS and keeping its

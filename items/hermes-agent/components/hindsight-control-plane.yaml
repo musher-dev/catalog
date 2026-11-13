@@ -14,7 +14,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hindsight Control Plane, the web UI for browsing, searching and managing an
     agent's memory banks, calling a Hindsight API it holds the key for.

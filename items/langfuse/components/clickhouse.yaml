@@ -5,7 +5,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Single-node ClickHouse server for Langfuse's tracing data, behind one
     password-protected user, with its data on one volume and its own logs kept

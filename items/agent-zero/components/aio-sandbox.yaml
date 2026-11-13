@@ -5,7 +5,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     AIO Sandbox, one container that gives AI agents a Chromium browser, a shell,
     file and code-execution APIs and an MCP server behind one API key, with the
