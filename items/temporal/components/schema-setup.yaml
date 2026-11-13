@@ -47,45 +47,43 @@ spec:
     command:
       - sh
       - -c
-      - >-
-        set -eu;
-        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ));
-        overdue() { [ "$(date +%s)" -ge "$deadline" ]; };
-        schemas=/etc/temporal/schema/postgresql/v12;
-        until temporal-sql-tool --db "$TEMPORAL_DB" create-database
-        --defaultdb "$SQL_DEFAULT_DB"; do
-        if overdue; then
-        echo "schema-setup: PostgreSQL at ${SQL_HOST}:${SQL_PORT} refused
-        connections for ${READY_TIMEOUT_SECONDS}s" >&2;
-        exit 1;
-        fi;
-        sleep 5;
-        done;
-        temporal-sql-tool --db "$TEMPORAL_DB" setup-schema -v 0.0;
-        temporal-sql-tool --db "$TEMPORAL_DB" update-schema
-        -d "$schemas/temporal/versioned";
-        temporal-sql-tool --db "$VISIBILITY_DB" create-database
-        --defaultdb "$SQL_DEFAULT_DB";
-        temporal-sql-tool --db "$VISIBILITY_DB" setup-schema -v 0.0;
-        temporal-sql-tool --db "$VISIBILITY_DB" update-schema
-        -d "$schemas/visibility/versioned";
-        echo "schema-setup: ${TEMPORAL_DB} and ${VISIBILITY_DB} are at the
-        current schema";
+      - |
+        set -eu
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ))
+        overdue() { [ "$(date +%s)" -ge "$deadline" ]; }
+        schemas=/etc/temporal/schema/postgresql/v12
+        until temporal-sql-tool --db "$TEMPORAL_DB" create-database \
+          --defaultdb "$SQL_DEFAULT_DB"; do
+          if overdue; then
+            echo "schema-setup: PostgreSQL at ${SQL_HOST}:${SQL_PORT} refused connections" \
+              "for ${READY_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          fi
+          sleep 5
+        done
+        temporal-sql-tool --db "$TEMPORAL_DB" setup-schema -v 0.0
+        temporal-sql-tool --db "$TEMPORAL_DB" update-schema \
+          -d "$schemas/temporal/versioned"
+        temporal-sql-tool --db "$VISIBILITY_DB" create-database \
+          --defaultdb "$SQL_DEFAULT_DB"
+        temporal-sql-tool --db "$VISIBILITY_DB" setup-schema -v 0.0
+        temporal-sql-tool --db "$VISIBILITY_DB" update-schema \
+          -d "$schemas/visibility/versioned"
+        echo "schema-setup: ${TEMPORAL_DB} and ${VISIBILITY_DB} are at the current schema"
         until temporal operator cluster health --address "$TEMPORAL_ADDRESS"; do
-        if overdue; then
-        echo "schema-setup: Temporal at ${TEMPORAL_ADDRESS} was not healthy
-        within ${READY_TIMEOUT_SECONDS}s" >&2;
-        exit 1;
-        fi;
-        sleep 5;
-        done;
-        if temporal operator namespace describe -n "$NAMESPACE"
-        --address "$TEMPORAL_ADDRESS" >/dev/null 2>&1; then
-        echo "schema-setup: namespace ${NAMESPACE} already exists";
+          if overdue; then
+            echo "schema-setup: Temporal at ${TEMPORAL_ADDRESS} was not healthy within ${READY_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          fi
+          sleep 5
+        done
+        if temporal operator namespace describe -n "$NAMESPACE" \
+          --address "$TEMPORAL_ADDRESS" >/dev/null 2>&1; then
+          echo "schema-setup: namespace ${NAMESPACE} already exists"
         else
-        temporal operator namespace create -n "$NAMESPACE"
-        --retention "$NAMESPACE_RETENTION" --address "$TEMPORAL_ADDRESS";
-        echo "schema-setup: created namespace ${NAMESPACE}";
+          temporal operator namespace create -n "$NAMESPACE" \
+            --retention "$NAMESPACE_RETENTION" --address "$TEMPORAL_ADDRESS"
+          echo "schema-setup: created namespace ${NAMESPACE}"
         fi
   contract:
     inputs:
