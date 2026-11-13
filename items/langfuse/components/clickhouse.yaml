@@ -1,0 +1,138 @@
+# The ClickHouse server Langfuse keeps traces, observations, scores and events
+# in. A single node, as in upstream's docker-compose.yml (v4.79.0): Langfuse
+# runs its migrations unclustered when CLICKHOUSE_CLUSTER_ENABLED is "false"
+# (packages/shared/clickhouse/scripts/up.sh), so no Keeper is needed.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Single-node ClickHouse server for Langfuse's tracing data, behind one
+    password-protected user, with its data on one volume and its own logs kept
+    off the disk.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 26.3.62.3 is the latest patch of the 26.3 LTS line
+      # (2026-10-26) and the exact tag upstream's docker-compose.yml pins
+      # (v4.79.0). Langfuse v4 needs ClickHouse 25.12 or later, and upstream
+      # recommends a supported LTS release (langfuse.com/self-hosting/
+      # deployment/infrastructure/clickhouse). `26.3` floats within the LTS
+      # line, and 26.9 and 26.10 are newer regular releases with shorter
+      # support. The `-alpine` and `-distroless` variants carry a different
+      # entrypoint.
+      image: clickhouse/clickhouse-server:26.3.62.3
+    # `command` replaces the image's empty CMD and keeps its ENTRYPOINT,
+    # /entrypoint.sh, which is bash. Run as `sh -c`, the entrypoint sees `sh`
+    # first and execs it as a foreign program. So the shell writes one
+    # config.d file and then execs /entrypoint.sh with no arguments, the
+    # branch that creates the user from CLICKHOUSE_USER and CLICKHOUSE_PASSWORD,
+    # chowns the data directory and drops from root to the `clickhouse` user
+    # (uid 101) to run the server (entrypoint.sh in the image, 26.3.62.3).
+    #
+    # The file does two things the environment cannot:
+    #
+    #   - The image's config.xml logs at `trace` to
+    #     /var/log/clickhouse-server, in ten files of up to 1000 MB each, on the
+    #     container's own disk rather than the volume. `logger` here sends
+    #     warnings and errors to the console, where the platform collects
+    #     them, and removes both log files.
+    #   - It removes the six system log tables upstream names as the usual
+    #     cause of a ClickHouse disk that keeps growing, because they ship
+    #     without a TTL and Langfuse never reads them. It is upstream's
+    #     "Option 1", and it keeps query_log, part_log and error_log for
+    #     debugging (langfuse.com/self-hosting/configuration/scaling,
+    #     "ClickHouse System Log Tables").
+    #
+    # The file is rewritten on every boot. ClickHouse merges config.d files
+    # into config.xml element by element, and `remove="1"` deletes one.
+    command:
+      - sh
+      - -c
+      - |
+        cat > /etc/clickhouse-server/config.d/musher.xml <<'EOF'
+        <clickhouse>
+          <logger>
+            <level>warning</level>
+            <console>1</console>
+            <log remove="1"/>
+            <errorlog remove="1"/>
+          </logger>
+          <trace_log remove="1"/>
+          <text_log remove="1"/>
+          <opentelemetry_span_log remove="1"/>
+          <asynchronous_metric_log remove="1"/>
+          <metric_log remove="1"/>
+          <latency_log remove="1"/>
+        </clickhouse>
+        EOF
+        exec /entrypoint.sh
+    endpoints:
+      # The HTTP interface: Langfuse's queries and inserts (CLICKHOUSE_URL),
+      # and the /ping health route.
+      http:
+        targetPort: 8123
+        protocol: HTTP
+      # The native TCP protocol, which only Langfuse's migrations use
+      # (golang-migrate's clickhouse:// driver, CLICKHOUSE_MIGRATION_URL).
+      native:
+        targetPort: 9000
+        protocol: TCP
+    health:
+      # /ping answers "Ok." with no credentials once the server accepts
+      # connections; upstream's compose uses it as the healthcheck. On a first
+      # boot the entrypoint briefly runs the server on 127.0.0.1 only, so the
+      # probe fails until the real server binds every address.
+      readiness:
+        http:
+          endpoint: http
+          path: /ping
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 6
+    volumes:
+      # The server's `path`, which holds every table, the metadata and the
+      # system tables kept above (config.xml in the image).
+      data:
+        minSizeGiB: 20
+        mountPath: /var/lib/clickhouse
+  contract:
+    inputs:
+      # Read by the entrypoint on every start. It writes users.d/default-user.xml,
+      # which removes the passwordless `default` user and creates this one,
+      # reachable from any address, with the password below.
+      clickhouseUser:
+        schema:
+          type: string
+        default: langfuse
+        target:
+          envVar: CLICKHOUSE_USER
+        description: User the entrypoint creates in place of the passwordless `default` user.
+      clickhousePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CLICKHOUSE_PASSWORD
+        description: >-
+          Password of that user. Langfuse puts it unencoded in a URL query
+          string for its migrations, so it must need no percent-encoding.
+    outputs:
+      httpURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Mesh-internal URL of the HTTP interface, resolvable only inside this deployment.
+        from:
+          template: "http://${{ self.endpoints.http.privateAddress }}"
+      nativeURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Mesh-internal clickhouse:// URL of the native TCP interface, which migrations use.
+        from:
+          template: "clickhouse://${{ self.endpoints.native.privateAddress }}"
