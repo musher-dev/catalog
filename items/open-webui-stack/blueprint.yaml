@@ -1,0 +1,176 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: open-webui-stack
+  revision: 1
+  description: >-
+    Open WebUI behind the platform's sign-in, signing viewers in through its
+    OpenID Connect provider, with its own PostgreSQL (pgvector) for data and
+    document embeddings and its own Valkey for live state, wired to the
+    language model the deployer selects.
+# Four nodes, one of which runs nothing. Producers first: map order is graph
+# order, and the nodes the wires come from read before `web`, which they all
+# arrive at.
+#
+# The `open-webui` item keeps everything on one volume: SQLite for accounts
+# and chats, Chroma files for embeddings, and process memory for websocket
+# sessions. This stack moves each of those to the store upstream recommends
+# when it scales (docs/getting-started/advanced-topics/scaling.md in
+# open-webui/docs, steps 1, 2 and 4): PostgreSQL for the data, pgvector in
+# the same database for the embeddings, and Redis-compatible Valkey for
+# sign-out token revocation, cross-instance streaming and the websocket
+# state.
+#
+# The language model is an EXTERNAL node (`llm`), the same way as in the
+# `open-webui` item: it takes the connection whole and publishes the
+# endpoint, the credential and the model as outputs that `web` wires to.
+# Embeddings stay local: Open WebUI runs all-MiniLM-L6-v2 in-process, so the
+# connection needs no embeddings API.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002).
+      bindings:
+        llm:
+          parameter: llm
+    db:
+      componentRef: ./components/pgvector.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, so one team's chats and document chunks fit in 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only from this deployment.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: openwebui
+        postgresDb:
+          value: openwebui
+    cache:
+      componentRef: ./components/valkey.yaml
+      # Single-threaded, a few megabytes when empty, and holding only session,
+      # task and model-list state.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: PRIVATE, like `db`, and behind a password as well.
+      bindings:
+        valkeyPassword:
+          parameter: cachePassword
+    web:
+      componentRef: ./components/open-webui.yaml
+      # The same profile as the `open-webui` item. Open WebUI loads PyTorch
+      # and the all-MiniLM-L6-v2 embedding model into its one worker at
+      # startup and idles near 1 GB; 2 GiB holds that and a document upload.
+      # The database and the vector store moved to `db`, which takes nothing
+      # off that figure: the embedding model is what fills it.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 8
+      # The platform signs viewers in, and Open WebUI signs them in again as an
+      # OpenID Connect client of the platform, with no second password. It
+      # creates accounts with an email and a display name, so the node
+      # releases both claims. The chat-completion API is exempt for API-key
+      # clients (components/open-webui.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+      bindings:
+        webuiSecretKey:
+          parameter: webuiSecretKey
+        # The platform's OIDC client for this node's own `primary` endpoint. A
+        # node reading its own endpoint outputs is a discovery dependency and
+        # not a value cycle (BP-BIND-002).
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        oidcDiscoveryURL:
+          node: web
+          output: oidcDiscoveryURL
+        oidcRedirectURI:
+          node: web
+          output: oidcRedirectURI
+        # The three members of the one connection the `llm` node holds.
+        openaiApiBaseURL:
+          node: llm
+          output: baseURL
+        openaiApiKey:
+          node: llm
+          output: apiKey
+        defaultModels:
+          node: llm
+          output: model
+        # The role and database `db` is initialised with, and one generated
+        # password shared by both ends: one parameter, so the two always agree.
+        databaseHost:
+          node: db
+          output: host
+        databasePort:
+          node: db
+          output: port
+        databaseUser:
+          value: openwebui
+        databasePassword:
+          parameter: dbPassword
+        databaseName:
+          value: openwebui
+        # The cache's address, and the same generated password the `cache`
+        # node starts Valkey with.
+        redisAddress:
+          node: cache
+          output: address
+        redisPassword:
+          parameter: cachePassword
+  parameters:
+    # A connection parameter: it names one atomic connection the organization
+    # has configured, and binds only to the `llm` node's connection input
+    # (BP-CONNECTION-001). It carries no schema of its own — the input it fills
+    # declares the contract.
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    webuiSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: WebUI secret key
+        order: 2
+    # HEX for both passwords: Open WebUI puts each into a URL unescaped, and
+    # Valkey reads its password as one word of its configuration.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 3
+    cachePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Cache password
+        order: 4
