@@ -1,0 +1,179 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Crawl4AI server with a bundled headless Chromium, turning web pages into
+    clean Markdown and structured JSON over a REST API and MCP, behind a bearer
+    token.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 0.9.5 is the latest stable release (2026-10-14). Docker Hub tags
+      # carry no `v` prefix; `latest`, `0.9`, `basic` and `all` move with every
+      # release, and `gpu` and `all` add torch and transformer models this
+      # component does not need.
+      #
+      # The image runs as `appuser` (uid 999) with CMD `bash entrypoint.sh`,
+      # which starts supervisord with a loopback-only Redis and gunicorn
+      # (Dockerfile and deploy/docker/supervisord.conf, v0.9.5). The Redis
+      # password is generated inside the container at each start, so nothing
+      # here supplies one. Chromium launches with --no-sandbox and
+      # --disable-dev-shm-usage from the baked config.yml, so neither a relaxed
+      # seccomp profile nor upstream compose's `shm_size: 1gb` is needed: the
+      # browser writes its shared memory to /tmp instead of /dev/shm.
+      image: unclecode/crawl4ai:0.9.5
+    endpoints:
+      # 11235 is the port gunicorn binds (deploy/docker/config.yml app.port and
+      # entrypoint.sh, v0.9.5). The REST API, the MCP transports at /mcp/sse
+      # and /mcp/ws, the /playground and /dashboard pages and /health share it.
+      api:
+        targetPort: 11235
+        protocol: HTTP
+    health:
+      # /health is one of the four paths the auth gate leaves open
+      # (`public_paths`, deploy/docker/server.py, v0.9.5), so the probe needs no
+      # token. gunicorn answers only after the FastAPI lifespan has started the
+      # egress proxy and launched the permanent Chromium (`init_permanent`), so
+      # a 200 means the browser is up. 15 + 30 x 10 = 315 s covers a slow first
+      # Chromium start; upstream compose allows 40 s.
+      startup:
+        http:
+          endpoint: api
+          path: /health
+        initialDelaySeconds: 15
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 30
+      readiness:
+        http:
+          endpoint: api
+          path: /health
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      # The cadence upstream's compose healthcheck uses (30 s, 3 retries).
+      liveness:
+        http:
+          endpoint: api
+          path: /health
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # The static operator token. The auth gate checks it, in constant time,
+      # on every route except /health, /token, / and /monitor and the static
+      # UI shells, for HTTP and WebSocket alike, and a match carries admin
+      # scope (deploy/docker/auth_gate.py, v0.9.5). Setting it is also what
+      # lets entrypoint.sh bind beyond loopback: without one gunicorn listens
+      # on 127.0.0.1 only and nothing outside the container can connect.
+      apiToken:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CRAWL4AI_API_TOKEN
+        description: >-
+          Bearer token clients send as `Authorization: Bearer <token>` to every
+          API and MCP route.
+      # entrypoint.sh defaults to `[::]:11235` once a token is set. IPv4 is
+      # stated explicitly so the bind does not depend on the node having an
+      # IPv6 stack. 0.0.0.0 still covers 127.0.0.1, where the MCP bridge calls
+      # the server's own REST routes (`attach_mcp`, deploy/docker/server.py).
+      bind:
+        schema:
+          type: string
+        default: 0.0.0.0:11235
+        target:
+          envVar: GUNICORN_BIND
+        description: Address and port gunicorn listens on, the `api` endpoint's target port.
+      # Deep crawling (BFS, DFS and best-first strategies that follow links) is
+      # refused over the API unless this is `true`
+      # (crawl4ai/async_configs.py, v0.9.5). Upstream compose defaults it off.
+      allowDeepCrawl:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: CRAWL4AI_ALLOW_DEEP_CRAWL
+        description: >-
+          Whether API clients may run deep crawls that follow links, as the
+          literal string the image parses (`true` or `false`).
+      # SSRF protection. Off by default, every crawl URL that resolves to a
+      # private, loopback or link-local address is refused, and the browser
+      # reaches the web only through an in-container proxy that pins the
+      # checked address (deploy/docker/utils.py and egress_broker.py, v0.9.5).
+      # That also blocks the private addresses of your other workloads.
+      allowInternalURLs:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: CRAWL4AI_ALLOW_INTERNAL_URLS
+        description: >-
+          Whether crawls may reach private and internal addresses, including
+          other workloads in the deployment, as the literal string the image
+          parses (`true` or `false`).
+      # LLM extraction, `/md` with filter `llm`, `/llm/{url}` and `/ask` call a
+      # model through LiteLLM. The three values below are read from the
+      # environment at start (load_config, get_llm_base_url,
+      # deploy/docker/utils.py, v0.9.5) and are never taken from a request, so
+      # a client cannot redirect the key to another host
+      # (deploy/docker/llm_broker.py). Crawling and Markdown conversion use no
+      # model, so all three are optional.
+      llmProvider:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: LLM_PROVIDER
+        description: >-
+          Default model as a LiteLLM provider/model string, for example
+          `openai/<model>` for any OpenAI-compatible endpoint named by the base
+          URL below. Unset, the image's config.yml uses `openai/gpt-4o-mini`.
+          Requests may name another model of the same provider.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: false
+        target:
+          envVar: LLM_BASE_URL
+        description: >-
+          Base URL of the model API, ending in the version segment (for example
+          /v1). Leave it unset to use the provider's own address.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: false
+        target:
+          envVar: LLM_API_KEY
+        description: Credential for the model API, used for every LLM request the server makes.
+    outputs:
+      apiURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal URL of the REST API, resolvable only by workloads in the
+          same deployment. Wire it into a consuming component's input.
+        from:
+          template: "http://${{ self.endpoints.api.privateAddress }}"
+      mcpSSEURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal URL of the MCP server over SSE. MCP clients send the API
+          token as a bearer token.
+        from:
+          template: "http://${{ self.endpoints.api.privateAddress }}/mcp/sse"
