@@ -1,0 +1,231 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    One-shot job that creates Gitea's first admin account for the deployer and
+    registers the platform's OpenID Connect provider as a Gitea sign-in source,
+    with Gitea's own CLI against the shared database.
+spec:
+  # WHY A JOB. Gitea configures most things from environment variables, but
+  # not these two. With INSTALL_LOCK set it creates no account at all: the
+  # first admin otherwise comes from the web installer, which this deployment
+  # skips, or from `gitea admin user create`. And an OAuth2 / OpenID Connect
+  # sign-in source is a database row, which only the admin UI or `gitea admin
+  # auth add-oauth` creates (cmd/admin_user_create.go,
+  # cmd/admin_auth_oauth.go, v28.3.0). So this job runs the same image as the
+  # `web` node with the same database settings, and uses the CLI.
+  #
+  # Ordering. v1 orders a job against nothing, so the job waits for the web
+  # node's /api/healthz on the private network. That answers only after the
+  # web process has migrated the schema, so the CLI never races a migration.
+  #
+  # The running web process picks the new source up without a restart: a
+  # sign-in through a source it has no provider for resets its providers
+  # from the database (SignInOAuth, routers/web/auth/oauth.go, v28.3.0).
+  #
+  # Reruns. A JOB without a schedule runs once per rollout: at deployment, on
+  # every update and on every redeploy (COMP-JOB-001). A run that finds the
+  # admin account leaves it alone, so a changed password parameter does not
+  # reach an existing account; change it in Gitea. A run that finds the
+  # `Musher` source updates its client ID, secret and discovery URL. The web
+  # process keeps the provider it already built until it restarts or sees
+  # an unknown one, so a rotated client secret needs a web restart as well.
+  type: JOB
+  workload:
+    source:
+      # PINNED. The same image and tag as components/gitea.yaml, so the CLI
+      # speaks the schema the web node migrated. Keep the two in step.
+      #
+      # The entrypoint runs docker-setup.sh, which writes /etc/gitea/app.ini
+      # from the template and applies the GITEA__ variables below, then
+      # `exec "$@"` runs this command (docker/rootless/usr/local/bin/
+      # docker-entrypoint.sh, v28.3.0). The image has bash, curl and awk.
+      # `gitea` on PATH is a wrapper that passes `-c $GITEA_APP_INI`
+      # (docker/rootless/usr/local/bin/gitea). The job needs no volume: the
+      # CLI touches only the database.
+      image: docker.gitea.com/gitea:28.3.0-rootless
+    # The admin password and the client secret go to the CLI as flags, so
+    # they are in this short-lived container's process list while it runs.
+    # The CLI takes them no other way. Nothing else runs in the container.
+    #
+    # `set -eu`: any failing step fails the run, which the platform records
+    # for the deployment. `user list` and `auth list` print whitespace-padded
+    # tables with a header row, ID first and the name second
+    # (cmd/admin_user_list.go, cmd/admin_auth.go, v28.3.0), so awk matches the
+    # second column exactly. The source name has no spaces.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        base="http://${GITEA_ADDRESS}"
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ))
+        until curl -fsS -o /dev/null --max-time 5 "$base/api/healthz"; do
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "bootstrap: $base/api/healthz did not answer within ${READY_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          fi
+          sleep 3
+        done
+        if gitea admin user list --admin | awk 'NR > 1 { print $2 }' | grep -Fqx "$ADMIN_USERNAME"; then
+          echo "bootstrap: admin ${ADMIN_USERNAME} already exists; leaving it unchanged"
+        else
+          gitea admin user create --admin --must-change-password=false \
+            --username="$ADMIN_USERNAME" --email="$ADMIN_EMAIL" --password="$ADMIN_PASSWORD"
+          echo "bootstrap: created admin ${ADMIN_USERNAME} <${ADMIN_EMAIL}>"
+        fi
+        discovery="${OIDC_ISSUER_URL%/}/.well-known/openid-configuration"
+        id=$(gitea admin auth list | awk -v n="$OIDC_SOURCE_NAME" 'NR > 1 && $2 == n { print $1 }')
+        if [ -n "$id" ]; then
+          gitea admin auth update-oauth --id="$id" --provider openidConnect \
+            --key="$OIDC_CLIENT_ID" --secret="$OIDC_CLIENT_SECRET" --auto-discover-url="$discovery"
+          echo "bootstrap: updated sign-in source ${OIDC_SOURCE_NAME} (id ${id})"
+        else
+          gitea admin auth add-oauth --name="$OIDC_SOURCE_NAME" --provider openidConnect \
+            --key="$OIDC_CLIENT_ID" --secret="$OIDC_CLIENT_SECRET" --auto-discover-url="$discovery"
+          echo "bootstrap: added sign-in source ${OIDC_SOURCE_NAME}"
+        fi
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the address, the database, the account and
+      # the OIDC client; the constants carry defaults.
+      giteaAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA_ADDRESS
+        description: Private host:port of the Gitea web server, from the web node's `address` output.
+      # The CLI refuses to touch a database whose app.ini is not install-locked
+      # (MustInstalled, modules/setting/setting.go, v28.3.0).
+      installLock:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: GITEA__SECURITY__INSTALL_LOCK
+        description: Whether app.ini is install-locked, as the literal string Gitea parses.
+      # The same key as the web node, so anything the CLI encrypts the web
+      # process can read.
+      secretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: GITEA__SECURITY__SECRET_KEY
+        description: The web node's secret key, which Gitea encrypts stored secrets with.
+      dbType:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: GITEA__DATABASE__DB_TYPE
+        description: Database engine Gitea uses.
+      dbHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA__DATABASE__HOST
+        description: Mesh-internal host:port of the PostgreSQL server.
+      dbName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA__DATABASE__NAME
+        description: Database Gitea keeps its records in.
+      dbUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA__DATABASE__USER
+        description: Role Gitea connects to PostgreSQL as.
+      dbPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: GITEA__DATABASE__PASSWD
+        description: Password of the role above.
+      dbSSLMode:
+        schema:
+          type: string
+        default: disable
+        target:
+          envVar: GITEA__DATABASE__SSL_MODE
+        description: SSL mode for the PostgreSQL connection, which stays on the private network.
+      # Gitea usernames take letters, digits, `-`, `_` and `.`, and some names
+      # are reserved (models/user/user.go, v28.3.0).
+      adminUsername:
+        schema:
+          type: string
+        default: admin
+        target:
+          envVar: ADMIN_USERNAME
+        description: Username of the admin account created on first run.
+      adminEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVar: ADMIN_EMAIL
+        description: >-
+          Email address of the admin account. A platform sign-in with the same
+          email is offered to link to this account with its password.
+      adminPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: ADMIN_PASSWORD
+        description: Password the admin account is created with.
+      # Gitea's sign-in button reads "Sign in with <name>", and the name is
+      # part of the redirect path components/gitea.yaml declares.
+      oidcSourceName:
+        schema:
+          type: string
+        default: Musher
+        target:
+          envVar: OIDC_SOURCE_NAME
+        description: Name of the sign-in source, shown on Gitea's sign-in button and used in its redirect path.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OIDC_ISSUER_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: OIDC_CLIENT_ID
+        description: Client identifier the platform registered for the web node's endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: OIDC_CLIENT_SECRET
+        description: Client secret the platform registered for the web node's endpoint.
+      # A first install pulls the image and initialises PostgreSQL before
+      # Gitea listens.
+      readyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 900
+        target:
+          envVar: READY_TIMEOUT_SECONDS
+        description: How long the job waits for Gitea to answer /api/healthz before it fails.
+    outputs: {}
