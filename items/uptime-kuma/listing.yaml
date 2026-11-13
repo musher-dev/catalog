@@ -1,0 +1,89 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: uptime-kuma
+spec:
+  itemType: BLUEPRINT
+  displayName: Uptime Kuma
+  summary: >-
+    Self-hosted uptime monitoring with alerts and public status pages — watch
+    websites, APIs, ports, DNS and more from one dashboard
+  overview: |
+    ## What it is
+    Uptime Kuma is an open-source uptime monitor. It checks your websites,
+    APIs and services on a schedule and alerts you when one goes down or comes
+    back. Monitors cover HTTP(S) and keyword checks, TCP ports, ping, DNS,
+    certificate expiry, databases, Docker hosts and real-browser page loads.
+    Push monitors flip it around: a cron job or script calls a URL, and an
+    alert fires when the calls stop. Alerts go to more than 90 services,
+    including email, Slack, Discord, Telegram and webhooks. Public status pages
+    and badges show your users what is up.
+
+    ## When to use
+    - You want to know within a minute when a site, API or deployment stops
+      answering, without paying per monitor.
+    - You want a public status page for your product, with incidents and
+      maintenance windows.
+    - You run scheduled jobs and want an alert when one silently stops
+      reporting.
+
+    ## Defaults
+    - Image `louislam/uptime-kuma:2.5.11` on port 3001, on 1 vCPU and 2 GiB
+      of memory.
+    - A 5 GiB volume at `/app/data` holds the SQLite database, settings and
+      status-page logos.
+    - The dashboard is behind the platform's sign-in, so only members of your
+      organization can open it. A setup job creates an `admin` account and
+      turns Uptime Kuma's own login off, so you sign in once. The admin
+      password is on the deployment's Installation tab.
+    - Status pages (`/status/...`), their data, badges (`/api/badge/...`) and
+      push URLs (`/api/push/...`) are public, as Uptime Kuma intends. Every
+      status page you create is public, but it shows only the monitors you
+      put on it; other monitors stay behind the sign-in.
+    - Monitors run from this deployment, so they see your services the way
+      the internet does.
+
+    ## Access and security
+    With Uptime Kuma's login off, anyone in your organization who opens the
+    dashboard acts as the admin. To require the password as well, switch
+    login back on under **Settings > Security**. The `/metrics` Prometheus
+    endpoint stays behind the platform's sign-in. Turn on Uptime Kuma's API
+    keys if a scraper inside the deployment needs credentials for it.
+
+    ## Limitations
+    - One account. Uptime Kuma 2 has no multi-user support or single sign-on.
+    - Status pages answer on the deployment's own address. Uptime Kuma's
+      custom domain setting needs a domain routed to this deployment, which
+      it does not set up.
+    - Ping monitors need raw sockets inside the container, which a hosted
+      container may not have. Use TCP or HTTP monitors if ping always fails.
+
+    ## Upgrades
+    The version is pinned. A newer catalog revision moves to the next Uptime
+    Kuma release and keeps the volume; Uptime Kuma migrates the database on
+    start. Its in-app "new version available" notice can show before the
+    catalog has caught up.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. The Uptime Kuma
+       dashboard opens without a second password.
+    2. Choose **Add New Monitor**, pick a type such as HTTP(s), and enter the
+       address to watch. Under **Settings > Notifications**, add where alerts
+       should go and attach it to your monitors.
+    3. To share status publicly, open **Status Pages**, create a page, add
+       monitors to it and save. Anyone can open it at `/status/<slug>` on the
+       deployment's URL, without a Musher account.
+    4. Keep the **Admin password** from the deployment's Installation tab in
+       case you switch Uptime Kuma's login back on.
+  category: OBSERVABILITY
+  lifecycleStage: BETA
+  tags:
+    - monitoring
+    - uptime
+    - status-page
+    - alerting
+    - observability
+  homepageURL: https://uptime.kuma.pet
+  sourceRepositoryURL: https://github.com/louislam/uptime-kuma
+  supportURL: https://github.com/louislam/uptime-kuma/wiki
+  license: MIT
+  icon: media/icon.png
