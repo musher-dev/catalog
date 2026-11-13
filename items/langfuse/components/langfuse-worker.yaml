@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Langfuse background worker that turns ingested events into ClickHouse rows
     and runs evaluations and other queued jobs.
@@ -21,10 +21,21 @@ spec:
       #
       # The image runs as uid 1001 with ENTRYPOINT `dumb-init --
       # ./worker/entrypoint.sh` and CMD `node worker/dist/index.js`
-      # (worker/Dockerfile, v4.79.0). No `command`: the entrypoint composes
-      # DATABASE_URL from the DATABASE_* inputs and execs the CMD. It runs no
-      # migrations.
+      # (worker/Dockerfile, v4.79.0; crane config). The entrypoint composes
+      # DATABASE_URL from the DATABASE_* inputs and execs its arguments. It
+      # runs no migrations.
       image: langfuse/langfuse-worker:4.79.0
+    # WORKAROUND(platform-api#1443): the runtime sets HOSTNAME to the
+    # container's own name, over the image's and the spec's, and the worker's
+    # health server listens on HOSTNAME. As in the web container
+    # (components/langfuse-web.yaml), the address arrives as `host` and is
+    # exported as HOSTNAME just before the CMD runs.
+    command:
+      - sh
+      - -c
+      - |
+        export HOSTNAME="$LANGFUSE_LISTEN_HOST"
+        exec node worker/dist/index.js
     endpoints:
       # Health routes only (worker/src/api/index.ts), on the image's PORT.
       health:
@@ -60,14 +71,15 @@ spec:
       # container's inputs of the same names.
       #
       # Upstream's Helm chart sets HOSTNAME to 0.0.0.0 for the worker too
-      # (templates/worker/deployment.yaml).
-      hostname:
+      # (templates/worker/deployment.yaml); `command` exports this as HOSTNAME
+      # (platform-api#1443).
+      host:
         schema:
           type: string
         default: 0.0.0.0
         target:
-          envVar: HOSTNAME
-        description: Address the worker's health server listens on inside the container.
+          envVar: LANGFUSE_LISTEN_HOST
+        description: Address the worker's health server listens on inside the container; all interfaces.
       port:
         schema:
           type: string
@@ -192,7 +204,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

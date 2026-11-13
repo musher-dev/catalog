@@ -20,6 +20,7 @@ import YAML from 'yaml';
 import { loadItemDocuments, readItem } from './lib/catalog.ts';
 import { KIND_OF, formatAjvErrors, validatorFor, type Family } from './lib/spec-schemas.ts';
 import { contextForItem, runSemanticChecks, scanReferences, type Diagnostic } from './lib/semantic.ts';
+import { differences, isCommandWrapper, isURLSafePattern, parseCopyHeader, pngDimensions, runPolicyChecks } from './lib/policy.ts';
 
 const workspace = fs.mkdtempSync(path.join(os.tmpdir(), 'musher-catalog-rules-'));
 after(() => fs.rmSync(workspace, { recursive: true, force: true }));
@@ -187,6 +188,10 @@ type Fixture = {
   sizedMedia?: Record<string, number>;
   /** Files to write verbatim, by item-relative path. */
   raw?: Record<string, string>;
+  /** Binary files to write, by item-relative path. */
+  bytes?: Record<string, Buffer>;
+  /** Other items beside this one, by slug, each as verbatim files by item-relative path. */
+  siblings?: Record<string, Record<string, string>>;
 };
 
 function build(fixture: Fixture): string {
@@ -219,6 +224,18 @@ function build(fixture: Fixture): string {
     const target = path.join(root, relative);
     fs.mkdirSync(path.dirname(target), { recursive: true });
     fs.writeFileSync(target, text);
+  }
+  for (const [relative, data] of Object.entries(fixture.bytes ?? {})) {
+    const target = path.join(root, relative);
+    fs.mkdirSync(path.dirname(target), { recursive: true });
+    fs.writeFileSync(target, data);
+  }
+  for (const [sibling, files] of Object.entries(fixture.siblings ?? {})) {
+    for (const [relative, text] of Object.entries(files)) {
+      const target = path.join(path.dirname(root), sibling, relative);
+      fs.mkdirSync(path.dirname(target), { recursive: true });
+      fs.writeFileSync(target, text);
+    }
   }
 
   return root;
@@ -2278,5 +2295,290 @@ describe('hashed parameters — blueprint §5.2, BP-PARAM-001, BP-PARAM-012', ()
     await assertClean(hashed({ generator: { byteLength: 36 }, ui: { label: 'Password' } }));
     await assertClean(hashed({ generator: { byteLength: 54, encoding: 'BASE64' }, ui: { label: 'Password' } }));
     await assertClean(hashed({ generator: { byteLength: 40 }, ui: { label: 'Password' } }, { parameter: 'password', algorithm: 'ARGON2ID' }));
+  });
+});
+
+/* ------------------------------------------------------------ catalog policy */
+
+/**
+ * The catalog's own rules (lib/policy.ts), each failing on a fixture built to
+ * break it and passing on one that keeps it. They run apart from the semantic
+ * phase, so these cases call the policy checks alone.
+ */
+async function policyCodes(fixture: Fixture): Promise<string[]> {
+  return runPolicyChecks(await contextForItem(readItem(build(fixture)))).map((d) => `${d.code} ${d.where}`);
+}
+
+async function assertPolicyReports(fixture: Fixture, code: string): Promise<void> {
+  const found = await policyCodes(fixture);
+  assert.ok(found.some((one) => one.startsWith(`${code} `)), `expected ${code}, got ${found.join('; ') || 'no findings'}`);
+}
+
+async function assertPolicyLacks(fixture: Fixture, code: string): Promise<void> {
+  const found = await policyCodes(fixture);
+  assert.deepEqual(found.filter((one) => one.startsWith(`${code} `)), []);
+}
+
+/** A web workload whose endpoint, probe and `command` are given. */
+const workload = (over: Doc = {}): Doc => ({
+  source: { image: 'ghcr.io/acme/web:1.2.3' },
+  endpoints: { primary: { targetPort: 8080, protocol: 'HTTP' } },
+  health: { readiness: { http: { endpoint: 'primary', path: '/healthz' } } },
+  ...over,
+});
+
+const webWith = (over: { workload?: Doc; inputs?: Doc } = {}): Doc =>
+  component({ spec: { type: 'SERVICE', workload: workload(over.workload), contract: { inputs: over.inputs ?? {}, outputs: {} } } });
+
+describe('catalog policy — the default fixture', () => {
+  it('reports nothing for a well-formed item', async () => {
+    assert.deepEqual(await policyCodes({}), []);
+  });
+});
+
+describe('catalog policy — required inputs, CATALOG_REQUIRED_WITHOUT_DEFAULT', () => {
+  const componentItem = (inputOver: Doc): Fixture => ({
+    blueprint: null,
+    listing: listing({ spec: { itemType: 'COMPONENT' } }),
+    components: { 'components/web.yaml': webWith({ inputs: { token: input(inputOver) } }) },
+  });
+
+  it('fails on a COMPONENT item input that states neither required nor a default', async () => {
+    await assertPolicyReports(componentItem({}), 'CATALOG_REQUIRED_WITHOUT_DEFAULT');
+  });
+
+  it('passes once the input says required, either way, or carries a default', async () => {
+    await assertPolicyLacks(componentItem({ required: false }), 'CATALOG_REQUIRED_WITHOUT_DEFAULT');
+    await assertPolicyLacks(componentItem({ required: true }), 'CATALOG_REQUIRED_WITHOUT_DEFAULT');
+    await assertPolicyLacks(componentItem({ default: 'x' }), 'CATALOG_REQUIRED_WITHOUT_DEFAULT');
+  });
+
+  it('leaves a BLUEPRINT item to BP-PARAM-003, which checks the node that deploys it', async () => {
+    await assertPolicyLacks({ components: { 'components/web.yaml': webWith({ inputs: { token: input() } }) } }, 'CATALOG_REQUIRED_WITHOUT_DEFAULT');
+  });
+});
+
+describe('catalog policy — ports, CATALOG_PRIVILEGED_PORT and CATALOG_PORT_INPUT_MISMATCH', () => {
+  const on = (port: number, inputs: Doc = {}): Fixture => ({
+    components: {
+      'components/web.yaml': webWith({ workload: { endpoints: { primary: { targetPort: port, protocol: 'HTTP' } } }, inputs }),
+    },
+  });
+
+  it('fails on a target port below 1024', async () => {
+    await assertPolicyReports(on(80), 'CATALOG_PRIVILEGED_PORT');
+  });
+
+  it('passes at 1024 and above', async () => {
+    await assertPolicyLacks(on(1024), 'CATALOG_PRIVILEGED_PORT');
+  });
+
+  it('fails when a listen-port input defaults to a port no endpoint listens on', async () => {
+    await assertPolicyReports(on(8080, { port: input({ default: '3000', target: { envVar: 'PORT' } }) }), 'CATALOG_PORT_INPUT_MISMATCH');
+    await assertPolicyReports(on(8080, { listen: input({ default: 3000, target: { envVar: 'APP_PORT' } }) }), 'CATALOG_PORT_INPUT_MISMATCH');
+  });
+
+  it('passes when the default is a target port', async () => {
+    await assertPolicyLacks(on(8080, { port: input({ default: '8080', target: { envVar: 'PORT' } }) }), 'CATALOG_PORT_INPUT_MISMATCH');
+  });
+
+  it('passes an input bound from another node, which is that node\'s port', async () => {
+    const fixture: Fixture = {
+      blueprint: blueprint({
+        spec: {
+          nodes: {
+            db: { componentRef: './components/db.yaml', bindings: { host: { value: 'db.example.com' } } },
+            web: node({ bindings: { dbPort: { node: 'db', output: 'port' } } }),
+          },
+        },
+      }),
+      components: {
+        'components/db.yaml': externalDatabase({
+          contract: {
+            inputs: { host: { description: 'Hostname of the database.', schema: { type: 'string' } } },
+            outputs: {
+              host: { description: 'Hostname.', schema: { type: 'string' }, from: { input: 'host' } },
+              port: { description: 'Port.', schema: { type: 'integer' }, from: { value: 5432 } },
+            },
+          },
+        }),
+        'components/web.yaml': webWith({ inputs: { dbPort: input({ schema: { type: 'integer' }, default: 5432, target: { envVar: 'DB_PORT' } }) } }),
+      },
+    };
+    await assertPolicyLacks(fixture, 'CATALOG_PORT_INPUT_MISMATCH');
+  });
+});
+
+describe('catalog policy — readiness, CATALOG_SERVICE_WITHOUT_READINESS', () => {
+  it('fails on a SERVICE with no readiness probe', async () => {
+    const bare = webWith({ workload: { health: {} } });
+    await assertPolicyReports({ blueprint: blueprint({ spec: { nodes: { web: node({ exposure: {} }) } } }), components: { 'components/web.yaml': bare } }, 'CATALOG_SERVICE_WITHOUT_READINESS');
+  });
+
+  it('passes with one', async () => {
+    await assertPolicyLacks({}, 'CATALOG_SERVICE_WITHOUT_READINESS');
+  });
+});
+
+/** The first 24 bytes of a PNG: signature, then the IHDR chunk's length, type, width and height. */
+const png = (width: number, height: number): Buffer => {
+  const bytes = Buffer.alloc(33);
+  Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a]).copy(bytes, 0);
+  bytes.writeUInt32BE(13, 8);
+  bytes.write('IHDR', 12, 'latin1');
+  bytes.writeUInt32BE(width, 16);
+  bytes.writeUInt32BE(height, 20);
+  return bytes;
+};
+
+describe('catalog policy — media, CATALOG_ICON_SIZE and CATALOG_SCREENSHOT_SIZE', () => {
+  const withIcon = (data: Buffer): Fixture => ({ bytes: { 'media/icon.png': data }, listing: listing({ spec: { icon: 'media/icon.png' } }) });
+
+  it('reads the dimensions from the IHDR header', () => {
+    assert.deepEqual(pngDimensions(png(512, 256)), { width: 512, height: 256 });
+    assert.equal(pngDimensions(Buffer.from('not a png')), null);
+  });
+
+  it('fails on an icon under 256 px, one that is not square, and one that is not a PNG', async () => {
+    await assertPolicyReports(withIcon(png(128, 128)), 'CATALOG_ICON_SIZE');
+    await assertPolicyReports(withIcon(png(512, 256)), 'CATALOG_ICON_SIZE');
+    await assertPolicyReports(withIcon(Buffer.from('GIF89a')), 'CATALOG_ICON_SIZE');
+  });
+
+  it('passes a square icon of 256 px or more', async () => {
+    await assertPolicyLacks(withIcon(png(256, 256)), 'CATALOG_ICON_SIZE');
+  });
+
+  it('fails on a screenshot over 4096 px a side, and passes one within it', async () => {
+    const shot = (width: number): Fixture => ({
+      bytes: { 'media/screenshots/01.png': png(width, 1080) },
+      listing: listing({ spec: { screenshots: [{ file: 'media/screenshots/01.png' }] } }),
+    });
+    await assertPolicyReports(shot(5000), 'CATALOG_SCREENSHOT_SIZE');
+    await assertPolicyLacks(shot(1920), 'CATALOG_SCREENSHOT_SIZE');
+  });
+});
+
+describe('catalog policy — text hygiene, CATALOG_LINE_ENDINGS and CATALOG_INTERNAL_REFERENCE', () => {
+  it('fails on a carriage return in a text file, and passes LF', async () => {
+    await assertPolicyReports({ raw: { 'components/notes.txt': 'one\r\ntwo\r\n' } }, 'CATALOG_LINE_ENDINGS');
+    await assertPolicyLacks({ raw: { 'components/notes.txt': 'one\ntwo\n' } }, 'CATALOG_LINE_ENDINGS');
+  });
+
+  it('fails on an internal run id in a comment, and passes an issue reference', async () => {
+    const commented = (comment: string): Fixture => ({ raw: { 'components/web.yaml': `# ${comment}\n${YAML.stringify(component())}` } });
+    await assertPolicyReports(commented('Seen in catalog run ab12cd34e.'), 'CATALOG_INTERNAL_REFERENCE');
+    await assertPolicyLacks(commented('Seen in a live deploy test (platform-api#1446).'), 'CATALOG_INTERNAL_REFERENCE');
+    await assertPolicyLacks(commented('Built from upstream commit de722ab1b.'), 'CATALOG_INTERNAL_REFERENCE');
+  });
+});
+
+/** A component document's YAML with comment lines placed directly above `command:`. */
+const withCommentAboveCommand = (document: Doc, comment: string[]): string =>
+  YAML.stringify(document).replace(/^(\s*)command:$/m, (line, indent: string) => [...comment.map((one) => `${indent}# ${one}`), line].join('\n'));
+
+describe('catalog policy — command wrappers, CATALOG_WORKAROUND_UNTAGGED', () => {
+  const wrapped = (command: string[]): Doc => webWith({ workload: { command } });
+
+  it('knows a wrapper from a command that merely takes -c', () => {
+    assert.equal(isCommandWrapper(['sh', '-c', 'exec x']), true);
+    assert.equal(isCommandWrapper(['/opt/venv/bin/python', '-c', 'print(1)']), true);
+    assert.equal(isCommandWrapper(['perl', '-e', '1']), true);
+    assert.equal(isCommandWrapper(['node', '-e', '1']), true);
+    assert.equal(isCommandWrapper(['postgres', '-c', 'max_wal_size=1GB']), false);
+  });
+
+  it('fails on an untagged wrapper', async () => {
+    await assertPolicyReports({ components: { 'components/web.yaml': wrapped(['sh', '-c', 'exec web']) } }, 'CATALOG_WORKAROUND_UNTAGGED');
+    await assertPolicyReports(
+      { raw: { 'components/web.yaml': withCommentAboveCommand(wrapped(['sh', '-c', 'exec web']), ['WORKAROUND: no issue named']) } },
+      'CATALOG_WORKAROUND_UNTAGGED',
+    );
+  });
+
+  it('passes a wrapper whose comment names the platform-api issue, and a command that is no wrapper', async () => {
+    await assertPolicyLacks(
+      {
+        raw: {
+          'components/web.yaml': withCommentAboveCommand(wrapped(['sh', '-c', 'exec web']), [
+            'Why the wrapper exists.',
+            'WORKAROUND(platform-api#1447): the image reads its config only from a file.',
+          ]),
+        },
+      },
+      'CATALOG_WORKAROUND_UNTAGGED',
+    );
+    await assertPolicyLacks({ components: { 'components/web.yaml': wrapped(['web', '--port', '8080']) } }, 'CATALOG_WORKAROUND_UNTAGGED');
+  });
+});
+
+describe('catalog policy — secrets in URLs, CATALOG_URL_UNSAFE_SECRET', () => {
+  const composing = (schema: Doc): Fixture => ({
+    components: {
+      'components/web.yaml': webWith({
+        workload: { command: ['sh', '-c', 'export DATABASE_URL="postgresql://app:${PG_PASSWORD}@${PG_ADDRESS}/app"\nexec web'] },
+        inputs: { pgPassword: input({ schema, sensitive: true, required: true, target: { envVar: 'PG_PASSWORD' } }) },
+      }),
+    },
+  });
+
+  it('decides which patterns admit only unreserved characters', () => {
+    assert.equal(isURLSafePattern('^[A-Za-z0-9._~-]+$'), true);
+    assert.equal(isURLSafePattern('^[0-9a-f]{64}$'), true);
+    assert.equal(isURLSafePattern('^[A-Za-z0-9._~+/=-]+$'), false);
+    assert.equal(isURLSafePattern('^.+$'), false);
+    assert.equal(isURLSafePattern(undefined), false);
+  });
+
+  it('fails on a password written into a URL with no pattern, or a pattern admitting / + =', async () => {
+    await assertPolicyReports(composing({ type: 'string' }), 'CATALOG_URL_UNSAFE_SECRET');
+    await assertPolicyReports(composing({ type: 'string', pattern: '^[A-Za-z0-9._~+/=-]+$' }), 'CATALOG_URL_UNSAFE_SECRET');
+  });
+
+  it('passes one confined to URL-safe characters', async () => {
+    await assertPolicyLacks(composing({ type: 'string', pattern: '^[A-Za-z0-9._~-]+$' }), 'CATALOG_URL_UNSAFE_SECRET');
+  });
+});
+
+describe('catalog policy — building-block copies, CATALOG_COPY_DRIFT', () => {
+  const source = component({ metadata: { revision: 3, description: 'The canonical building block.' } });
+  const sibling = { 'acme-db': { 'components/db.yaml': YAML.stringify(source) } };
+  const copy = (header: string[], document: Doc = source): Fixture => ({
+    siblings: sibling,
+    raw: { 'components/web.yaml': [...header, YAML.stringify(document)].join('\n') },
+  });
+  const changed = component({ metadata: { revision: 3, description: 'The canonical building block.' }, spec: { type: 'WORKER', workload: { source: { image: 'ghcr.io/acme/web:1.2.3' } }, contract: { inputs: {}, outputs: {} } } });
+
+  it('parses the header, and reports a malformed one rather than ignoring it', () => {
+    assert.deepEqual(parseCopyHeader('# copy-of: items/acme-db/components/db.yaml@3\n# copy-differs: /a, /b/c\nspecVersion: v2\n'), {
+      source: 'items/acme-db/components/db.yaml',
+      revision: 3,
+      differs: ['/a', '/b/c'],
+    });
+    assert.ok('error' in (parseCopyHeader('# copy-of: postgres@3\n') ?? {}));
+    assert.equal(parseCopyHeader('# A plain comment.\n'), null);
+  });
+
+  it('lists every pointer at which two documents differ', () => {
+    assert.deepEqual(differences({ a: 1, b: { c: 2, d: 3 } }, { a: 1, b: { c: 2, d: 4 }, e: 5 }), ['/b/d', '/e']);
+  });
+
+  it('passes an exact copy citing the source\'s current revision, whatever its own revision', async () => {
+    await assertPolicyLacks(copy(['# copy-of: items/acme-db/components/db.yaml@3'], { ...source, metadata: { revision: 9, description: 'The canonical building block.' } }), 'CATALOG_COPY_DRIFT');
+  });
+
+  it('fails on a copy that differs where it does not say so, and passes once it does', async () => {
+    await assertPolicyReports(copy(['# copy-of: items/acme-db/components/db.yaml@3'], changed), 'CATALOG_COPY_DRIFT');
+    await assertPolicyLacks(
+      copy(['# copy-of: items/acme-db/components/db.yaml@3', '# copy-differs: /spec/type, /spec/workload'], changed),
+      'CATALOG_COPY_DRIFT',
+    );
+  });
+
+  it('fails on a stale revision, a needless copy-differs entry, a missing source and a prose-only claim', async () => {
+    await assertPolicyReports(copy(['# copy-of: items/acme-db/components/db.yaml@2']), 'CATALOG_COPY_DRIFT');
+    await assertPolicyReports(copy(['# copy-of: items/acme-db/components/db.yaml@3', '# copy-differs: /spec/type']), 'CATALOG_COPY_DRIFT');
+    await assertPolicyReports(copy(['# copy-of: items/acme-gone/components/db.yaml@3']), 'CATALOG_COPY_DRIFT');
+    await assertPolicyReports(copy(["# A copy of the `acme-db` item's component. Keep the two in step."]), 'CATALOG_COPY_DRIFT');
   });
 });

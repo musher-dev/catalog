@@ -8,7 +8,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Sim's workflow editor, API and executor (Next.js on Bun), on an external
     PostgreSQL with pgvector and a Redis-compatible store, with a separate
@@ -48,8 +48,8 @@ spec:
     #      realtime node (components/sim-realtime.yaml), and it reports how
     #      many accounts exist. Both limit and offset are sent: v0.9.56
     #      answers 400 "expected number, received undefined" when either is
-    #      missing, though its contract gives both a default (catalog run
-    #      rleirb716; lib/api/contracts/v1/admin/shared.ts);
+    #      missing, though its contract gives both a default (seen in a live
+    #      deploy test; lib/api/contracts/v1/admin/shared.ts);
     #    - with no account yet, it posts {email, password, name} to
     #      /api/auth/sign-up/email, then signs in with the same pair, so it
     #      reports success only once the password really works. Better Auth
@@ -65,14 +65,26 @@ spec:
     #    failure, cut to 300 bytes. If it fails, the sign-up page, behind the
     #    platform's sign-in, is the fallback.
     #
-    #    Not a one-shot JOB node: in catalog run ihc050a6e the platform never
-    #    ran a blueprint's unscheduled JOB node. The bootstrap starts from a
-    #    subshell that exits at once, so it is orphaned to PID 1. That is Bun
-    #    here, which does not reap it, so it stays as one zombie entry after
-    #    it ends; it holds no memory.
+    #    Why in-process rather than a one-shot JOB node like the gitea,
+    #    metabase and uptime-kuma bootstraps: an early deploy test of this
+    #    item never saw its JOB node run, so the bootstrap moved here, and this
+    #    is the form the live test passed. JOB nodes do run (those three
+    #    bootstraps and temporal's schema-setup all ran live), so a JOB
+    #    polling the app's private address would work as well; it would need
+    #    its own live test. The bootstrap starts from a subshell that exits at
+    #    once, so it is orphaned to PID 1. That is Bun here, which does not
+    #    reap it, so it stays as one zombie entry after it ends; it holds no
+    #    memory.
     # 4. `env -u` keeps the owner's email and password, the raw parts of the
     #    URLs and the unstripped base URL out of the app's environment; only
     #    the background shell holds them.
+    #
+    # WORKAROUND(platform-api#1448): the database and Redis URLs are composed
+    #   from inputs.
+    # WORKAROUND(platform-api#1443): the runtime overrides HOSTNAME, so the
+    #   listen address is exported here.
+    # WORKAROUND(platform-api#1445): no node can run after the app is ready,
+    #   so the first account is created in-process.
     command:
       - sh
       - -c
@@ -104,10 +116,11 @@ spec:
           fi
           esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
           email=$(esc "$OWNER_EMAIL")
+          password=$(esc "$OWNER_PASSWORD")
           name=$(esc "${OWNER_NAME:-}")
           [ -n "$name" ] || name=$(esc "${OWNER_EMAIL%@*}")
-          printf '{"email":"%s","password":"%s","name":"%s"}' "$email" "$OWNER_PASSWORD" "$name" > "$dir/sign-up.json"
-          printf '{"email":"%s","password":"%s"}' "$email" "$OWNER_PASSWORD" > "$dir/sign-in.json"
+          printf '{"email":"%s","password":"%s","name":"%s"}' "$email" "$password" "$name" > "$dir/sign-up.json"
+          printf '{"email":"%s","password":"%s"}' "$email" "$password" > "$dir/sign-in.json"
           for step in sign-up sign-in; do
             status=$(curl -sS -o "$dir/out" -w '%{http_code}' --max-time 60 -X POST \
               -H 'Content-Type: application/json' -H "Origin: ${NEXT_PUBLIC_APP_URL}" \
@@ -251,15 +264,14 @@ spec:
       # 0.0.0.0 (docker/app.Dockerfile, v0.9.56), but a container runtime
       # sets HOSTNAME to the container's own name, and the server then
       # listens only on that name's address and not on 127.0.0.1, where the
-      # bootstrap above and the internal API base URL below call it. In
-      # catalog run wv5gy91ea the deployment was healthy (probes reach the
-      # replica's address) but the loopback bootstrap never created the
-      # account, which this explains; with the fix below, run yq9bcc90b created
-      # it. The input targets a name of its own and
-      # the shell in `command` exports it as HOSTNAME just before the server
-      # starts, so it wins whichever of the image, the spec or the runtime
-      # sets HOSTNAME.
-      listenHostname:
+      # bootstrap above and the internal API base URL below call it
+      # (platform-api#1443). In a live deploy test the deployment was healthy
+      # (probes reach the replica's address) but the loopback bootstrap never
+      # created the account; with the fix below, the next test created it. The
+      # input targets a name of its own and the shell in `command` exports it
+      # as HOSTNAME just before the server starts, so it wins whichever of the
+      # image, the spec or the runtime sets HOSTNAME.
+      host:
         schema:
           type: string
         default: 0.0.0.0
@@ -350,6 +362,7 @@ spec:
       postgresPassword:
         schema:
           type: string
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:
@@ -375,7 +388,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

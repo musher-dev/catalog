@@ -89,6 +89,23 @@ currently ship screenshots.
 | `voicestudio` | <https://raw.githubusercontent.com/debpalash/VoiceStudio/v0.5.6/docs/logo.png> | in-repo asset | VoiceStudio logo from the debpalash/VoiceStudio repository (AGPL-3.0-licensed project); nominative use. |
 | `zeroclaw` | <https://raw.githubusercontent.com/zeroclaw-labs/zeroclaw/v0.8.5/web/public/logo.png> | in-repo asset | ZeroClaw web dashboard logo from the zeroclaw-labs/zeroclaw repository (MIT OR Apache-2.0-licensed project); nominative use. |
 
+## An item with no logo of its own
+
+Some items deploy a project that publishes no mark: `pgvector` is a PostgreSQL
+extension whose organization avatar is a plain square. Such an item reuses the
+mark of the upstream project it is built on, here the PostgreSQL elephant, and
+only then:
+
+- the project itself has no mark of its own (checked, and said so in the item's
+  row above);
+- the item really runs the project whose mark it borrows (pgvector runs a
+  PostgreSQL server); and
+- the listing's `displayName` and `summary` make the difference from the other
+  tile with that mark plain at a glance.
+
+Never borrow a mark from a project the item merely works with, and never make
+one up: an item with no fitting mark ships no `icon:`.
+
 ## Swapping or updating an icon
 
 To refresh an item's icon — an upstream rebrand, or a higher-resolution

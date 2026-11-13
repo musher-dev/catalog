@@ -41,8 +41,9 @@ spec:
     reveal it on the deployment's Installation tab later. Every client
     authenticates with it before Valkey answers, for example with the URL
     `redis://:<password>@<host>:6379`. Use at least 16 letters, digits or
-    `._~+/=-`: Valkey reads the password as one word of its configuration,
-    so it can carry no spaces or quotes. The endpoint is private as well, so
+    `._~-`: the password goes into that URL unencoded, and Valkey reads it
+    as one word of its configuration, so it can carry no `/`, `@`, `:`,
+    spaces or quotes. The endpoint is private as well, so
     the public internet cannot reach it.
 
     ## Limitations

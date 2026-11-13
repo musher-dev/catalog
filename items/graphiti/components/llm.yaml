@@ -14,7 +14,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     The OpenAI-compatible chat-completions API Graphiti sends its extraction
     and deduplication prompts to, taken whole as one connection.
@@ -41,7 +41,7 @@ spec:
           # dropped in 1.0, and the image resolves anthropic 1.16.0 (the uv.lock
           # regenerated in the image, mcp-v1.1.3). Every episode then fails
           # with "AsyncMessages.create() got an unexpected keyword argument
-          # 'temperature'" (run tdcnk3e5a).
+          # 'temperature'" (seen in a live deploy test, 2026-11).
           #
           # This is declared on the supplying node rather than on `mcp`: after
           # ADR 0033 a workload sees three strings and cannot demand a protocol.

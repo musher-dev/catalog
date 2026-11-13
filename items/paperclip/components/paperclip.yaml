@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     Paperclip agent-orchestration server and board UI, with agent workspaces,
     uploads and its secrets key on one volume and its state in an external
@@ -47,6 +47,8 @@ spec:
     # Upstream's compose files also set `pids_limit: 2048` as a backstop
     # against leaked agent processes. The spec has no equivalent; tini is what
     # keeps the count down.
+    #
+    # WORKAROUND(platform-api#1448): the database URL is composed from inputs.
     command:
       - sh
       - -c
@@ -221,6 +223,7 @@ spec:
       pgPassword:
         schema:
           type: string
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

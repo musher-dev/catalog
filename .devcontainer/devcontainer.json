@@ -20,8 +20,8 @@
   "workspaceFolder": "/workspaces/${localWorkspaceFolderBasename}",
 
   // Every Feature is version-pinned and captured in devcontainer-lock.json.
-  // Tools with no Feature (lefthook, actionlint) live in
-  // .devcontainer/mise.toml; Claude Code self-updates via its own installer.
+  // Tools with no Feature (lefthook, actionlint, crane) live in
+  // .config/mise/config.toml; Claude Code self-updates via its own installer.
   //
   // Node is pinned to 24 because the test suite is TypeScript run directly by
   // Node's type stripping — there is no build step, and no version below 23.6
@@ -64,8 +64,9 @@
   ],
 
   "containerEnv": {
-    // mise's manifest lives under .devcontainer/, not the repo root.
-    "MISE_GLOBAL_CONFIG_FILE": "${containerWorkspaceFolder}/.devcontainer/mise.toml",
+    // mise's manifest is .config/mise/config.toml, where the organization's
+    // shared dev container reads it too; this makes it the global config here.
+    "MISE_GLOBAL_CONFIG_FILE": "${containerWorkspaceFolder}/.config/mise/config.toml",
     "MISE_TRUSTED_CONFIG_PATHS": "${containerWorkspaceFolder}",
 
     // Claude keeps .claude.json beside its config dir, so without this it

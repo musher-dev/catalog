@@ -55,6 +55,16 @@ because an offline validator is forbidden to report them.
   least 256 px a side, and a screenshot at most 4096 px a side **(sync only)**;
 - every `license` identifier is on the SPDX License List release the platform
   pins, or a `LicenseRef-…` **(sync only)**;
+- an input is **required unless it says otherwise**: `required` defaults to
+  `true` (component spec §6.1), so an input meant to be optional says
+  `required: false` or carries a `default`. A blueprint node is checked for
+  every required input it leaves unbound; a `COMPONENT` item, which no node
+  deploys offline, is held to stating one or the other on every value input by
+  the catalog policy suite (`CATALOG_REQUIRED_WITHOUT_DEFAULT`);
+- every endpoint's `targetPort` is **1024 or above**: the platform runs nothing
+  that may bind a privileged port and rejects one at publish
+  (`ERR_PRIVILEGED_PORT`). The spec leaves this to `admission`, so the catalog
+  policy suite catches it (`CATALOG_PRIVILEGED_PORT`), not the spec phases;
 - every node whose component runs carries `compute.profile`, naming a Compute
   Profile the platform offers — and a node deploying an `EXTERNAL` component,
   which runs nothing, carries no `compute` at all;
@@ -76,7 +86,10 @@ because an offline validator is forbidden to report them.
 - component shape follows `spec.type`: a `WORKER` may declare private endpoints
   but is never exposed, and a `JOB` declares none. A `PUBLIC` HTTP endpoint
   needs a readiness probe;
-- an exposure is bare `PUBLIC` / `PRIVATE` or the object form
+- a node's `exposure` is a **map keyed by endpoint name** —
+  `exposure: { primary: PUBLIC }`, never `exposure: PUBLIC`, which fails
+  validation with `'PUBLIC' is not of type 'object'`. Each value is bare
+  `PUBLIC` / `PRIVATE` or the object form
   `{ visibility, access, viewerIdentity, viewerClaims, accessExemptions }`.
   `access: RESTRICTED` needs an `HTTP`, `HTTPS` or `WS` endpoint, and a
   component reading a viewer identity property needs its node to select the
@@ -112,7 +125,10 @@ plain text, at most 280 characters, describing the thing itself. The listing's
 
 ## Adding an item
 
-Create `items/<slug>/` with a component file per building block.
+Create `items/<slug>/` with a component file per building block. The
+[authoring guide](docs/authoring.md) collects the conventions and the lessons
+reviews keep repeating: ports, probes, command wrappers, building-block copies,
+naming and listing copy.
 
 **`components/my-app.yaml`**
 
@@ -145,7 +161,8 @@ spec:
         description: Password for the bootstrap admin account.   # REQUIRED
         schema: { type: string }        # lowercase JSON Schema types
         sensitive: true                 # beside the schema, not inside it
-        required: true
+        # Required: every input is, unless it says `required: false` or
+        # carries a `default`.
         target: { envVar: ADMIN_PASSWORD }
       dataDir:                          # a constant is an input with a default
         description: Directory my-app keeps its data files in.
@@ -179,7 +196,7 @@ spec:
     web:                        # graph-local node name
       componentRef: ./components/my-app.yaml   # must begin ./ and end .yaml
       compute:
-        profile: general.standard.small
+        profile: general.economy.nano   # the smallest profile that fits
       volumes:
         data: { sizeGiB: 5 }    # at or above the component's minSizeGiB
       exposure:
@@ -314,7 +331,7 @@ spec:
         llm: { parameter: llm }
     web:
       componentRef: ./components/my-app.yaml
-      compute: { profile: general.standard.small }
+      compute: { profile: general.economy.nano }
       bindings:
         llmBaseURL: { node: llm, output: baseURL }
         llmAPIKey:  { node: llm, output: apiKey }
@@ -380,10 +397,25 @@ dimensions, and, for a `COMPONENT` item, the runtime minimums listed as
 **(sync only)** above. An item that passes here can still be rejected at
 sync.
 
-Keep changes to one item per pull request, so a rejection that only the platform
-can raise is easy to attribute. Adopting a new specification release is the
-standing exception: a release that narrows what validates makes every
-unmigrated item fail at once, so the pins and the documents move together.
+### Catalog policy
+
+On top of the specification, the catalog holds its items to rules of its own:
+obligations the platform enforces only at publish or deploy, which an offline
+run would otherwise pass, and conventions that keep a defect this catalog has
+already shipped once from shipping again. They live in
+[`tests/lib/policy.ts`](tests/lib/policy.ts), run per item from
+[`tests/policy.test.ts`](tests/policy.test.ts) under `CATALOG_*` codes, and a
+deliberate exception is recorded, with its reason and the issue that would
+remove it, in [`tests/policy-exceptions.ts`](tests/policy-exceptions.ts). The
+[authoring guide](docs/authoring.md) explains each rule.
+
+### Pull requests
+
+One item per pull request is the default, so a rejection that only the platform
+can raise is easy to attribute. A cross-cutting change — a policy rule, a
+convention, a building block and its copies, a new specification release — may
+touch many items in one pull request, provided each item's change is its own
+commit or is otherwise plainly attributable to it.
 
 ## Contributing
 

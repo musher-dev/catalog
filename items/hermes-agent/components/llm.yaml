@@ -1,7 +1,10 @@
+# copy-of: items/llm-endpoint/components/endpoint.yaml@6
+# copy-differs: /metadata/description, /spec/contract/inputs/llm/description
+# copy-differs: /spec/contract/outputs/apiKey/description, /spec/contract/outputs/baseURL/description
+# copy-differs: /spec/contract/outputs/model/description
+#
 # The language model the Hermes agent runs on, as a node this platform does
-# not run (component spec §5.6). A copy of the `llm-endpoint` item's building
-# block: a repo-local componentRef cannot leave its item directory, so a
-# blueprint that needs one carries its own.
+# not run (component spec §5.6).
 #
 # The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
 # and `memory` nodes each declare three ordinary string inputs and the blueprint
@@ -14,7 +17,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: The language-model API the Hermes agent sends model requests to, taken whole as one connection.
 spec:
   type: EXTERNAL

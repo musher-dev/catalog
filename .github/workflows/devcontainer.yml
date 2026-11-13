@@ -9,8 +9,8 @@
 # It runs only when a change touches the dev container's inputs, on a pull
 # request and on the push to main that lands it:
 #   .devcontainer/**   the configuration and its lockfile, the lifecycle
-#                      scripts, mise.toml (the CLIs post-create installs) and
-#                      the .env template
+#                      scripts and the .env template
+#   .config/mise/**    config.toml, the CLIs post-create installs
 #   Taskfile.yml       `task env:check`, which Env Template Sync runs
 #   this workflow      the jobs that test the container
 # Dependency manifests stay out: post-create's `npm ci` reads package.json and
@@ -26,9 +26,9 @@ name: Dev Container
 on:
   push:
     branches: [main]
-    paths: ['.devcontainer/**', 'Taskfile.yml', '.github/workflows/devcontainer.yml']
+    paths: ['.devcontainer/**', '.config/mise/**', 'Taskfile.yml', '.github/workflows/devcontainer.yml']
   pull_request:
-    paths: ['.devcontainer/**', 'Taskfile.yml', '.github/workflows/devcontainer.yml']
+    paths: ['.devcontainer/**', '.config/mise/**', 'Taskfile.yml', '.github/workflows/devcontainer.yml']
   workflow_dispatch:
 
 permissions:
@@ -67,7 +67,7 @@ jobs:
       # As opening it in an editor does: initialize.sh on the runner, then
       # post-create, startup and post-attach in the container. post-create's
       # base_verify_tools fails the start when a CLI is missing. mise fetches
-      # the mise.toml pins from GitHub releases and checks them through the
+      # the .config/mise/config.toml pins from GitHub releases and checks them through the
       # GitHub API, which the runner's shared IP would call anonymously at 60
       # an hour; the token is this job's read-only one, and with it set
       # lib/github-auth.sh stores no gh login.

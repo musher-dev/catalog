@@ -1,6 +1,6 @@
 # PostgreSQL with the pgvector extension, for applications that keep
 # embeddings beside their relational data. It follows the `postgres` item's
-# component (items/postgres/components/postgres.yaml, revision 8): the same
+# component (items/postgres/components/postgres.yaml): the same
 # inputs, the same volume and the same PGDATA handling, because the pgvector
 # image is the official Debian postgres image with the extension compiled in
 # (Dockerfile, v0.8.7). It adds two things that item does not have:
@@ -10,13 +10,13 @@
 # - a readiness probe. Probes are HTTP only and PostgreSQL speaks none, so a
 #   small Perl supervisor in the container answers one (see `command`).
 #
-# A blueprint that embeds this component carries its own copy, with the header
-# "A copy of the `pgvector` item's component (items/pgvector/components/
-# pgvector.yaml, revision N) ... Keep the two in step".
+# A blueprint that embeds this component carries its own copy, which names
+# this file and its revision in a `# copy-of:` header; the catalog's tests hold
+# the copy to it (docs/authoring.md).
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     PostgreSQL 17 with the pgvector extension enabled, a single persistent data
     volume and an HTTP readiness check.
@@ -70,6 +70,9 @@ spec:
     # src/backend/postmaster/postmaster.c, REL_17_STABLE). With Perl as PID 1
     # the postmaster has no unknown children. A connection that sends nothing
     # is cut after 4 s, so the single-threaded loop cannot be held.
+    #
+    # WORKAROUND(platform-api#1446): probes are HTTP-only, so a Perl
+    #   supervisor serves an HTTP readiness check that runs pg_isready.
     command:
       - perl
       - -e
@@ -243,7 +246,7 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
-      host:
+      hostname:
         schema:
           type: string
         description: >-

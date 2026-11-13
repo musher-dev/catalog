@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Docling Serve on CPU, converting PDFs, Office files, HTML and images into
     Markdown, JSON or text over an API that requires a key, with its layout,
@@ -27,8 +27,8 @@ spec:
       # Models load inside the FastAPI lifespan, before uvicorn binds the
       # port (`warm_up_caches`, docling_serve/app.py, v1.38.2), so nothing
       # answers until they are in memory. 30 + 60 x 10 = 630 s. On 2 vCPU the
-      # deployment was ready 206 s after creation, image pull included (run
-      # z3w0s3f5a).
+      # deployment was ready 206 s after creation, image pull included, in a
+      # live deploy test.
       startup:
         http:
           endpoint: primary
@@ -189,7 +189,7 @@ spec:
           envVar: DOCLING_SERVE_LOG_LEVEL
         description: Log verbosity, WARNING, INFO or DEBUG.
       # Upstream's default `text` format colours each line with ANSI escape
-      # codes, which the deployment's log view shows raw (run z3w0s3f5a).
+      # codes, which the deployment's log view shows raw (platform-api#1442).
       # Upstream recommends `json` for production (docs/configuration.md,
       # v1.38.2).
       logFormat:

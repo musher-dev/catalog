@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     LiteLLM proxy with its database and cache, issuing virtual keys and
     recording spend in front of many model providers.
@@ -170,7 +170,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

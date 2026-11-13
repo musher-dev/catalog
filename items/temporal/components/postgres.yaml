@@ -1,20 +1,15 @@
-# The PostgreSQL server Temporal keeps its state in. A copy of the `postgres`
-# item's component (items/postgres/components/postgres.yaml, revision 8): a
-# repo-local componentRef cannot leave its item directory, so a blueprint that
-# needs one carries its own. Keep the two in step when bumping the image.
+# copy-of: items/postgres/components/postgres.yaml@9
+#
+# The PostgreSQL server Temporal keeps its state in.
 #
 # Upstream's compose runs Temporal beside postgres:16 through the `postgres12`
 # persistence plugin, which covers PostgreSQL 12 and later
 # (compose/docker-compose-postgres.yml and compose/.env, temporalio/
 # samples-server). This keeps the canonical major, 17.
-#
-# One addition to the original: `hostname` and `port` beside `address`.
-# Temporal and temporal-sql-tool take the host and the port separately
-# (POSTGRES_SEEDS / DB_PORT and SQL_HOST / SQL_PORT).
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE

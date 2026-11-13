@@ -5,7 +5,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Single-node ClickHouse server for Langfuse's tracing data, behind one
     password-protected user, with its data on one volume and its own logs kept
@@ -47,6 +47,9 @@ spec:
     #
     # The file is rewritten on every boot. ClickHouse merges config.d files
     # into config.xml element by element, and `remove="1"` deletes one.
+    #
+    # WORKAROUND(platform-api#1447): ClickHouse settings live in a config.d
+    #   file, which a component cannot mount, so the shell writes it.
     command:
       - sh
       - -c

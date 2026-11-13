@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Crawl4AI server with a bundled headless Chromium, turning web pages into
     clean Markdown and structured JSON over a REST API and MCP, behind a bearer
@@ -88,7 +88,7 @@ spec:
       # stated explicitly so the bind does not depend on the node having an
       # IPv6 stack. 0.0.0.0 still covers 127.0.0.1, where the MCP bridge calls
       # the server's own REST routes (`attach_mcp`, deploy/docker/server.py).
-      bind:
+      listenAddress:
         schema:
           type: string
         default: 0.0.0.0:11235

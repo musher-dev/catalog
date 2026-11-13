@@ -1,8 +1,13 @@
-# Open WebUI on an external PostgreSQL (with pgvector) and Valkey. A copy of
-# the `open-webui` item's component (items/open-webui/components/
-# open-webui.yaml, revision 13): a repo-local componentRef cannot leave its
-# item directory, so a blueprint that needs one carries its own. Keep the two
-# in step when bumping the image or changing sign-in.
+# copy-of: items/open-webui/components/open-webui.yaml@13
+# copy-differs: /metadata/description, /spec/contract/inputs/databaseHost, /spec/contract/inputs/databaseName
+# copy-differs: /spec/contract/inputs/databasePassword, /spec/contract/inputs/databasePort
+# copy-differs: /spec/contract/inputs/databaseType, /spec/contract/inputs/databaseUser
+# copy-differs: /spec/contract/inputs/pgvectorMaxVectorLength, /spec/contract/inputs/redisAddress
+# copy-differs: /spec/contract/inputs/redisPassword, /spec/contract/inputs/vectorDB
+# copy-differs: /spec/contract/inputs/websocketManager, /spec/contract/outputs/privateURL
+# copy-differs: /spec/workload/command, /spec/workload/health/readiness/http/path
+#
+# Open WebUI on an external PostgreSQL (with pgvector) and Valkey.
 #
 # Additions to the original, all for the stack around it:
 #
@@ -21,7 +26,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Open WebUI chat interface for any OpenAI-compatible language-model API,
     keeping its data and document embeddings in PostgreSQL with pgvector and
@@ -45,6 +50,8 @@ spec:
     # exactly as the original does. WEBSOCKET_REDIS_URL defaults to
     # REDIS_URL (env.py), so one URL serves both. The password is hex, so it
     # needs no escaping in a URL.
+    #
+    # WORKAROUND(platform-api#1448): the Redis URL is composed from inputs.
     command:
       - bash
       - -c
@@ -471,7 +478,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

@@ -1,7 +1,7 @@
-# A copy of the `text-embeddings-inference` item's component
-# (items/text-embeddings-inference/components/text-embeddings-inference.yaml,
-# revision 1). A repo-local componentRef cannot leave its item directory, so a
-# blueprint that needs it carries its own. Keep the two in step.
+# copy-of: items/text-embeddings-inference/components/text-embeddings-inference.yaml@2
+#
+# . A repo-local componentRef cannot leave its item directory, so a blueprint
+# that needs it carries its own. Keep the two in step.
 #
 # Here it is the embedder for Graphiti: Graphiti's embedder must be OpenAI,
 # Azure OpenAI, Gemini or Voyage (mcp_server/src/services/factories.py,
@@ -11,7 +11,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hugging Face Text Embeddings Inference on CPU, serving one embedding model
     behind an API key with an OpenAI-compatible /v1/embeddings route, and
@@ -131,8 +131,8 @@ spec:
           parses. Larger requests are refused with 422.
       # The router also reads HOSTNAME as its listen address
       # (router/src/main.rs, v1.9.4). The runtime sets HOSTNAME to the pod's
-      # name, which the router logs as "Invalid hostname, defaulting to
-      # 0.0.0.0" and then binds 0.0.0.0, the address it needs (run gqs0ef138).
+      # name (platform-api#1443), which the router logs as "Invalid hostname,
+      # defaulting to 0.0.0.0" and then binds 0.0.0.0, the address it needs.
       #
       # The image sets PORT=80, which the platform refuses at admission
       # (ERR_PRIVILEGED_PORT: its runtime cannot bind below 1024), so the

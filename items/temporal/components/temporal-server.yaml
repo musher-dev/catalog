@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Temporal server running its frontend, history, matching and internal worker
     services in one process, on an external PostgreSQL whose schema is set up
@@ -100,7 +100,7 @@ spec:
       # The template's default is 127.0.0.1, which nothing outside the
       # container could reach. With 0.0.0.0 the entrypoint broadcasts the
       # pod's own IP for cluster membership (entrypoint.sh).
-      bindOnIP:
+      host:
         schema:
           type: string
         default: 0.0.0.0

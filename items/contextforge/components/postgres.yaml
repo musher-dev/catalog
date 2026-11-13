@@ -1,8 +1,7 @@
+# copy-of: items/postgres/components/postgres.yaml@9
+#
 # The PostgreSQL server ContextForge keeps its registry, users, teams, tokens
-# and metrics in. A copy of the `postgres` item's component
-# (items/postgres/components/postgres.yaml, revision 8): a repo-local
-# componentRef cannot leave its item directory, so a blueprint that needs one
-# carries its own. Keep the two in step when bumping the image.
+# and metrics in.
 #
 # Upstream's compose runs the gateway beside postgres:18 (docker-compose.yml,
 # v1.1.1) and installs the psycopg 3 driver for any PostgreSQL the driver
@@ -11,7 +10,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
@@ -86,3 +85,19 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the database endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

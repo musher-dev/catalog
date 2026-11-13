@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     LibreChat's API server and web app in one container, signing viewers in
     through the platform's OpenID Connect provider, with its data in a
@@ -34,6 +34,8 @@ spec:
     # shell does, from the four MONGO_* inputs below (which LibreChat itself
     # does not read), drops them from the environment and execs the image's
     # own start. The values are hex and host:port, so nothing needs escaping.
+    #
+    # WORKAROUND(platform-api#1448): the MongoDB URL is composed from inputs.
     command:
       - sh
       - -c
@@ -185,6 +187,7 @@ spec:
       mongoPassword:
         schema:
           type: string
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

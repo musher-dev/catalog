@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Caddy reverse proxy that admits only requests carrying the deployment's
     API key as a bearer token, in front of a private API that checks none.
@@ -38,6 +38,9 @@ spec:
     # - `admin off` leaves no admin API listening; `auto_https off` because
     #   the platform's edge terminates TLS. Caddy writes no access log
     #   unless told to, so keys are never logged.
+    #
+    # WORKAROUND(platform-api#1447): Caddy takes its configuration from a
+    #   file, which a component cannot mount, so the shell writes it.
     command:
       - sh
       - -c

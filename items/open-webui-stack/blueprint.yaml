@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: open-webui-stack
-  revision: 1
+  revision: 2
   description: >-
     Open WebUI behind the platform's sign-in, signing viewers in through its
     OpenID Connect provider, with its own PostgreSQL (pgvector) for data and
@@ -124,7 +124,7 @@ spec:
         # password shared by both ends: one parameter, so the two always agree.
         databaseHost:
           node: db
-          output: host
+          output: hostname
         databasePort:
           node: db
           output: port

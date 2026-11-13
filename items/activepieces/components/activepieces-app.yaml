@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Activepieces community edition API and web UI (app role), on an external
     PostgreSQL and Redis-compatible queue, with flows run by separate workers.
@@ -28,10 +28,12 @@ spec:
     # creates that account for the deployer, with their verified email and
     # the generated password, through the app's own API on loopback.
     #
-    # Not a one-shot JOB node, the shape the `coder` item uses: in catalog run
-    # ihc050a6e the platform deployed this blueprint's other four nodes and
-    # never ran its unscheduled JOB node ("4 of 4 replicas"), so the owner was
-    # never created.
+    # In-process rather than a one-shot JOB node, the shape the `coder`,
+    # `gitea`, `metabase` and `uptime-kuma` items use. An early deploy test of
+    # this item never saw its JOB node run, so the bootstrap moved here, and
+    # this is the form the live test passed. JOB nodes do run (those
+    # bootstraps all ran live), so a JOB polling the app's private address
+    # would work as well; it would need its own live test.
     #
     # How it runs. `command` replaces CMD and keeps the ENTRYPOINT
     # (`tini -- ./docker-entrypoint.sh`), which execs its arguments when it has
@@ -51,12 +53,16 @@ spec:
     # signs in with the same pair, so it reports success only once the
     # password really works. The community edition verifies the address
     # itself, with no email. JSON goes to curl (in the image) on stdin, so the
-    # password is in no process's argv; it is BASE64URL and needs no escaping,
-    # and the email is escaped for `\` and `"`. Responses carry a session
+    # password is in no process's argv. Every string in it is escaped for `\`
+    # and `"`, the password included: it is BASE64URL today, but the input
+    # accepts any string. Responses carry a session
     # token, so they are printed only on failure, cut to 300 bytes. It runs on
     # every start and changes nothing once an account exists, so a rotated
     # password parameter does not reach the account. If it fails, the sign-up
     # page, behind the platform's sign-in, is the fallback.
+    #
+    # WORKAROUND(platform-api#1445): no node can run after the app is ready,
+    #   so the first account is created in-process once the API answers.
     command:
       - sh
       - -c
@@ -76,14 +82,18 @@ spec:
             echo "bootstrap-owner: Activepieces already has an owner; nothing to do"
             return 0
           fi
-          email=$(printf '%s' "$OWNER_EMAIL" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+          email=$(esc "$OWNER_EMAIL")
+          password=$(esc "$OWNER_PASSWORD")
+          first=$(esc "$OWNER_FIRST_NAME")
+          last=$(esc "$OWNER_LAST_NAME")
           for step in sign-up sign-in; do
             if [ "$step" = sign-up ]; then
               fmt='{"email":"%s","password":"%s","firstName":"%s","lastName":"%s",'
               fmt="$fmt"'"trackEvents":false,"newsLetter":false}'
-              body=$(printf "$fmt" "$email" "$OWNER_PASSWORD" "$OWNER_FIRST_NAME" "$OWNER_LAST_NAME")
+              body=$(printf "$fmt" "$email" "$password" "$first" "$last")
             else
-              body=$(printf '{"email":"%s","password":"%s"}' "$email" "$OWNER_PASSWORD")
+              body=$(printf '{"email":"%s","password":"%s"}' "$email" "$password")
             fi
             status=$(printf '%s' "$body" | curl -sS -o "$out" -w '%{http_code}' --max-time 60 \
               -X POST -H 'Content-Type: application/json' --data-binary @- "$base/authentication/$step")
@@ -265,7 +275,8 @@ spec:
       # configured URL (getPublicUrlFromRequest, helper/domain-helper.ts,
       # 0.93.0). The platform's edge ends TLS and the request arrives without
       # an https X-Forwarded-Proto, so without this the issuer and token
-      # endpoint were advertised as http:// (catalog run ihc050a6e). Setting it
+      # endpoint were advertised as http:// in a live deploy test
+      # (platform-api#539). Setting it
       # equal to AP_FRONTEND_URL is the one same-host value the startup check
       # allows (assertMcpUrlHasDistinctHost, helper/system-validator.ts).
       mcpURL:
@@ -363,7 +374,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: uptime-kuma
-  revision: 1
+  revision: 2
   description: >-
     Uptime Kuma behind the platform's sign-in, with its status pages, badges
     and push URLs public, and an admin account created for the deployer.
@@ -34,8 +34,8 @@ spec:
           viewerIdentity: NONE
           accessExemptions:
             - PATHS
-    bootstrap-admin:
-      componentRef: ./components/bootstrap-admin.yaml
+    bootstrap-owner:
+      componentRef: ./components/bootstrap-owner.yaml
       # A short Node.js script that mostly waits.
       compute:
         profile: general.economy.nano
@@ -45,13 +45,14 @@ spec:
         kumaAddress:
           node: web
           output: address
-        adminPassword:
-          parameter: adminPassword
+        ownerPassword:
+          parameter: ownerPassword
   parameters:
     # Disclosed to whoever manages the deployment, for when Uptime Kuma's own
     # login is switched back on and for /metrics basic auth. 24 bytes in
-    # BASE64URL is 32 characters, with no character that needs escaping.
-    adminPassword:
+    # BASE64URL is 32 characters, with no character that needs escaping. The
+    # label keeps Uptime Kuma's own word for the account.
+    ownerPassword:
       generator:
         byteLength: 24
         encoding: BASE64URL

@@ -1,8 +1,7 @@
+# copy-of: items/pgvector/components/pgvector.yaml@2
+#
 # The PostgreSQL server Open WebUI keeps everything in: accounts, chats,
-# settings, and the embeddings of every uploaded document. A copy of the
-# `pgvector` item's component (items/pgvector/components/pgvector.yaml,
-# revision 1): a repo-local componentRef cannot leave its item directory, so a
-# blueprint that needs one carries its own. Keep the two in step.
+# settings, and the embeddings of every uploaded document.
 #
 # pgvector rather than plain postgres, because Open WebUI's pgvector client
 # stores document chunks in a `vector` column of this same database
@@ -11,7 +10,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     PostgreSQL 17 with the pgvector extension enabled, a single persistent data
     volume and an HTTP readiness check.
@@ -65,6 +64,9 @@ spec:
     # src/backend/postmaster/postmaster.c, REL_17_STABLE). With Perl as PID 1
     # the postmaster has no unknown children. A connection that sends nothing
     # is cut after 4 s, so the single-threaded loop cannot be held.
+    #
+    # WORKAROUND(platform-api#1446): probes are HTTP-only, so a Perl
+    #   supervisor serves an HTTP readiness check that runs pg_isready.
     command:
       - perl
       - -e
@@ -238,7 +240,7 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
-      host:
+      hostname:
         schema:
           type: string
         description: >-

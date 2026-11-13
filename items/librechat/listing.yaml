@@ -93,7 +93,7 @@ spec:
     To build an agent with tools, open **Agents** in the side panel. To call
     an agent from other software, create an API key under **Settings → API
     Keys**, and grant the Remote Agents permissions there before others can.
-  category: AGENTS
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - ai

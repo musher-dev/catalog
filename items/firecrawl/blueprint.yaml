@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: firecrawl
-  revision: 1
+  revision: 2
   description: >-
     Self-hosted Firecrawl scrape, crawl and map API behind an API-key gateway,
     with its Playwright browser service, NuQ PostgreSQL queue, RabbitMQ and
@@ -26,7 +26,7 @@ spec:
       # No exposure: PRIVATE, reachable only from this deployment.
       bindings:
         postgresPassword:
-          parameter: databasePassword
+          parameter: dbPassword
     queue:
       componentRef: ./components/rabbitmq.yaml
       # An idle broker is about 150 MiB of Erlang VM, and the broker blocks
@@ -80,7 +80,7 @@ spec:
         # The same generated password `db` initialises its superuser with:
         # one parameter, so the two always agree.
         postgresPassword:
-          parameter: databasePassword
+          parameter: dbPassword
         redisAddress:
           node: cache
           output: address
@@ -120,7 +120,7 @@ spec:
         order: 1
     # HEX for all three: each one ends up inside a URL (redis://, amqp://,
     # postgresql://), and HEX needs no percent-encoding there.
-    databasePassword:
+    dbPassword:
       generator:
         byteLength: 24
         encoding: HEX
