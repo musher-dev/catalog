@@ -1,0 +1,97 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: temporal
+spec:
+  itemType: BLUEPRINT
+  displayName: Temporal
+  summary: >-
+    Durable execution for long-running workflows and AI agents: a Temporal
+    server on PostgreSQL with the Temporal Web UI behind your organization's
+    sign-in
+  overview: |
+    ## What it is
+    Temporal is an open-source durable execution platform. You write
+    workflows as ordinary code with a Temporal SDK (Go, Java, TypeScript,
+    Python, .NET, PHP or Ruby), and the server records every step. If a
+    worker crashes or a call fails, the workflow resumes where it left off,
+    retries what failed, and can wait for minutes or months. That makes it a
+    common backbone for AI agents whose tool calls, LLM requests and
+    human-approval waits must survive restarts. The OpenAI Agents SDK and
+    Pydantic AI both have Temporal integrations.
+
+    This deployment runs the Temporal server, its PostgreSQL database and the
+    Temporal Web UI, where you browse namespaces, workflows and their event
+    histories, and signal, cancel, reset or terminate them.
+
+    ## When to use
+    - You run agents or background jobs that must finish even when a process
+      dies halfway through.
+    - You want retries, timeouts, timers and long waits handled by the
+      platform instead of hand-written queue and cron code.
+    - You want to see every step a workflow took, with its inputs and
+      outputs, in a browser.
+
+    ## Before you start
+    Temporal runs your code in **workers** that you write and run yourself;
+    the server only orchestrates them. In this deployment the server's gRPC
+    endpoint (port 7233) is private. Only workloads inside this same
+    deployment can connect to it. Workers and clients running anywhere else,
+    including in another Musher deployment, cannot reach it, and there is no
+    public gRPC address. To run workers against this server, they need to be
+    added as nodes of this deployment's blueprint.
+
+    ## Defaults
+    Three containers and a one-time setup job:
+    - **Server**: `temporalio/server:1.32.2`, with the frontend, history,
+      matching and internal worker services in one process, on 1 vCPU and
+      2 GiB. Its gRPC API (7233) and HTTP API (7243) are private to the
+      deployment, and it runs without an authorizer, as upstream's compose
+      does. It has four history shards, a count fixed when the cluster is
+      created.
+    - **Database**: a private PostgreSQL 17 server on 1 vCPU and 1 GiB,
+      holding the `temporal` and `temporal_visibility` databases on a 10 GiB
+      volume. Workflow histories live here. The database password is
+      generated, and you can reveal it on the Installation tab.
+    - **Web UI**: `temporalio/ui:2.58.1` on 1 vCPU and 1 GiB, served on port
+      8080 behind the platform's HTTPS edge and sign-in. It has no sign-in of
+      its own: every member who can open the deployment can see and act on
+      every workflow. Temporal's news feed in the UI is turned off.
+    - **Setup job**: `temporalio/admin-tools:1.32.2` creates both databases,
+      applies the schema migrations and registers the `default` namespace
+      with 72-hour retention. It runs again on every update and changes only
+      what is missing or out of date.
+
+    ## Limitations
+    - No public gRPC endpoint, so the Temporal CLI and workers on your own
+      machine cannot connect.
+    - Visibility (workflow search and list filters) uses PostgreSQL, not
+      Elasticsearch, which suits small and medium workloads.
+    - Archival is off.
+
+    ## Upgrades
+    The server and the setup job use the same release. When both move to a
+    new version, the job applies that version's schema migrations, and the
+    server restarts until it has.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. The Temporal Web UI
+       opens on the `default` namespace.
+    2. Start a workflow from the UI's **Start Workflow** button to see the
+       server record it. It stays pending until a worker polls its task
+       queue.
+    3. Add your workers as nodes of this deployment's blueprint, pointing an
+       SDK at the server's private gRPC address and the `default` namespace.
+       Their workflows then appear in the UI as they run.
+  category: AUTOMATION
+  lifecycleStage: BETA
+  tags:
+    - workflow-orchestration
+    - durable-execution
+    - ai-agents
+    - background-jobs
+    - microservices
+  homepageURL: https://temporal.io
+  sourceRepositoryURL: https://github.com/temporalio/temporal
+  supportURL: https://docs.temporal.io/self-hosted-guide
+  license: MIT
+  icon: media/icon.png

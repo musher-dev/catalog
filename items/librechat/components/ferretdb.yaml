@@ -1,0 +1,141 @@
+# FerretDB: a MongoDB-compatible server that stores its documents in
+# PostgreSQL with the DocumentDB extension (components/documentdb.yaml).
+# LibreChat connects to it with its ordinary MongoDB driver (mongoose,
+# MONGO_URI), so it needs no MongoDB server and no SSPL-licensed software.
+#
+# LibreChat maintains a FerretDB 2.x integration suite in its own repository
+# (packages/data-schemas/misc/ferretdb, v0.8.8), run against this release. Its
+# notes record all 29 of LibreChat's models and 98 indexes working on FerretDB
+# v2.7.0 (ferretdb-multitenancy-plan.md). Its jest config states the suite is
+# not run in CI, so compatibility is maintained but not gated on every commit.
+#
+# Stateless. FerretDB keeps nothing but its state file (an instance id and the
+# telemetry choice, /state) on local disk; every document is in PostgreSQL.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    FerretDB serving the MongoDB wire protocol from PostgreSQL with the
+    DocumentDB extension, signing clients in with PostgreSQL roles.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2.7.0 is the latest stable release (2025-11-10; GitHub
+      # releases). `2` and `2.7` float, and `latest` would too. It is built for
+      # DocumentDB 0.107.0, the extension the documentdb node's image carries;
+      # bump the two together. The image is distroless: the /ferretdb binary
+      # as ENTRYPOINT, running as `ferretdb`, with no shell.
+      image: ghcr.io/ferretdb/ferretdb:2.7.0
+    endpoints:
+      # The MongoDB wire protocol. FERRETDB_LISTEN_ADDR is `:27017` in the
+      # image (crane config, 2.7.0).
+      primary:
+        targetPort: 27017
+        protocol: TCP
+      # The debug handler: metrics and the probes (FERRETDB_DEBUG_ADDR `:8088`
+      # in the image; website/docs/configuration/observability.md, v2.7.0).
+      # Private like `primary`.
+      debug:
+        targetPort: 8088
+        protocol: HTTP
+    health:
+      # /debug/readyz opens a MongoDB connection to this FerretDB and sends
+      # `ping` (cmd/ferretdb/readyz.go, v2.7.0), so it is red until the wire
+      # listener is up. Upstream's image healthcheck runs the same `ping`
+      # every 60 s. FerretDB logs each successful probe at info level, hence
+      # 30 s rather than 10 s between probes.
+      readiness:
+        http:
+          endpoint: debug
+          path: /debug/readyz
+        initialDelaySeconds: 10
+        periodSeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # The PostgreSQL connection. FerretDB takes a single URL
+      # (FERRETDB_POSTGRESQL_URL) and hands it to pgx, which fills every part
+      # the URL leaves out from the libpq environment variables (PGHOST,
+      # PGPORT, PGUSER, PGPASSWORD; parseEnvSettings and parseURLSettings in
+      # pgconn/config.go, pgx v5.7.6, the version FerretDB 2.7.0 builds
+      # with). A blueprint cannot compose a URL from a node's address and a
+      # generated password, and this image has no shell to do it, so the URL
+      # names only the database and the four inputs below supply the rest.
+      #
+      # The database is `postgres`, the one the DocumentDB extension is
+      # installed in (components/documentdb.yaml).
+      postgresqlURL:
+        schema:
+          type: string
+        default: postgres:///postgres
+        target:
+          envVar: FERRETDB_POSTGRESQL_URL
+        description: >-
+          PostgreSQL connection URL with host and credentials left out, so pgx
+          takes them from the inputs below.
+      pgHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: PGHOST
+        description: Hostname of the PostgreSQL server with the DocumentDB extension.
+      pgPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: PGPORT
+        description: Port of that PostgreSQL server.
+      pgUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: PGUSER
+        description: PostgreSQL role FerretDB connects as.
+      pgPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: PGPASSWORD
+        description: Password of that role.
+      # Telemetry defaults to `undecided`, which still reports usage to
+      # FerretDB after a delay (website/docs/telemetry.md, v2.7.0). Off here.
+      telemetry:
+        schema:
+          type: string
+        default: disable
+        target:
+          envVar: FERRETDB_TELEMETRY
+        description: >-
+          Whether FerretDB reports anonymous usage, as the literal string the
+          binary parses.
+      # Authentication is on by default; pinned so the item does not depend
+      # on a default it cannot see change. Clients sign in with a PostgreSQL
+      # role over SCRAM-SHA-256 (website/docs/security/authentication.md).
+      auth:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: FERRETDB_AUTH
+        description: >-
+          Whether MongoDB clients must sign in with a PostgreSQL role, as the
+          literal string the binary parses.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the MongoDB endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateAddress

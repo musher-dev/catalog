@@ -1,0 +1,189 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    One-shot job that creates Temporal's two PostgreSQL databases, applies
+    their schema migrations, and registers the default namespace once the
+    server answers.
+spec:
+  # WHY A JOB. The server image neither creates nor migrates its schema.
+  # Upstream's compose runs this image twice as one-shot containers: once to
+  # set the schema up before the server starts, and once to create the
+  # `default` namespace after it is healthy (compose/scripts/setup-postgres.sh
+  # and compose/scripts/create-namespace.sh, temporalio/samples-server). Here
+  # one job does both, in that order, and waits for each dependency itself,
+  # because the platform orders a job against nothing.
+  #
+  # A JOB without a schedule runs once per rollout: at deployment, on every
+  # update and on every redeploy (COMP-JOB-001). Every step is safe to repeat.
+  # create-database ignores a database that exists (CreateDatabase,
+  # common/persistence/sql/sqlplugin/postgresql/admin.go, v1.32.2).
+  # setup-schema -v 0.0 creates only the version tables, IF NOT EXISTS, and
+  # leaves a higher recorded version alone (SetupTask.Run, tools/common/
+  # schema/setuptask.go). update-schema applies only the migrations above the
+  # recorded version, so a rollout that bumps both images to a new minor
+  # migrates the schema. The namespace is created only if it is missing.
+  #
+  # The server restarts until the schema exists (components/
+  # temporal-server.yaml). A failed run is not retried until the next
+  # rollout. The deployment's logs show which step failed.
+  type: JOB
+  workload:
+    source:
+      # PINNED. 1.32.2, the same release as the server: the versioned schema
+      # directories baked into this image are the migrations that server
+      # expects. Alpine with busybox sh, USER temporal, CMD `sh -c ... sleep
+      # infinity` and no ENTRYPOINT, so the `command` below replaces the CMD
+      # outright (docker/targets/admin-tools.Dockerfile, v1.32.2). It carries
+      # temporal-sql-tool, the `temporal` CLI 1.10.0 and the schema files under
+      # /etc/temporal/schema.
+      image: temporalio/admin-tools:1.32.2
+    # temporal-sql-tool reads SQL_PLUGIN, SQL_HOST, SQL_PORT, SQL_USER and
+    # SQL_PASSWORD from the environment (tools/sql/main.go, v1.32.2), so the
+    # password is never in argv. It exits 1 on any error. The steps and paths
+    # are upstream's setup-postgres.sh. The first create-database is retried
+    # until PostgreSQL, on its own first boot, accepts a connection.
+    command:
+      - sh
+      - -c
+      - >-
+        set -eu;
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ));
+        overdue() { [ "$(date +%s)" -ge "$deadline" ]; };
+        schemas=/etc/temporal/schema/postgresql/v12;
+        until temporal-sql-tool --db "$TEMPORAL_DB" create-database
+        --defaultdb "$SQL_DEFAULT_DB"; do
+        if overdue; then
+        echo "schema-setup: PostgreSQL at ${SQL_HOST}:${SQL_PORT} refused
+        connections for ${READY_TIMEOUT_SECONDS}s" >&2;
+        exit 1;
+        fi;
+        sleep 5;
+        done;
+        temporal-sql-tool --db "$TEMPORAL_DB" setup-schema -v 0.0;
+        temporal-sql-tool --db "$TEMPORAL_DB" update-schema
+        -d "$schemas/temporal/versioned";
+        temporal-sql-tool --db "$VISIBILITY_DB" create-database
+        --defaultdb "$SQL_DEFAULT_DB";
+        temporal-sql-tool --db "$VISIBILITY_DB" setup-schema -v 0.0;
+        temporal-sql-tool --db "$VISIBILITY_DB" update-schema
+        -d "$schemas/visibility/versioned";
+        echo "schema-setup: ${TEMPORAL_DB} and ${VISIBILITY_DB} are at the
+        current schema";
+        until temporal operator cluster health --address "$TEMPORAL_ADDRESS"; do
+        if overdue; then
+        echo "schema-setup: Temporal at ${TEMPORAL_ADDRESS} was not healthy
+        within ${READY_TIMEOUT_SECONDS}s" >&2;
+        exit 1;
+        fi;
+        sleep 5;
+        done;
+        if temporal operator namespace describe -n "$NAMESPACE"
+        --address "$TEMPORAL_ADDRESS" >/dev/null 2>&1; then
+        echo "schema-setup: namespace ${NAMESPACE} already exists";
+        else
+        temporal operator namespace create -n "$NAMESPACE"
+        --retention "$NAMESPACE_RETENTION" --address "$TEMPORAL_ADDRESS";
+        echo "schema-setup: created namespace ${NAMESPACE}";
+        fi
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the connection and the server's address.
+      # The constants carry defaults.
+      sqlPlugin:
+        schema:
+          type: string
+        default: postgres12
+        target:
+          envVar: SQL_PLUGIN
+        description: temporal-sql-tool plugin, the same one the server persists through.
+      sqlHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SQL_HOST
+        description: Mesh-internal hostname of the PostgreSQL server.
+      sqlPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: SQL_PORT
+        description: Port of the PostgreSQL server on that hostname.
+      # The role needs CREATEDB. The `db` node creates it as the cluster's
+      # superuser.
+      sqlUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SQL_USER
+        description: Role the job connects as, which creates and owns both databases.
+      sqlPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SQL_PASSWORD
+        description: Password of the role above.
+      # The maintenance database every PostgreSQL cluster has, which
+      # create-database connects to while it creates the others.
+      sqlDefaultDb:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: SQL_DEFAULT_DB
+        description: Existing database the job connects to while it creates the two below.
+      databaseName:
+        schema:
+          type: string
+        default: temporal
+        target:
+          envVar: TEMPORAL_DB
+        description: Database for Temporal's default store; the server must be given the same name.
+      visibilityDatabaseName:
+        schema:
+          type: string
+        default: temporal_visibility
+        target:
+          envVar: VISIBILITY_DB
+        description: Database for Temporal's visibility store; the server must be given the same name.
+      temporalAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: TEMPORAL_ADDRESS
+        description: Mesh-internal `host:port` of the Temporal frontend gRPC API.
+      namespace:
+        schema:
+          type: string
+        default: default
+        target:
+          envVar: NAMESPACE
+        description: Namespace registered once the server answers, which SDKs and the UI use unless told otherwise.
+      # The CLI's own default (temporal operator namespace create, temporalio/
+      # cli commands.yaml, v1.10.0). Closed workflows' histories are deleted
+      # after it. Change it later with `temporal operator namespace update`.
+      namespaceRetention:
+        schema:
+          type: string
+        default: 72h
+        target:
+          envVar: NAMESPACE_RETENTION
+        description: How long the namespace keeps a closed workflow's history, as a Go duration.
+      # Covers an image pull, PostgreSQL's first boot, and the server's
+      # restarts with backoff until the schema exists.
+      readyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 1200
+        target:
+          envVar: READY_TIMEOUT_SECONDS
+        description: How long the job waits for PostgreSQL, and then for the Temporal server, before it fails.
+    outputs: {}

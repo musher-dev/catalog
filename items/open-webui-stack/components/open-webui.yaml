@@ -1,0 +1,528 @@
+# Open WebUI on an external PostgreSQL (with pgvector) and Valkey. A copy of
+# the `open-webui` item's component (items/open-webui/components/
+# open-webui.yaml, revision 13): a repo-local componentRef cannot leave its
+# item directory, so a blueprint that needs one carries its own. Keep the two
+# in step when bumping the image or changing sign-in.
+#
+# Additions to the original, all for the stack around it:
+#
+# - DATABASE_* inputs. Accounts, chats and settings go to the `db` node's
+#   PostgreSQL instead of the SQLite file on the data volume.
+# - VECTOR_DB=pgvector. Document embeddings go to the same database, instead
+#   of the Chroma files on the data volume.
+# - WEBSOCKET_MANAGER=redis and a Redis URL built by `command`. Socket.IO
+#   sessions, the model list, task state and token revocation live in the
+#   `cache` node's Valkey, so more than one worker or replica can share them.
+# - A readiness probe on /ready instead of /health. It fails while the
+#   database or Valkey cannot be reached.
+# - A `privateURL` output, for other nodes in a composition.
+#
+# Uploaded files and the embedding-model cache still use the data volume.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Open WebUI chat interface for any OpenAI-compatible language-model API,
+    keeping its data and document embeddings in PostgreSQL with pgvector and
+    its live state in Valkey, and signing viewers in as an OpenID Connect
+    client of the platform.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.13.3 is the latest stable release (2026-11-08), the same
+      # tag the `open-webui` item runs. `main` and `latest` move with every
+      # merge or release.
+      image: ghcr.io/open-webui/open-webui:v0.13.3
+    # The image has no ENTRYPOINT and its CMD is `bash start.sh`, so this
+    # replaces the whole start command. Open WebUI reads its Redis password
+    # only from inside REDIS_URL (utils/redis.py, v0.13.3: parse_redis_service_url),
+    # and a binding cannot join a password and an address into one string:
+    # a component template reads only endpoint properties
+    # (COMP-PLACEHOLDER-001). So bash builds the URL from the two inputs,
+    # drops them, and runs the image's own start script, which execs uvicorn
+    # exactly as the original does. WEBSOCKET_REDIS_URL defaults to
+    # REDIS_URL (env.py), so one URL serves both. The password is hex, so it
+    # needs no escaping in a URL.
+    command:
+      - bash
+      - -c
+      - |
+        set -eu
+        export REDIS_URL="redis://:${REDIS_PASSWORD}@${REDIS_ADDRESS}/0"
+        unset REDIS_PASSWORD REDIS_ADDRESS
+        exec bash start.sh
+    endpoints:
+      primary:
+        targetPort: 8080
+        protocol: HTTP
+        # Open WebUI signs viewers in as an OpenID Connect client. These are the
+        # routes it receives the authorization response on for its `oidc`
+        # provider: /login/callback, plus the legacy /callback it still serves
+        # (main.py, v0.13.3). The platform registers publicURL followed by each.
+        oidc:
+          redirectPaths:
+            - /oauth/oidc/login/callback
+            - /oauth/oidc/callback
+        # The OpenAI- and Anthropic-compatible chat, model and embedding APIs,
+        # the OpenAI proxy, and incoming channel webhooks. API clients call
+        # these with an Open WebUI API key and no viewer session, and Open
+        # WebUI authenticates every one itself (utils/auth.py; channel
+        # webhooks carry their token in the path). A blueprint may let them
+        # past the platform's sign-in. The UI keeps working through them,
+        # because under OIDC it holds Open WebUI's own session.
+        #
+        # Not `bearerToken`. /api/v1/auths/signup checks no credential, and on a
+        # deployment first installed before this revision, sign-up stays as
+        # that install saved it (ui.enable_signup and ui.enable_login_form
+        # are captured at first boot, config.py). Any bearer token would
+        # then open self-registration to the internet.
+        exemptibleRequests:
+          paths:
+            - /api/chat/completions
+            - /api/v1/chat/completions
+            - /api/models
+            - /api/v1/models
+            - /api/embeddings
+            - /api/v1/embeddings
+            - /api/v1/messages
+            - /api/v1/channels/webhooks
+            - /openai
+    health:
+      # The first boot below runs on one vCPU, so it gets a budget of its own
+      # rather than resting on the readiness gate's retries: 30 + 90 x 10 =
+      # 930 s. Readiness and liveness are suspended until it passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
+      # /ready, not /health: it answers 503 until startup has finished, and
+      # afterwards whenever a ping to the database or to Valkey fails
+      # (main.py readiness_check, v0.13.3). /health answers as soon as
+      # uvicorn does. The startup probe above stays on /health, because a
+      # database still initialising on the first boot is a reason to wait,
+      # not to restart.
+      readiness:
+        http:
+          endpoint: primary
+          path: /ready
+        # uvicorn binds the socket only after the FastAPI lifespan returns, so
+        # nothing answers on 8080 until the whole first boot has run: ~70
+        # alembic migrations, then a cold pull of the default embedding model
+        # (sentence-transformers/all-MiniLM-L6-v2) from HuggingFace, then
+        # loading it. The image bakes that model in at build time, but into
+        # /app/backend/data/cache (SENTENCE_TRANSFORMERS_HOME, Dockerfile at
+        # v0.13.3), which the data volume below mounts over. Every probe until
+        # then is connection-refused. The old 30s + 3-failure gate expired
+        # while the model was still loading and the agent reaped the container
+        # mid-boot (observed live). Same budget shape
+        # as label-studio and mlflow: the wait is carried by the initial delay,
+        # because retries are cheap but few. First boot only: the model cache
+        # lives in the data volume below and the schema in the `db` node.
+        initialDelaySeconds: 180
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+    # Uploaded files and the model caches. Accounts, chats, settings and
+    # embeddings are in the `db` node, not here.
+    volumes:
+      data:
+        minSizeGiB: 8
+        mountPath: /app/backend/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the two constants below. They carry defaults, so no
+      # blueprint has to wire them and no deploy form gains a field — but they
+      # are pins like any other, and a composition may override one.
+      enableOpenAIAPI:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ENABLE_OPENAI_API
+        # Already True by default in v0.13.3 (config.py:309); pinned so the item
+        # does not depend on an upstream default it cannot see change.
+        description: >-
+          Whether the OpenAI-compatible API client is enabled, as the literal
+          string the image parses.
+      enableOllamaAPI:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ENABLE_OLLAMA_API
+        # The native Ollama integration is off, and is not a user choice. It
+        # used to be an input whose default named a sibling `ollama` service
+        # this deployment never contained. An Ollama server is reachable
+        # through the `llm` node like any other engine, via its
+        # OpenAI-compatible /v1.
+        description: >-
+          Whether the native Ollama client is enabled, as the literal string the
+          image parses.
+      # PyTorch sizes its thread pool from the host's cores, not the node's
+      # vCPU quota, so the embedding model would run dozens of threads on one
+      # vCPU. One thread matches the profile the blueprint gives this node.
+      ompNumThreads:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: OMP_NUM_THREADS
+        description: Threads PyTorch and its math libraries use for the local embedding model.
+      # The three inputs below carry one language-model connection. They are not
+      # supplied independently: the blueprint wires all three to the outputs of
+      # the `llm` node, which takes the connection whole (components/llm.yaml).
+      # An address from one provider beside a key from another would be a
+      # visible authoring mistake in blueprint.yaml rather than a silent one
+      # here.
+      openaiApiBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: OPENAI_API_BASE_URL
+        # CAPTURED AT FIRST BOOT, for all three of these inputs. v0.13.3 reads
+        # these env vars into DEFAULT_CONFIG (config.py:2960), and on every
+        # start main.py:391 calls seed_registered_defaults(). That runs
+        # Config.seed_defaults (models/config.py:249), which writes a row for
+        # every key that has none, and Config.get prefers a stored row. So the
+        # first boot saves this URL, the key and the model into the database,
+        # whether or not an admin ever opens Connections. Every later boot
+        # ignores the env: rotating the credential, changing the organization
+        # default, or overriding the connection does not reach a running
+        # deployment. A fresh deployment, or an admin editing Connections,
+        # does.
+        #
+        # ENABLE_PERSISTENT_CONFIG=false or RESET_CONFIG_ON_START=true would
+        # make the env authoritative again. Neither is scoped to these keys:
+        # both revert every admin setting on each restart. Rejected for that.
+        # v0.11.0 made env authoritative again for single sign-on, but only
+        # for `oauth.*` keys (ENABLE_OAUTH_PERSISTENT_CONFIG,
+        # models/config.py:139); `openai.*` and `ui.default_models` are still
+        # captured.
+        #
+        # Open WebUI appends /chat/completions (routers/openai.py:1555) and
+        # also lists models from GET {url}/models (routers/openai.py:127). A
+        # chat for a model missing from that list fails with MODEL_NOT_FOUND,
+        # so the endpoint behind this URL has to serve /models too.
+        description: >-
+          Base URL of the OpenAI-compatible API Open WebUI sends chat requests
+          to, saved at first boot.
+      openaiApiKey:
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVar: OPENAI_API_KEY
+        description: Bearer credential for the API above.
+      # Required and default-less: an acquired connection always carries a
+      # model, so there is nothing for an optional case to cover. Users can
+      # still pick any other model the API lists.
+      defaultModels:
+        schema:
+          type: string
+        target:
+          envVar: DEFAULT_MODELS
+        description: Model preselected for new chats.
+      webuiSecretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: WEBUI_SECRET_KEY
+        description: Secret key used to sign session tokens
+      # Sign-in through the platform's OpenID Connect provider. Unlike the
+      # connection above, `oauth.*` settings are read from the environment on
+      # every start (ENABLE_OAUTH_PERSISTENT_CONFIG defaults to False,
+      # config.py, v0.13.3), so a rotated client secret takes effect on the
+      # next restart. Open WebUI keys accounts on the provider's `sub`.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: OAUTH_CLIENT_ID
+        description: Client identifier the platform registered for this endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: OAUTH_CLIENT_SECRET
+        description: Client secret the platform registered for this endpoint.
+      # A discovery document, not the bare issuer: Open WebUI hands this URL
+      # to Authlib as server_metadata_url (config.py, v0.13.3).
+      oidcDiscoveryURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OPENID_PROVIDER_URL
+        description: URL of the platform's OpenID Connect discovery document.
+      # Stated rather than derived. Open WebUI otherwise builds the URI with
+      # request.url_for, which depends on the scheme the proxy reports.
+      oidcRedirectURI:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OPENID_REDIRECT_URI
+        description: Redirect URI Open WebUI sends with its authorization request.
+      oauthSignup:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ENABLE_OAUTH_SIGNUP
+        description: >-
+          Whether a first sign-in through the platform creates the account, as
+          the literal string the image parses.
+      # The platform's EMAIL claim is a verified address (blueprint
+      # BP-ACCESS-006), so merging on it is safe. Without it, an account
+      # registered with a password before this revision could never sign in
+      # again, because password sign-in is off below.
+      oauthMergeAccountsByEmail:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+        description: >-
+          Whether a platform sign-in takes over the existing account with the
+          same verified email, as the literal string the image parses.
+      oauthProviderName:
+        schema:
+          type: string
+        default: Musher
+        target:
+          envVar: OAUTH_PROVIDER_NAME
+        description: Name the sign-in button gives the platform's provider.
+      # The platform's provider requires PKCE with S256 (BP-ACCESS-008).
+      oauthCodeChallengeMethod:
+        schema:
+          type: string
+        default: S256
+        target:
+          envVar: OAUTH_CODE_CHALLENGE_METHOD
+        description: PKCE method Open WebUI uses in its authorization request.
+      oauthAutoRedirect:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OAUTH_AUTO_REDIRECT
+        description: >-
+          Whether the sign-in page goes straight to the platform's provider, as
+          the literal string the image parses.
+      # Read from the environment on every start; refuses password sign-in
+      # (routers/auths.py, v0.13.3).
+      passwordAuth:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ENABLE_PASSWORD_AUTH
+        description: >-
+          Whether accounts may sign in with a password, as the literal string
+          the image parses.
+      # Captured at first boot, so it reaches only a new deployment. With it
+      # off, the first admin is the first person to sign in through the
+      # platform rather than whoever registers first.
+      loginForm:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ENABLE_LOGIN_FORM
+        description: >-
+          Whether the email and password form is shown on a new deployment, as
+          the literal string the image parses.
+      # Captured at first boot, like the login form, so it reaches only a new
+      # deployment; an admin toggles it under Settings afterwards. The
+      # exempt API paths are useful only to a client holding an API key.
+      apiKeys:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ENABLE_API_KEYS
+        description: >-
+          Whether users may create API keys on a new deployment, as the literal
+          string the image parses.
+      # The inputs below are this stack's additions to the `open-webui` item's
+      # component.
+      #
+      # The database, as parts rather than one URL. When all five of type,
+      # credentials, host, port and name are set, Open WebUI builds
+      # DATABASE_URL from them itself (env.py, v0.13.3), so no binding has to
+      # join a password into a string. The password goes into that URL
+      # unescaped, so it must be URL-safe; the blueprint generates hex.
+      # Read on every start, so a moved or renamed database takes effect on
+      # the next restart. Migrations run on start (ENABLE_DB_MIGRATIONS
+      # defaults to True).
+      databaseType:
+        schema:
+          type: string
+        default: postgresql
+        target:
+          envVar: DATABASE_TYPE
+        description: SQLAlchemy dialect of the database URL Open WebUI builds.
+      databaseHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_HOST
+        description: Mesh-internal hostname of the PostgreSQL server.
+      databasePort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: DATABASE_PORT
+        description: Port of the PostgreSQL server.
+      databaseUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_USER
+        description: Role Open WebUI connects to PostgreSQL as.
+      # The same schema as the `db` node's postgresPassword, because one
+      # parameter feeds both (ERR_CONFLICTING_INPUT_SCHEMA), so URL-safety
+      # rests on the blueprint generating hex.
+      databasePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: DATABASE_PASSWORD
+        description: >-
+          Password of that role. Open WebUI places it in a URL unescaped, so
+          it must contain no URL delimiters such as `@`, `/` or `:`.
+      databaseName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_NAME
+        description: Database Open WebUI keeps its accounts, chats and settings in.
+      # Document embeddings in the same database. PGVECTOR_DB_URL defaults to
+      # the DATABASE_URL built above (config.py, v0.13.3), so the pgvector
+      # client needs no URL of its own. It creates the `document_chunk` table
+      # on start.
+      vectorDB:
+        schema:
+          type: string
+        default: pgvector
+        target:
+          envVar: VECTOR_DB
+        description: Vector store Open WebUI keeps document embeddings in.
+      # The width of the `vector` column, fixed when the table is first
+      # created; a later change makes Open WebUI refuse to start
+      # (check_vector_length, retrieval/vector/dbs/pgvector.py). Shorter
+      # embeddings are zero-padded, so the local 384-dimension
+      # all-MiniLM-L6-v2 fits, and so does a 1536-dimension provider model an
+      # admin switches to later. Upstream's default, pinned.
+      pgvectorMaxVectorLength:
+        schema:
+          type: string
+        default: '1536'
+        target:
+          envVar: PGVECTOR_INITIALIZE_MAX_VECTOR_LENGTH
+        description: >-
+          Dimensions of the vector column, set when the table is first created.
+      # Socket.IO sessions and room membership through Valkey rather than in
+      # process memory (socket/main.py, v0.13.3). With REDIS_URL set, the
+      # model list cache, running-task registry and sign-out token revocation
+      # go there too (main.py, utils/auth.py).
+      websocketManager:
+        schema:
+          type: string
+        default: redis
+        target:
+          envVar: WEBSOCKET_MANAGER
+        description: Backend Open WebUI's websocket server shares its state through.
+      # Read only by the start command above, which builds REDIS_URL from them
+      # and unsets both. Open WebUI itself reads neither name.
+      redisAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: REDIS_ADDRESS
+        description: Mesh-internal `host:port` of the Valkey server.
+      # The same schema as the `cache` node's valkeyPassword, because one
+      # parameter feeds both (ERR_CONFLICTING_INPUT_SCHEMA). That pattern still
+      # admits `+`, `/` and `=`, which a URL would misread, so URL-safety rests
+      # on the blueprint generating hex.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: REDIS_PASSWORD
+        description: >-
+          Password the Valkey server requires. It is placed in a URL
+          unescaped, so it must contain no `/`, `+` or `=`.
+    outputs:
+      # The client the platform registers for `primary` (component §5.2,
+      # COMP-EP-012/014). Reading it means any blueprint deploying this
+      # component must select viewerIdentity OIDC there. The blueprint binds
+      # each output back into the input of the same name.
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret
+      oidcDiscoveryURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Discovery document of the platform's OpenID Connect provider.
+        from:
+          template: "${{ self.endpoints.primary.oidcIssuerURL }}/.well-known/openid-configuration"
+      oidcRedirectURI:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Redirect URI the platform registered for this endpoint.
+        from:
+          template: "${{ self.endpoints.primary.publicURL }}/oauth/oidc/login/callback"
+      # An addition to the `open-webui` item's outputs: the private URL, for a
+      # node added to this composition that calls Open WebUI's API with an
+      # Open WebUI API key from inside the deployment, without crossing the
+      # platform's edge.
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of Open WebUI, for workloads in the same
+          deployment that call its API with an Open WebUI API key.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

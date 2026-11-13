@@ -1,0 +1,204 @@
+# The S3-compatible blob store Langfuse writes every ingested event to before
+# the worker processes it. A copy of the `seaweedfs` item's component
+# (items/seaweedfs/components/seaweedfs.yaml, revision 1): a repo-local
+# componentRef cannot leave its item directory, so a blueprint that needs one
+# carries its own. Keep the two in step.
+#
+# SeaweedFS rather than MinIO, which upstream's docker-compose.yml uses: its
+# compose service creates the bucket by starting MinIO through `sh`, and the
+# maintained MinIO images are gone from public registries. Langfuse's own Helm
+# chart (langfuse-k8s, chart 2.x) bundles SeaweedFS.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    SeaweedFS object store answering the S3 API behind one access key, with
+    its bucket created at startup and its data on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 4.53 is the latest stable release (2026-11-08). Tags carry no
+      # `v` prefix; the `_large_disk`, `_full` and `_rocksdb` variants change
+      # the on-disk format or add filer stores this component does not use,
+      # and `latest` moves on every release, which is weekly or faster.
+      image: chrislusf/seaweedfs:4.53
+    # `command` replaces the image's CMD, `mini -dir=/data`, and keeps its
+    # ENTRYPOINT, /entrypoint.sh. That script, started as root, chowns /data to
+    # the image's `seaweed` user (uid 1000) and re-executes itself through
+    # su-exec, then runs `weed mini` (docker/entrypoint.sh, 4.53).
+    #
+    # `mini` runs the master, volume server, filer and S3 gateway in one
+    # process, and is what upstream's image starts by default. Unlike
+    # `server -s3`, it reads the bucket to create from S3_BUCKET at every start
+    # (runMini, weed/command/mini.go), so no init step or config file is
+    # needed. AWS_ACCESS_KEY_ID and AWS_SECRET_ACCESS_KEY become a static admin
+    # identity at every start (loadEnvironmentVariableCredentials,
+    # weed/s3api/auth_credentials.go). Once an identity exists the gateway
+    # turns authentication on, and an unsigned request is refused with
+    # AccessDenied.
+    #
+    # The flags turn off what this component does not serve, each of which
+    # listens on its own port by default: WebDAV (7333), the Admin web UI
+    # (12535; its server still runs, bound to loopback, for the maintenance
+    # worker), the Iceberg catalog (8181) and the Lance namespace (9101).
+    # `-master.telemetry=false` stops the anonymous cluster statistics mini
+    # otherwise reports to telemetry.seaweedfs.com. The S3 port is stated, not
+    # left to its default, because a flag given on the command line can no
+    # longer be overridden from the environment (fla9 ParseEnv,
+    # weed/util/fla9/fla9.go).
+    #
+    # The master (9333), volume server (9340) and filer (8888) still listen in
+    # the container. They declare no endpoint here, so nothing routes to them.
+    command:
+      - mini
+      - -dir=/data
+      - -s3.port=8333
+      - -webdav=false
+      - -admin.ui=false
+      - -s3.port.iceberg=0
+      - -s3.port.lance=0
+      - -master.telemetry=false
+    endpoints:
+      primary:
+        targetPort: 8333
+        protocol: HTTP
+    health:
+      # /healthz is registered ahead of the bucket routes and needs no
+      # signature (weed/s3api/s3api_server.go, 4.53). The gateway starts last,
+      # after the master, volume server and filer answer, so it is ready
+      # only when the whole store is. Upstream's Helm chart gives the
+      # all-in-one pod 10 s; 30 s leaves room for a first start on an empty
+      # volume.
+      readiness:
+        http:
+          endpoint: primary
+          path: /healthz
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # Volume files, the master's metadata and the filer's leveldb store
+      # (/data/filerldb2, docker/filer.toml) all live under /data. mini sizes
+      # its volume files from the disk, 128 MB each on 10 GiB
+      # (calculateOptimalVolumeSizeMB, weed/command/mini.go).
+      data:
+        minSizeGiB: 10
+        mountPath: /data
+  contract:
+    inputs:
+      # The S3 key ID and secret travel in request headers and URLs, so the
+      # alphabet is the one HEX, BASE64 and BASE64URL generators share.
+      accessKeyID:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        required: true
+        target:
+          envVar: AWS_ACCESS_KEY_ID
+        description: >-
+          Access key ID clients sign S3 requests with. Read at every start, so
+          changing it replaces the old key. At least 16 letters, digits or
+          `._~+/=-`.
+      secretAccessKey:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: AWS_SECRET_ACCESS_KEY
+        description: >-
+          Secret access key paired with the key ID above; copy it from the
+          deployment's Installation tab. At least 16 letters, digits or
+          `._~+/=-`.
+      # S3_BUCKET takes a comma-separated list. This input takes one name, so
+      # the `bucket` output always names a single bucket.
+      bucket:
+        schema:
+          type: string
+          pattern: ^[a-z0-9][a-z0-9.-]{1,61}[a-z0-9]$
+        required: true
+        target:
+          envVar: S3_BUCKET
+        description: >-
+          Bucket created at startup if it does not exist yet: 3 to 63
+          lowercase letters, digits, dots or hyphens. Clients holding the key
+          can create more buckets themselves.
+      # SeaweedFS checks a signature with whatever region the client signed
+      # it for, and records none of its own, so this is only what the outputs
+      # hand to clients that insist on one.
+      region:
+        schema:
+          type: string
+        default: us-east-1
+        description: Region name the outputs give S3 clients to sign requests with.
+    outputs:
+      endpointURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal S3 service URL, without the bucket, resolvable only by
+          workloads in the same deployment. Clients put the bucket in the path.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"
+      address:
+        schema:
+          type: string
+        description: Mesh-internal `host:port` of the S3 endpoint.
+        from:
+          endpoint: primary
+          property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: Mesh-internal hostname of the S3 endpoint.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the S3 endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort
+      region:
+        schema:
+          type: string
+        description: Region name to configure S3 clients with.
+        from:
+          input: region
+      bucket:
+        schema:
+          type: string
+        description: Name of the bucket created at startup.
+        from:
+          input: bucket
+      accessKeyID:
+        schema:
+          type: string
+        description: Access key ID clients sign requests with.
+        from:
+          input: accessKeyID
+      secretAccessKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Secret access key clients sign requests with.
+        from:
+          input: secretAccessKey
+      # The mesh hostname cannot carry a bucket label, so clients must use
+      # path-style addressing (forcePathStyle in the AWS SDKs).
+      pathStyle:
+        schema:
+          type: boolean
+        description: Whether clients put the bucket in the path; always true here.
+        from:
+          value: true

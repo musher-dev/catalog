@@ -1,0 +1,116 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: ollama
+  revision: 1
+  description: >-
+    Ollama serving a small open model on CPU, private to the deployment, with
+    Open WebUI in front of it behind the platform's sign-in, signing viewers
+    in through its OpenID Connect provider.
+# Two nodes, and no language-model connection: the model runs here.
+#
+# `ollama` is the model server. It has no API key of its own, so it has no
+# exposure and only `web` reaches it. It cannot pull a model at start
+# (components/ollama.yaml), so `web` does that over the private network before
+# Open WebUI starts, and then loads the model with a one-token generation.
+# `web` therefore reports ready only once the model is on Ollama's volume and
+# answers (components/open-webui.yaml).
+#
+# Producers first: map order is graph order, and `ollama` publishes the URL
+# `web` wires to.
+spec:
+  nodes:
+    ollama:
+      componentRef: ./components/ollama.yaml
+      # Ollama publishes no memory floor of its own (README.md and docs/,
+      # v0.40.16); the model sets it. The default Qwen3 1.7B is a 1.4 GB
+      # download (registry.ollama.ai manifest for qwen3:1.7b), and with the
+      # component's 8,192-token context its KV cache is about 0.9 GB, so the
+      # loaded model needs roughly 2.5 GB. 2 vCPU and
+      # 4 GiB hold that with room for the runner, and the component's thread
+      # count matches the two vCPUs. A 3-4B model needs the 8 GiB profile.
+      compute:
+        profile: general.standard.small
+      # No exposure: PRIVATE, reachable only from this deployment. Ollama
+      # checks no credential on any route, including pull and delete.
+
+      # Room for the default model and several more of the same size that an
+      # admin pulls from Open WebUI.
+      volumes:
+        data:
+          sizeGiB: 20
+    web:
+      componentRef: ./components/open-webui.yaml
+      # The same profile as the `open-webui` item. Open WebUI loads PyTorch
+      # and the all-MiniLM-L6-v2 embedding model into its one worker at
+      # startup and idles near 1 GB; 2 GiB holds that and a document upload.
+      # Generation runs on `ollama`, not here.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 8
+      # The platform signs viewers in, and Open WebUI signs them in again as an
+      # OpenID Connect client of the platform, with no second password. It
+      # creates accounts with an email and a display name, so the node
+      # releases both claims. The chat-completion API is exempt for API-key
+      # clients (components/open-webui.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+      bindings:
+        webuiSecretKey:
+          parameter: webuiSecretKey
+        # The platform's OIDC client for this node's own `primary` endpoint. A
+        # node reading its own endpoint outputs is a discovery dependency and
+        # not a value cycle (BP-BIND-002).
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        oidcDiscoveryURL:
+          node: web
+          output: oidcDiscoveryURL
+        oidcRedirectURI:
+          node: web
+          output: oidcRedirectURI
+        ollamaBaseURL:
+          node: ollama
+          output: url
+        # One parameter for both, so the model pulled is the model
+        # preselected.
+        initModel:
+          parameter: model
+        defaultModels:
+          parameter: model
+  parameters:
+    # Any name from the Ollama library (ollama.com/library) or a hf.co/...
+    # GGUF reference that fits the `ollama` node: about 2.5 GB loaded at
+    # most. Qwen3 1.7B is Apache-2.0, supports tool calling and thinking,
+    # and answers at a usable speed on two vCPUs.
+    model:
+      default: qwen3:1.7b
+      ui:
+        label: Model
+        order: 1
+        examples:
+          - qwen3:1.7b
+          - qwen3:0.6b
+          - llama3.2:1b
+          - gemma3:1b
+    webuiSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: WebUI secret key
+        order: 2

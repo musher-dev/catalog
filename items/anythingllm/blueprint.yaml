@@ -1,0 +1,111 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: anythingllm
+  revision: 1
+  description: >-
+    AnythingLLM behind the platform's sign-in, chatting with documents through
+    its built-in embedder and LanceDB, on the language model the deployer
+    selects.
+# Two nodes, one of which runs nothing. Producers first: map order is graph
+# order.
+#
+# The language model is an EXTERNAL node (`llm`): it takes the connection whole
+# and publishes the endpoint, the credential and the model as outputs that
+# `anythingllm` wires to. AnythingLLM embeds documents locally and keeps its
+# vectors in an embedded LanceDB, so the connection needs no embeddings API and
+# the deployment needs no database node.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002).
+      bindings:
+        llm:
+          parameter: llm
+    anythingllm:
+      componentRef: ./components/anythingllm.yaml
+      # Upstream asks for at least 2 GB of RAM (docker/HOW_TO_USE_DOCKER.md,
+      # v1.19.0). One container runs the server, which also holds the ONNX
+      # embedder and LanceDB, beside the document collector, which launches
+      # Chromium to scrape web pages and parses PDFs and audio. 2 GiB is the
+      # floor with no headroom for both, so this is the next profile up.
+      compute:
+        profile: general.standard.small
+      volumes:
+        storage:
+          sizeGiB: 10
+      # The platform signs viewers in, and AnythingLLM runs in its single-user
+      # mode with no password of its own (AUTH_TOKEN unset), so there is no
+      # second sign-in. An admin may turn on AnythingLLM's multi-user mode under
+      # Settings, which then signs each person in with its own accounts, behind
+      # the platform's sign-in. Only the developer API (/api/v1) is exempt;
+      # AnythingLLM checks an API key on every route there. The chat-embed
+      # routes are not, because they share a prefix with unauthenticated
+      # embed-management routes (components/anythingllm.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - PATHS
+      bindings:
+        # The three members of the one connection the `llm` node holds.
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+        llmContextWindow:
+          parameter: llmContextWindow
+        sigKey:
+          parameter: sigKey
+        sigSalt:
+          parameter: sigSalt
+        jwtSecret:
+          parameter: jwtSecret
+  parameters:
+    # A connection parameter: it names one atomic connection the organization
+    # has configured, and binds only to the `llm` node's connection input
+    # (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # Sized for current hosted models; lower it for a small local model so
+    # prompts are trimmed before the API refuses them.
+    llmContextWindow:
+      default: '128000'
+      ui:
+        label: Model context window (tokens)
+        order: 2
+    # 32 random bytes, hex: the length upstream asks for ("at least 32 chars",
+    # docker/.env.example, v1.19.0), with no characters dumpENV would strip.
+    sigKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Encryption key
+        order: 3
+    sigSalt:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Encryption salt
+        order: 4
+    jwtSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Session signing secret
+        order: 5

@@ -1,0 +1,131 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: sim
+spec:
+  itemType: BLUEPRINT
+  displayName: Sim
+  summary: >-
+    Visual builder for AI-agent workflows: chain agents, tools, APIs and logic
+    blocks on a canvas, then run them on a schedule, by webhook, through an API
+    or as an MCP server. Wired to your organization's language model.
+  overview: |
+    ## What it is
+    Sim (formerly Sim Studio) is an open-source builder for AI-agent
+    workflows. You lay out Agent blocks, tool integrations, API calls,
+    conditions, loops and code on a canvas, test them in the editor with live
+    execution logs, and deploy each workflow as an API endpoint, a webhook or
+    schedule trigger, a chat, or an MCP server. Several people can edit the
+    same workflow at once.
+
+    ## When to use
+    - You want to build and run LLM agents and multi-step AI workflows
+      visually, on infrastructure you control.
+    - You want workflows callable from your own code through an API key, or
+      from AI clients as MCP tools.
+    - You want an n8n-style automation canvas designed around agents first.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. Sim lists every model that connection's API reports
+    under its **LiteLLM** provider, as `litellm/<model>`, and calls them with
+    the connection's credential, so Agent blocks work without anyone pasting
+    an API key. The API must speak the OpenAI chat-completions protocol and
+    list its models at `/v1/models`. Other providers can still be used by
+    entering their own API key in an Agent block.
+
+    ## Defaults
+    Five nodes, the shape of upstream's own production Docker Compose setup:
+
+    - **app** runs `ghcr.io/simstudioai/simstudio:v0.9.56`, the editor, API
+      and workflow executor, on port 3000 (4 vCPU, 8 GiB, upstream's memory
+      ceiling), behind the platform's HTTPS edge and sign-in. Uploaded files
+      are kept on a 10 GiB volume at `/app/apps/sim/uploads`.
+    - **realtime** runs `ghcr.io/simstudioai/realtime:v0.9.56`, the Socket.IO
+      server the editor uses for live collaboration, on port 3002 (1 vCPU,
+      2 GiB) at a second public https address. Each time it starts, it first
+      applies Sim's database migrations.
+    - **db** is PostgreSQL 17 with pgvector (`pgvector/pgvector:0.8.7-pg17`,
+      1 vCPU, 1 GiB, 10 GiB volume), private.
+    - **cache** is Valkey 9 (`valkey/valkey:9.1.3-alpine`, 1 vCPU, 1 GiB,
+      5 GiB volume) behind a password, private. It carries pub/sub and the
+      socket adapter.
+    - **llm** is the language-model connection. It runs nothing.
+
+    Sim's first account is created on the app's first start for the person
+    who installed the deployment, with their verified email and the
+    generated **Owner password**. Anyone else allowed into the deployment
+    can sign up from Sim's sign-in page and invite others into their
+    workspaces. Email verification is off, because no email provider is
+    configured. Anonymous telemetry is off.
+
+    ## Access and security
+    The editor, sign-in and sign-up pages, and deployed chat and form pages
+    are behind the platform's sign-in, and then Sim's own account sign-in.
+    These routes skip the platform's sign-in because their callers never hold
+    a viewer session. Each one checks Sim's own credential:
+
+    - `/api/workflows` (the API trigger, `POST /api/workflows/<id>/execute`
+      with an `X-API-Key`)
+    - `/api/webhooks` (webhook triggers and provider webhooks)
+    - `/api/v1` (the public REST API, with API keys, and the admin API under
+      `/api/v1/admin`, with the **Admin API key** in an `x-admin-key` header)
+    - `/api/mcp/serve` (workflows published as MCP servers)
+
+    The realtime address is public without the platform's sign-in, because
+    the editor opens its socket from the app's address and a sign-in there
+    does not carry over. The realtime server accepts a socket only with a
+    one-time token the app issues to a signed-in Sim user, and only from the
+    app's origin.
+
+    The **Encryption key** encrypts every saved credential and environment
+    variable. Keep a copy with any database backup. They can't be read
+    without it, and it can't be changed later.
+
+    ## Limitations
+    - Knowledge bases need an embedding model. Sim calls OpenAI's embeddings
+      API for them, which an organization model connection doesn't provide.
+      Knowledge bases need an OpenAI API key, which this item doesn't set.
+    - Copilot, Sim's built-in assistant, is a service of sim.ai and needs a
+      Sim API key, which this item doesn't set.
+    - Deployed chats and forms are behind the platform's sign-in, so only
+      people allowed into the deployment can use them.
+    - Scheduled workflows, polling triggers (Gmail, Outlook, RSS and others),
+      time-based resumes of paused runs and the cleanup jobs don't run. Upstream
+      runs them from a separate scheduler container, which can't run on Musher
+      yet. Webhook, API and manual runs work.
+    - Single sign-on, access control, audit logs and the other features
+      under `apps/sim/ee` need a Sim Enterprise licence and are off.
+    - Code in Function blocks runs in isolated-vm workers inside the app
+      container.
+
+    ## Upgrades
+    The app, the realtime server and the database schema move together, so
+    both images always carry the same release. The realtime node applies any
+    new migrations when it starts on the new release.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher.
+    2. Sign in to Sim with your verified email and the **Owner password**
+       from the deployment's Installation tab.
+    3. Create a workflow, add an **Agent** block and pick a `litellm/` model
+       from your organization's connection, then run it from the editor.
+    4. Deploy the workflow, create an API key in Sim's settings, and call
+       `POST <deployment URL>/api/workflows/<id>/execute` with it in an
+       `X-API-Key` header.
+
+    Changing the Owner password parameter later doesn't change the account.
+    Change the password inside Sim.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai-agents
+    - workflow
+    - llm
+    - no-code
+    - mcp
+    - automation
+  homepageURL: https://www.sim.ai
+  sourceRepositoryURL: https://github.com/simstudioai/sim
+  supportURL: https://docs.sim.ai
+  license: Apache-2.0 AND LicenseRef-Sim-Enterprise
+  icon: media/icon.png

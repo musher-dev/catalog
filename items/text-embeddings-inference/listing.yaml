@@ -1,0 +1,90 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: text-embeddings-inference
+spec:
+  itemType: COMPONENT
+  displayName: Text Embeddings Inference
+  summary: >-
+    Hugging Face's embedding server on CPU — turns text into vectors through an
+    OpenAI-compatible /v1/embeddings API, for RAG, agent memory and semantic
+    search beside a model that has no embeddings of its own
+  overview: |
+    ## What it is
+    Text Embeddings Inference (TEI) is Hugging Face's open-source server for
+    embedding and reranking models. This component runs its CPU build with one
+    model from the Hugging Face Hub and answers OpenAI-style embedding requests
+    at `/v1/embeddings`, as well as TEI's own `/embed` route. Its `/rerank`
+    route works only when the model you serve is a reranker, not with the
+    default embedding model.
+
+    ## When to use
+    - Your stack needs embeddings, for RAG, agent memory or semantic search,
+      but the language model it uses offers none. Claude, the default model
+      connection, is one of those.
+    - A memory or RAG service you run (Mem0, Graphiti, Open WebUI, a vector
+      database client) asks for an OpenAI-compatible embeddings endpoint.
+    - You want embeddings that stay inside your deployment and use none of
+      your model quota.
+
+    ## What you'll be asked for
+    - An **API key**. Clients send it as `Authorization: Bearer <key>` on every
+      embedding, rerank and info request.
+    - Optionally, a different **model**, by its Hugging Face Hub ID, and a
+      Hugging Face token if that model is gated or private.
+
+    ## Defaults
+    A single container runs
+    `ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4` on port 8080 (not
+    the 80 of upstream's examples) as a private endpoint, reachable by your
+    other workloads and not by the public internet. The model is
+    `BAAI/bge-small-en-v1.5`: English, 384-dimensional vectors, MIT-licensed.
+    The component hands consumers three values: the OpenAI-compatible base URL
+    (ending in `/v1`), the API key and the model ID.
+
+    The model is downloaded from the Hugging Face Hub on first boot into a
+    volume of at least 5 GiB mounted at `/data`, so later restarts reuse it.
+    The server reports ready only once the model is loaded and warmed up,
+    and it allows up to 10 minutes for that. Upstream states no memory
+    figure. The default model runs comfortably in 2 GB of RAM (1 vCPU, 2 GiB);
+    give larger models more.
+
+    ## Access and security
+    `/health`, `/ping`, `/` and `/metrics` answer without the key, as upstream
+    designed them. `/metrics` shows request counts and timings, never request
+    text. Every other route needs the key.
+
+    ## Limitations
+    - One model per deployment. Changing the model ID downloads the new model
+      on the next start. The vector size changes with it, so re-embed what you
+      stored.
+    - A request carries at most 32 inputs, and longer inputs are truncated to
+      the model's limit (512 tokens for the default model). Client libraries
+      that batch by default, such as LangChain's `OpenAIEmbeddings`, need a
+      chunk size of 32 or less.
+    - The image is built for x86-64 CPUs only. Embedding is CPU-bound, so
+      large backfills are much slower than on a GPU.
+  gettingStarted: |
+    1. Reveal the **API key** on the deployment's Installation tab if you need
+       it again.
+    2. From another of your workloads, send a request to the deployment's
+       private address on port 8080, for example `POST /v1/embeddings` with
+       `{"input": "hello world"}` and `Authorization: Bearer <key>`. The
+       public internet can't reach it.
+    3. Point your RAG or memory service at `http://<private address>/v1` as
+       its OpenAI-compatible embeddings base URL, with the same key and model
+       `BAAI/bge-small-en-v1.5` (384 dimensions).
+  category: MODELS
+  lifecycleStage: BETA
+  tags:
+    - embeddings
+    - rag
+    - openai-compatible
+    - hugging-face
+    - semantic-search
+    - ai
+  homepageURL: https://huggingface.co/docs/text-embeddings-inference
+  sourceRepositoryURL: https://github.com/huggingface/text-embeddings-inference
+  supportURL: https://huggingface.co/docs/text-embeddings-inference/quick_tour
+  license: Apache-2.0
+  icon: media/icon.png

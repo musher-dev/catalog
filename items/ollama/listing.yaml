@@ -1,0 +1,108 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: ollama
+spec:
+  itemType: BLUEPRINT
+  displayName: Ollama + Open WebUI
+  summary: >-
+    Run a small open language model on CPU inside your deployment with Ollama,
+    and chat with it through Open WebUI behind Musher sign-in. No provider
+    account, no per-token bill, no prompts leaving your stack.
+  overview: |
+    ## What it is
+    Ollama is the popular open-source model server: it pulls open models
+    from its library and serves them through its own API and an
+    OpenAI-compatible one. This blueprint runs Ollama on CPU with a small
+    model, and puts Open WebUI, a self-hosted multi-user chat interface, in
+    front of it. Admins can pull and remove models from Open WebUI's
+    settings.
+
+    ## When to use
+    - You want a private chat assistant whose prompts and answers never
+      leave your deployment, with no provider account or API key.
+    - You're trying out small open models, or comparing them, before you
+      commit to one.
+    - You want a fallback chat that keeps working when a hosted model API
+      doesn't.
+    - For quality and speed on real work, the **Open WebUI** item wired to
+      your organization's hosted model is the better choice. Small models on
+      a CPU are noticeably weaker and slower.
+
+    ## What you'll be asked for
+    Optionally, a different **model**: any name from the Ollama library that
+    fits in about 2.5 GB of memory once loaded, such as `qwen3:0.6b`,
+    `llama3.2:1b` or `gemma3:1b`. The default is `qwen3:1.7b`.
+
+    ## Defaults
+    Two nodes run:
+
+    - **ollama**: `ollama/ollama:0.40.16` on port 11434, private to the
+      deployment, on 2 vCPU and 4 GiB. A 20 GiB volume at `/root/.ollama`
+      keeps the models. The context window is 8,192 tokens, one request is
+      served at a time, one model is kept in memory, and an idle model stays
+      loaded for an hour. Ollama's cloud models and web search are off, so
+      every prompt stays on this node.
+    - **web**: `ghcr.io/open-webui/open-webui:v0.13.3` on port 8080 behind
+      the platform's HTTPS edge and sign-in, on 1 vCPU and 2 GiB, with an
+      8 GiB volume at `/app/backend/data` for accounts, chats, uploaded
+      documents and the local embedding model.
+
+    Before Open WebUI starts, the web node waits for Ollama, pulls the model
+    (Qwen3 1.7B, Apache-2.0, a 1.4 GB download) if Ollama doesn't have it
+    yet, and loads it. So the first deployment takes several minutes longer
+    than later restarts, and once it reports ready the model is ready to
+    chat. The model is preselected for new chats, and thinking is off by
+    default so answers start promptly.
+
+    Open WebUI signs people in through the platform's OpenID Connect
+    provider, so there is no second password: each person's account carries
+    their verified email and name, and the first person to sign in becomes
+    the admin. Password sign-in is off. The chat-completion, model and
+    embedding APIs stay reachable without the platform's sign-in, for
+    clients using an Open WebUI API key. API keys are on for admins, and
+    other users need the permission granted. A session-token signing key is
+    generated at deploy.
+
+    ## Access and security
+    Ollama has no API key or sign-in of its own, so it has no public
+    address. Only Open WebUI talks to it, over the deployment's private
+    network.
+
+    ## Limitations
+    - CPU only. Expect roughly 5 to 15 tokens a second from the default
+      model, slower for longer chats and larger models. It suits one person
+      or a few, not a busy team.
+    - Small models follow instructions, use tools and recall facts much less
+      reliably than large hosted ones.
+    - The 4 GiB node holds models up to about 2 billion parameters. Larger
+      ones fail to load. A GPU variant is not available yet.
+    - Open WebUI saves the Ollama address, the preselected model and the
+      default parameters the first time it starts. Changing the **model**
+      later pulls the new one on the next restart, but chats keep
+      preselecting the old one until an admin changes it under **Admin
+      Settings → Models**.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. Do this first if you
+       want to be the admin: the first person to sign in becomes it.
+    2. Start a chat. The model is already pulled and selected. Expect the
+       answer to arrive a few words a second.
+    3. To try another model, pull it under **Admin Settings → Models →
+       Manage**, by name from the Ollama library, and pick it in the chat's
+       model menu.
+    4. Ask your team to sign in the same way, and manage their access from
+       the admin settings.
+  category: MODELS
+  lifecycleStage: BETA
+  tags:
+    - llm
+    - ollama
+    - self-hosted
+    - chat
+    - inference
+    - ai
+  homepageURL: https://ollama.com
+  sourceRepositoryURL: https://github.com/ollama/ollama
+  supportURL: https://docs.ollama.com
+  license: MIT AND LicenseRef-Open-WebUI
+  icon: media/icon.png

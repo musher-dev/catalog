@@ -1,0 +1,161 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Microsoft's Playwright MCP server running headless Chromium, serving browser
+    tools to MCP clients over streamable HTTP at /mcp (and legacy SSE at /sse),
+    with no sign-in of its own.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.0.85 is the latest stable release (2026-11-09). Tags on mcr
+      # carry a `v` prefix; `latest` moves on every release, and the `canary`
+      # tags track upstream main. v0.0.84 was never published to mcr.
+      #
+      # The image runs as `node` (uid 1000) with ENTRYPOINT `tini -s -- node
+      # /app/cli.js --headless --browser chromium --no-sandbox` and no CMD
+      # (Dockerfile, v0.0.85). Chromium's own sandbox is already off, so the
+      # default seccomp profile is enough, and Playwright launches Chromium
+      # with --disable-dev-shm-usage (playwright-core
+      # src/server/chromium/chromiumSwitches.ts), so the default /dev/shm is
+      # too. Every remaining setting is read from PLAYWRIGHT_MCP_* variables
+      # (configFromEnv, playwright-core src/tools/mcp/config.ts), so no
+      # `command` is needed.
+      image: mcr.microsoft.com/playwright/mcp:v0.0.85
+    endpoints:
+      # Streamable HTTP at /mcp and legacy SSE at /sse share this one port.
+      # 8931 is the port upstream's README uses for HTTP transport.
+      mcp:
+        targetPort: 8931
+        protocol: HTTP
+    health:
+      # The server has no health route. Every path other than /sse goes to the
+      # streamable-HTTP handler, which answers a GET carrying no
+      # mcp-session-id with 400 "Invalid request" and creates nothing
+      # (playwright-core src/tools/utils/mcp/http.ts, 1.66.0-alpha-2026-11-09,
+      # the version v0.0.85 pins). That 400 comes from the MCP server itself,
+      # so it is the readiness signal. A GET of /sse would answer 200, but it
+      # opens an event stream that never ends and starts an MCP session.
+      # The browser starts lazily on the first tool call, so the HTTP server
+      # listens within seconds of the container starting.
+      readiness:
+        http:
+          endpoint: mcp
+          path: /mcp
+          expectedStatuses: [400]
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: mcp
+          path: /mcp
+          expectedStatuses: [400]
+        initialDelaySeconds: 30
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # Setting a port is what turns on HTTP transport. Without one the server
+      # speaks MCP over stdio (start, playwright-core
+      # src/tools/utils/mcp/server.ts).
+      port:
+        schema:
+          type: string
+        default: '8931'
+        target:
+          envVar: PLAYWRIGHT_MCP_PORT
+        description: Port the MCP server listens on, the `mcp` endpoint's target port.
+      # The default is localhost, which nothing outside the container can reach.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: PLAYWRIGHT_MCP_HOST
+        description: Address the MCP server binds to inside the container.
+      # Upstream's host check is protection against DNS rebinding for a server
+      # on a developer's localhost. It compares the whole Host header, port
+      # included, and a list replaces the loopback defaults rather than adding
+      # to them (microsoft/playwright-mcp#1827). Here the server is reached by
+      # its private hostname and probed by the replica's IP address, neither
+      # known when this document is written, so `*` turns the check off.
+      allowedHosts:
+        schema:
+          type: string
+        default: '*'
+        target:
+          envVar: PLAYWRIGHT_MCP_ALLOWED_HOSTS
+        description: >-
+          Comma-separated `host:port` values the server answers for, or `*` for
+          any Host header.
+      # Isolated is already the default when no profile directory is named
+      # (resolveCLIConfigForMCP, playwright-core src/tools/mcp/config.ts).
+      # Stated so it stays visible: one Chromium is shared, every MCP session
+      # gets its own in-memory browser context, and nothing is written to disk,
+      # so concurrent clients never collide on a profile lock.
+      isolated:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: PLAYWRIGHT_MCP_ISOLATED
+        description: >-
+          Whether each MCP session gets its own in-memory browser context, as
+          the literal string the image parses (`true` or `false`).
+      caps:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: PLAYWRIGHT_MCP_CAPS
+        description: >-
+          Comma-separated optional tool groups to turn on, for example
+          `vision,pdf`. Leave it unset for the core browser tools only.
+      allowedOrigins:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: PLAYWRIGHT_MCP_ALLOWED_ORIGINS
+        description: >-
+          Semicolon-separated origins the browser may request; unset allows
+          all. Upstream notes this is not a security boundary.
+      blockedOrigins:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: PLAYWRIGHT_MCP_BLOCKED_ORIGINS
+        description: >-
+          Semicolon-separated origins the browser must not request, checked
+          before the allowed list. Upstream notes this is not a security
+          boundary.
+    outputs:
+      mcpURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal streamable-HTTP MCP URL, resolvable only by workloads in
+          the same deployment. Wire it into an agent's MCP server setting.
+        from:
+          template: "http://${{ self.endpoints.mcp.privateAddress }}/mcp"
+      sseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal URL of the legacy SSE transport, for MCP clients that do
+          not speak streamable HTTP.
+        from:
+          template: "http://${{ self.endpoints.mcp.privateAddress }}/sse"

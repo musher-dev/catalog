@@ -1,0 +1,80 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: seaweedfs
+spec:
+  itemType: COMPONENT
+  displayName: SeaweedFS
+  summary: >-
+    S3-compatible object storage in one container, with its bucket and access
+    key set up when it starts
+  overview: |
+    ## What it is
+    SeaweedFS is an Apache-licensed distributed storage system for files and
+    objects. This component runs it as a single node that answers the Amazon
+    S3 API, so applications that store uploads, attachments, exports or
+    traces in S3 can keep them inside your deployment.
+
+    ## When to use
+    - You're deploying an application that expects an S3 bucket, such as
+      Langfuse or LibreChat, and want the storage next to it.
+    - You want S3-compatible storage without MinIO, whose community images
+      are no longer maintained.
+    - You need a private bucket for your own services' files and backups.
+
+    ## What you'll be asked for
+    - An **access key ID** and a **secret access key**. Every S3 request must
+      be signed with them. Use at least 16 letters, digits or `._~+/=-`.
+    - A **bucket** name: 3 to 63 lowercase letters, digits, dots or hyphens.
+      The bucket is created when SeaweedFS starts, if it doesn't exist yet.
+
+    ## Defaults
+    A single container runs `chrislusf/seaweedfs:4.53` in its all-in-one
+    `mini` mode, with the S3 API on port 8333 as a private endpoint, reachable
+    by your other workloads and not by the public internet. Objects and
+    metadata live on a 10 GiB persistent volume at `/data`. WebDAV, the admin
+    web UI, the Iceberg catalog, the Lance namespace and upstream's anonymous
+    telemetry are turned off.
+
+    The component hands other nodes the endpoint URL, bucket, region
+    (`us-east-1`), access key ID and secret access key. Clients must use
+    path-style addressing (`forcePathStyle: true` in the AWS SDKs).
+
+    ## Access and security
+    The S3 endpoint refuses any request that isn't signed with the access
+    key, including reads of the bucket's objects. The key is an
+    administrator: it can create and delete buckets. The key ID and secret
+    are read each time the container starts, so changing them replaces the
+    old key.
+
+    The signature check covers the S3 port only. SeaweedFS's master (9333),
+    volume server (9340) and filer (8888) also listen inside the container,
+    without authentication. They aren't declared endpoints, so nothing routes
+    to them, but don't treat the key as the only barrier around the data.
+
+    ## Limitations
+    - One node, one volume, no replication: losing the volume loses the data.
+    - There is no web console. Manage objects with any S3 client.
+    - Presigned URLs that a browser opens need the endpoint to be public.
+  gettingStarted: |
+    1. Reveal the secret access key on the deployment's Installation tab if
+       you need it again.
+    2. Point an S3 client in another of your workloads at the deployment's
+       private address on port 8333, for example
+       `aws s3 ls s3://<bucket> --endpoint-url http://<host>:8333`, with the
+       access key ID and secret set and path-style addressing on. The public
+       internet can't reach it.
+    3. Write a first object, then read it back.
+  category: STORAGE
+  lifecycleStage: BETA
+  tags:
+    - s3
+    - object-storage
+    - storage
+    - minio-alternative
+    - seaweedfs
+  homepageURL: https://seaweedfs.com
+  sourceRepositoryURL: https://github.com/seaweedfs/seaweedfs
+  supportURL: https://github.com/seaweedfs/seaweedfs/wiki
+  license: Apache-2.0
+  icon: media/icon.png

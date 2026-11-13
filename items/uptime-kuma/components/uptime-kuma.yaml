@@ -1,0 +1,171 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Uptime Kuma uptime monitor and status-page server, keeping its SQLite
+    database, settings and uploaded status-page logos on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2.5.11 is the latest stable release (2026-11-12). Tags carry no
+      # `v` prefix, and `2` and `latest` move with every release.
+      #
+      # The full image, not `-slim`: it carries the Chromium the "Real
+      # Browser" monitor type drives (docker/debian-base.dockerfile, 2.5.11).
+      # It also carries an embedded MariaDB, which this component leaves off by
+      # choosing SQLite below. Not `-rootless`: the default image runs as
+      # root, so a freshly mounted volume is writable however the platform
+      # owns it.
+      image: louislam/uptime-kuma:2.5.11
+    # No command: the image's ENTRYPOINT `dumb-init --` and CMD `node
+    # server/server.js` run as built.
+    endpoints:
+      # Uptime Kuma's port (Environment-Variables wiki page; EXPOSE 3001).
+      # Everything the dashboard does after the page loads goes over
+      # Socket.IO on this same port. socket.io-client starts with long-polling
+      # and upgrades to a WebSocket, and the upgrade's Origin check compares
+      # the Origin with the Host header (server/uptime-kuma-server.js, 2.5.11).
+      # If the edge rewrites Host, the browser stays on long-polling, which
+      # is slower but works.
+      primary:
+        targetPort: 3001
+        protocol: HTTP
+        # The parts of Uptime Kuma that are public by design, which the
+        # blueprint lets past the platform's sign-in. Uptime Kuma checks none
+        # of them against a login (server/routers/api-router.js and
+        # status-page-router.js, 2.5.11):
+        # - /status: status pages (/status/<slug>, its RSS feed).
+        #   /status pages never open a Socket.IO connection
+        #   (`noSocketIOPages`, src/mixins/socket.js).
+        # - /api/status-page: the JSON a status page polls for, with the
+        #   monitors placed on it. It is served for every status page that
+        #   exists; no route checks the `published` flag.
+        # - /api/badge: SVG badges, served only for monitors on a public
+        #   status page.
+        # - /api/push: push monitors, which cron jobs and scripts call with
+        #   the secret token in the URL ("Push Monitors", Internal-API wiki
+        #   page).
+        # - /assets, /icon.svg: the built single-page app's scripts, styles
+        #   and favicon, which every status page loads.
+        # - /upload: the logos uploaded for status pages, the only files kept
+        #   there (status-page-socket-handler.js).
+        # Not /metrics: once Uptime Kuma's own login is off it answers without
+        # credentials ("Metrics", Internal-API wiki page), and it lists every
+        # monitor.
+        exemptibleRequests:
+          paths:
+            - /status
+            - /api/status-page
+            - /api/badge
+            - /api/push
+            - /assets
+            - /upload
+            - /icon.svg
+    health:
+      # /api/entry-page answers JSON once the database is open, its migrations
+      # have run and the routes are mounted (server/server.js and
+      # api-router.js, 2.5.11). `/` only redirects to /dashboard. Upstream's
+      # own HEALTHCHECK allows a 180 s start period for that
+      # (docker/dockerfile, 2.5.11): 20 + 29 x 10 = 310 s covers it on one
+      # vCPU, migrations of a large database after an upgrade included.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/entry-page
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 30
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/entry-page
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      # Upstream's HEALTHCHECK runs every 60 s and restarts after 5 misses.
+      liveness:
+        http:
+          endpoint: primary
+          path: /api/entry-page
+        periodSeconds: 60
+        timeoutSeconds: 10
+        failureThreshold: 5
+    volumes:
+      # Uptime Kuma's data directory: kuma.db (SQLite), db-config.json,
+      # uploaded status-page logos and Real Browser screenshots (DATA_DIR,
+      # server/database.js, 2.5.11). Upstream mounts the same path in its
+      # compose.yaml and warns that NFS is not supported: SQLite needs a local
+      # filesystem's locking (README.md, 2.5.11). Heartbeats are kept for 180
+      # days by default, so the database grows with the number of monitors.
+      data:
+        minSizeGiB: 2
+        mountPath: /app/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, the constants below included. They carry defaults, so the
+      # blueprint wires none of them and the deploy form gains no field.
+      # The data directory "must be end with /" (`initDataDir`,
+      # server/database.js, 2.5.11).
+      dataDir:
+        schema:
+          type: string
+        default: /app/data/
+        target:
+          envVar: DATA_DIR
+        description: Directory Uptime Kuma keeps its database and uploads in, the volume's mount path.
+      # Upstream's default is `::`. 0.0.0.0 binds IPv4 whether or not the host
+      # has IPv6 enabled.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: UPTIME_KUMA_HOST
+        description: Address Uptime Kuma listens on inside the container.
+      # Set explicitly because Kubernetes-style service links inject
+      # UPTIME_KUMA_PORT=tcp://... into a container named uptime-kuma, which
+      # upstream's own health check has to work around (extra/healthcheck.go,
+      # 2.5.11).
+      port:
+        schema:
+          type: string
+        default: '3001'
+        target:
+          envVar: UPTIME_KUMA_PORT
+        description: Port Uptime Kuma listens on, the `primary` endpoint's target port.
+      # Without a database type, a fresh 2.x install holds every route behind
+      # a "choose your database" page until someone answers it
+      # (server/setup-database.js, 2.5.11). Naming SQLite skips that page and
+      # writes db-config.json on the volume.
+      dbType:
+        schema:
+          type: string
+        default: sqlite
+        target:
+          envVar: UPTIME_KUMA_DB_TYPE
+        description: >-
+          Database Uptime Kuma stores monitors and heartbeats in: `sqlite`, a
+          file on the volume.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal host:port of Uptime Kuma, reachable only by workloads in
+          the same deployment, which the bootstrap job calls.
+        from:
+          endpoint: primary
+          property: privateAddress
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public URL of Uptime Kuma, where its status pages are served.
+        from:
+          endpoint: primary
+          property: publicURL

@@ -1,0 +1,109 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: librechat
+spec:
+  itemType: BLUEPRINT
+  displayName: LibreChat
+  summary: >-
+    Self-hosted team chat for language models, with agents, MCP tools and
+    conversation search, on FerretDB and PostgreSQL instead of MongoDB
+  overview: |
+    ## What it is
+    LibreChat is an open-source, ChatGPT-style chat app for teams. People chat
+    with your language model, branch and edit conversations, save presets and
+    prompts, and build agents that call tools, including MCP servers. A search
+    box finds any past message. Agents can also be called from other software
+    through an OpenAI-compatible API.
+
+    This deployment runs it as a full stack. LibreChat keeps its data in a
+    MongoDB-compatible database, which here is FerretDB on PostgreSQL rather
+    than MongoDB, so every part of the stack is under an OSI-approved license.
+
+    ## When to use
+    - You want a private, multi-user chat front-end on your organization's
+      model connection, with nobody pasting API keys.
+    - You want agents with tools and MCP servers that your team builds and
+      shares in a browser.
+    - You want full-text search across everyone's own chat history.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's model
+    connection. The address, the credential and the model name travel together
+    as one connection. Anything that speaks the OpenAI chat-completions
+    protocol with streaming and tool calls will do. LibreChat offers exactly
+    that model and doesn't need the API to list its models. It reads the
+    connection at every start, so after you change it, restart the deployment.
+
+    ## Defaults
+    Four containers, plus the model connection:
+
+    - **LibreChat** (`registry.librechat.ai/librechat-ai/librechat-api:v0.8.8`)
+      serves the web app and API on port 3080 behind the platform's HTTPS edge
+      and sign-in. It has 1 vCPU and 2 GiB of memory. Attached files are kept
+      on a 5 GiB volume at `/app/uploads`, and avatars and generated images on
+      a 2 GiB volume at `/app/client/public/images`.
+    - **FerretDB** (`ghcr.io/ferretdb/ferretdb:2.7.0`) speaks the MongoDB
+      protocol to LibreChat and stores every document in PostgreSQL. It has
+      1 vCPU and 1 GiB. Its telemetry is off.
+    - **PostgreSQL 17 with DocumentDB**
+      (`ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0`) holds
+      all accounts, conversations, messages, agents and presets on a 10 GiB
+      volume, with 1 vCPU and 1 GiB.
+    - **Meilisearch** (`getmeili/meilisearch:v1.56.2`) indexes conversations
+      and messages for search on an 8 GiB volume, with 1 vCPU and 1 GiB.
+
+    Only LibreChat is reachable from outside. The database, FerretDB and
+    Meilisearch are private to the deployment. The database password is
+    generated, and you can reveal it on the Installation tab. LibreChat's
+    session, refresh-token and encryption secrets and the Meilisearch key are
+    generated and never shown.
+
+    ## Access and security
+    LibreChat signs people in through the platform's OpenID Connect provider,
+    so there's no second password. Email and password sign-in and
+    registration are off. Anyone your access policy admits gets an account on
+    first sign-in, with their verified email and name. You, the person who
+    deploys it, are LibreChat's admin. That's checked at every sign-in against
+    the email you deployed with. Everyone else joins as a regular user.
+
+    The Agents API under `/api/agents/v1` is the only path that skips the
+    platform's sign-in, so other software can call your agents. Every request
+    there needs an API key that a user creates in LibreChat. Only the admin can
+    create keys until they grant the Remote Agents permissions to other roles.
+
+    ## Limitations
+    - File search over uploaded documents (upstream's RAG API) isn't
+      included, because it needs an embeddings API that a chat-only model
+      connection doesn't provide. Files can still be attached to a chat.
+    - Settings that LibreChat reads only from a `librechat.yaml` file aren't
+      available. That covers model endpoints beyond the one connection,
+      interface customization and MCP servers configured for everyone.
+    - LibreChat's maintainers test it against FerretDB, but MongoDB remains
+      upstream's main target, and their FerretDB tests don't run on every
+      change.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. You're LibreChat's
+       admin. Allow a few minutes on first boot while LibreChat creates its
+       collections and indexes.
+    2. Start a chat. Your language model is already connected and selected.
+    3. Ask your team to sign in the same way. Each person gets their own
+       account and chat history.
+
+    To build an agent with tools, open **Agents** in the side panel. To call
+    an agent from other software, create an API key under **Settings → API
+    Keys**, and grant the Remote Agents permissions there before others can.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - chat
+    - agents
+    - mcp
+    - openai-compatible
+  homepageURL: https://www.librechat.ai
+  sourceRepositoryURL: https://github.com/LibreChat-AI/LibreChat
+  supportURL: https://www.librechat.ai/docs
+  license: MIT
+  icon: media/icon.png

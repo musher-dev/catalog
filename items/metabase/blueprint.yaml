@@ -1,0 +1,134 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: metabase
+  revision: 1
+  description: >-
+    Metabase behind the platform's sign-in, on its own PostgreSQL application
+    database, with an admin account created for the deployer and the API, MCP
+    server and OAuth endpoints open to clients Metabase authenticates itself.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, and Metabase opens at most 15 application-database
+      # connections (MB_APPLICATION_DB_MAX_CONNECTION_POOL_SIZE,
+      # environment-variables.md, v0.65.4.3), so a team-sized deployment fits
+      # in 1 GiB. Upstream's "1 CPU and 2 GB" starting point for the
+      # application database ("Metabase in production", metabase.com/learn)
+      # is for production fleets; move to standard.nano if it grows.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only by `web`
+      # through the hostname and port it publishes.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: metabase
+        postgresDb:
+          value: metabase
+    web:
+      componentRef: ./components/metabase.yaml
+      # Upstream: "at least 1 core and 1GB of RAM as the baseline", plus
+      # "1 CPU and 2GB of RAM" for every 20 concurrent people ("Metabase in
+      # production", metabase.com/learn). For a team of up to 20 that is two
+      # cores and 3 GB, which standard.small (2 vCPU / 4 GiB) meets with
+      # headroom; the component gives the JVM heap 75% of it. Two cores also
+      # roughly halve the first boot's JVM start and migrations.
+      compute:
+        profile: general.standard.small
+      # The platform signs viewers in and Metabase signs them in again with
+      # its own accounts: the open-source edition has Google and LDAP but no
+      # OIDC or SAML (people-and-groups/start.md, v0.65.4.3), so there is no
+      # viewer identity to hand it. /api, /oauth and /.well-known pass without
+      # a platform session for API keys and MCP clients, which Metabase
+      # authenticates itself (components/metabase.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - PATHS
+      bindings:
+        # This node's own allocated address. A node reading its own endpoint
+        # outputs is a discovery dependency and not a value cycle
+        # (BP-BIND-002): it exists before anything runs.
+        siteURL:
+          node: web
+          output: publicURL
+        # The same generated password the `db` node initialises its role
+        # with, and the same role and database names.
+        dbHost:
+          node: db
+          output: hostname
+        dbPort:
+          node: db
+          output: port
+        dbName:
+          value: metabase
+        dbUser:
+          value: metabase
+        dbPassword:
+          parameter: dbPassword
+        encryptionSecretKey:
+          parameter: encryptionKey
+        sessionSecretKey:
+          parameter: sessionKey
+    bootstrap-admin:
+      componentRef: ./components/bootstrap-admin.yaml
+      # A short curl script that mostly waits.
+      compute:
+        profile: general.economy.nano
+      bindings:
+        # The web node's private address, so the job creates the admin over
+        # the internal network, ahead of anyone reaching the public edge.
+        metabaseAddress:
+          node: web
+          output: address
+        adminEmail:
+          parameter: adminEmail
+        adminPassword:
+          parameter: adminPassword
+  parameters:
+    # The deployment's creator owns it: their verified email, captured once
+    # when the deployment is created (BP-PARAM-011).
+    adminEmail:
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment. 24 bytes in BASE64URL is
+    # 32 characters: above the 15-character `strong-enough` rule and safe in
+    # JSON without escaping.
+    adminPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Admin password
+        order: 1
+    # HEX keeps the password free of characters a JDBC URL or libpq parser
+    # would treat specially. Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 2
+    # Upstream generates it with `openssl rand -base64 32`. Disclosed because
+    # a database backup is useless for saved connections without it.
+    encryptionKey:
+      generator:
+        byteLength: 32
+        encoding: BASE64
+      ui:
+        label: Encryption key
+        order: 3
+    sessionKey:
+      generator:
+        byteLength: 32
+        encoding: BASE64

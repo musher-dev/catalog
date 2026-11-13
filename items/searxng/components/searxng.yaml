@@ -1,0 +1,156 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    SearXNG metasearch engine, configured from the environment alone, with no
+    accounts of its own and no state to keep.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2026.11.12-de722ab1b is the newest image (built 2026-11-12).
+      # SearXNG cuts no releases: every merge to master publishes a CalVer
+      # `<date>-<commit>` tag, and `latest` moves with it, several times a
+      # week.
+      image: searxng/searxng:2026.11.12-de722ab1b
+    # No `command`. The ENTRYPOINT, /usr/local/searxng/entrypoint.sh, ignores
+    # its arguments: it copies settings.template.yml to
+    # /etc/searxng/settings.yml when that file is missing, then runs `exec
+    # granian searx.webapp:app` (container/entrypoint.sh, de722ab1b). `command`
+    # replaces CMD and keeps that ENTRYPOINT (component v2 §5), so a `sh -c`
+    # that writes a settings file first never runs.
+    #
+    # That is why this component serves HTML only. The JSON, CSV and RSS
+    # result formats are switched on by `search.formats` in settings.yml, which
+    # has no environment variable (searx/settings_defaults.py, de722ab1b), and
+    # the shipped searx/settings.yml lists `html` alone. /search?format=json
+    # answers 403 (searx/webapp.py). The template the entrypoint copies sets
+    # only `use_default_settings`, `secret_key` and `image_proxy`.
+    endpoints:
+      primary:
+        # GRANIAN_PORT=8080 in the image (container/Dockerfile, de722ab1b).
+        targetPort: 8080
+        protocol: HTTP
+    # No volume. Settings are rebuilt from the template and the environment on
+    # every start. Preferences live in the browser's cookie. The engine and
+    # favicon caches under /var/cache/searxng are SQLite files that refill
+    # themselves after a restart.
+    health:
+      # /healthz answers a plain `OK` with no engine call (searx/webapp.py,
+      # de722ab1b), and the limiter, when on, lets it through untouched
+      # (searx/limiter.py). searx.webapp runs init(), which loads every engine,
+      # when the module is imported, so a 200 means searches can run. Start-up
+      # takes seconds, not minutes.
+      readiness:
+        http:
+          endpoint: primary
+          path: /healthz
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # Signs the image-proxy URLs (searx/webapp.py, de722ab1b); preferences
+      # are an unsigned cookie (searx/preferences.py). SearXNG exits at
+      # start-up if the key is still the template's `ultrasecretkey`
+      # (searx/webapp.py), and SEARXNG_SECRET outranks the random value the
+      # entrypoint seds into the copied template.
+      secretKey:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: SEARXNG_SECRET
+        description: >-
+          Key SearXNG signs its image-proxy links with. Rotating it only breaks
+          proxied image links already on an open results page.
+      # server.base_url, for the absolute links SearXNG writes: the OpenSearch
+      # description browsers install, the RSS feed and image-proxy URLs.
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: SEARXNG_BASE_URL
+        description: Public URL SearXNG writes into its absolute links.
+      # The limiter is bot protection for instances open to the internet. It
+      # needs Valkey, and it answers 429 to any client without a browser's
+      # Accept and Accept-Language headers (searx/botdetection/, de722ab1b).
+      # Behind the platform's sign-in only members reach this one, so it is
+      # off, and no Valkey runs beside it.
+      limiter:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: SEARXNG_LIMITER
+        description: >-
+          Whether SearXNG's bot-protection limiter is on, as the literal string
+          the image parses. Turning it on also needs a Valkey URL.
+      publicInstance:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: SEARXNG_PUBLIC_INSTANCE
+        description: >-
+          Whether the features meant only for public instances are on, as the
+          literal string the image parses. A public instance exits without
+          Valkey.
+      # The container template turns the image proxy on
+      # (container/settings.template.yml, de722ab1b); pinned here so the item
+      # does not rest on a default it cannot see change. Result thumbnails then
+      # load through this server, and the viewer's browser never contacts the
+      # sites that host them.
+      imageProxy:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: SEARXNG_IMAGE_PROXY
+        description: >-
+          Whether result images are fetched through SearXNG rather than by the
+          viewer's browser, as the literal string the image parses.
+      # The image binds `::` (GRANIAN_HOST, container/Dockerfile). That fails
+      # outright in a pod with IPv6 switched off, and the private network and
+      # the probes reach this workload over IPv4.
+      bindHost:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: GRANIAN_HOST
+        description: Address the Granian server binds to.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL this deployment answers at, which SearXNG uses as its base URL.
+        from:
+          endpoint: primary
+          property: publicURL
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of SearXNG, resolvable only by workloads in
+          the same deployment. It serves the HTML interface; the JSON format is
+          not enabled.
+        from:
+          endpoint: primary
+          property: privateAddress
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of SearXNG, for workloads in the same
+          deployment that read its HTML results.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

@@ -1,0 +1,219 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Docling Serve on CPU, converting PDFs, Office files, HTML and images into
+    Markdown, JSON or text over an API that requires a key, with its layout,
+    table and OCR models built into the image.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v1.38.2 is the latest stable release (2026-10-27). Tags carry
+      # a `v` prefix, and `latest` moves on every release. `-cpu` is the
+      # CPU-only build (torch without CUDA); the `-cu*` images need a GPU.
+      # The image is multi-arch (linux/amd64, linux/arm64), runs as uid 1001
+      # and bakes the layout, TableFormer, picture classifier, RapidOCR and
+      # EasyOCR weights into DOCLING_SERVE_ARTIFACTS_PATH at build time
+      # (Containerfile, v1.38.2), so it downloads nothing at boot and needs
+      # no volume. It is large: about 2.2 GB compressed.
+      image: quay.io/docling-project/docling-serve-cpu:v1.38.2
+    endpoints:
+      primary:
+        targetPort: 5001
+        protocol: HTTP
+    health:
+      # Models load inside the FastAPI lifespan, before uvicorn binds the
+      # port (`warm_up_caches`, docling_serve/app.py, v1.38.2), so nothing
+      # answers until they are in memory. 30 + 60 x 10 = 630 s. On 2 vCPU the
+      # deployment was ready 206 s after creation, image pull included (run
+      # z3w0s3f5a).
+      startup:
+        http:
+          endpoint: primary
+          path: /livez
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # The probe split upstream's own OpenShift example uses, which probes
+      # /readyz, an alias of /ready
+      # (docs/deploy-examples/docling-serve-oauth.yaml, v1.38.2). /ready
+      # answers 503 until the models are loaded and while the background
+      # task processor is down. /livez fails only when that processor died,
+      # so the platform restarts the container. Neither route takes the API
+      # key (docling_serve/app.py, v1.38.2).
+      readiness:
+        http:
+          endpoint: primary
+          path: /ready
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: primary
+          path: /livez
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 5
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field. Every
+      # DOCLING_SERVE_* name is a field of DoclingServeSettings with that env
+      # prefix (docling_serve/settings.py, v1.38.2).
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        # With an empty key the check lets every request through
+        # (docling_serve/auth.py, v1.38.2), so this input has no default.
+        target:
+          envVar: DOCLING_SERVE_API_KEY
+        description: >-
+          Key every conversion, task and result request must send in the
+          `X-Api-Key` header.
+      # The image's default port, restated so the endpoint and the server
+      # agree (docs/configuration.md, v1.38.2). The host already defaults to
+      # 0.0.0.0 for `docling-serve run`.
+      port:
+        schema:
+          type: string
+        default: '5001'
+        target:
+          envVar: UVICORN_PORT
+        description: Port the API listens on, the `primary` endpoint's target port.
+      enableUI:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: DOCLING_SERVE_ENABLE_UI
+        description: >-
+          Serve the built-in web app for trying conversions at `/ui`, as the
+          literal string the image parses ('true' or 'false'). It calls the
+          API with the same key.
+      # /metrics is registered without the API key check whenever the
+      # Prometheus exporter is on, which is upstream's default
+      # (docling_serve/app.py, v1.38.2). Off here, so an endpoint a consumer
+      # exposes serves no key-less route beyond health, /version,
+      # /v1/capabilities and the API docs.
+      enablePrometheus:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: DOCLING_SERVE_OTEL_ENABLE_PROMETHEUS
+        description: >-
+          Serve Prometheus metrics at `/metrics`, without the API key, as the
+          literal string the image parses.
+      # Upstream's default. Remote services let a request send page images
+      # to a vision-language model API, such as picture description through
+      # an OpenAI-compatible endpoint (docs/configuration.md, v1.38.2).
+      enableRemoteServices:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: DOCLING_SERVE_ENABLE_REMOTE_SERVICES
+        description: >-
+          Allow conversion options that call a remote model API, such as a
+          vision-language model for picture description, as the literal
+          string the image parses.
+      # Upstream's default of 2 task workers, each with its own copy of the
+      # models (DOCLING_SERVE_ENG_LOC_SHARE_MODELS=false). Its deployment
+      # examples give that a 4 GiB memory limit and 2 CPUs
+      # (docs/deploy-examples/docling-serve-oauth.yaml, v1.38.2).
+      numWorkers:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: DOCLING_SERVE_ENG_LOC_NUM_WORKERS
+        description: >-
+          Documents converted in parallel, as the literal string the image
+          parses. Each worker holds its own copy of the models.
+      # The image bakes OMP_NUM_THREADS=4 and Docling defaults to 4 torch
+      # threads (Containerfile, docs/configuration.md, v1.38.2). 2 matches
+      # the 2 vCPU this component is sized for, so one conversion uses the
+      # whole node and two at once share it rather than oversubscribing 4x.
+      numThreads:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: DOCLING_NUM_THREADS
+        description: >-
+          Torch CPU threads per conversion, as the literal string the image
+          parses. Match it to the node's vCPU count.
+      ompNumThreads:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: OMP_NUM_THREADS
+        description: >-
+          OpenMP threads for the OCR and layout libraries, as the literal
+          string the image parses. Keep it equal to numThreads.
+      maxNumPages:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: DOCLING_SERVE_MAX_NUM_PAGES
+        description: >-
+          Most pages one document may have, as the literal string the image
+          parses. Leave it unset for no limit.
+      maxFileSize:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: DOCLING_SERVE_MAX_FILE_SIZE
+        description: >-
+          Largest document accepted, in bytes, as the literal string the image
+          parses. Leave it unset for no limit.
+      # Upstream's default is WARNING, which logs no request or conversion
+      # at all. INFO logs each conversion and its timing.
+      logLevel:
+        schema:
+          type: string
+        default: INFO
+        target:
+          envVar: DOCLING_SERVE_LOG_LEVEL
+        description: Log verbosity, WARNING, INFO or DEBUG.
+      # Upstream's default `text` format colours each line with ANSI escape
+      # codes, which the deployment's log view shows raw (run z3w0s3f5a).
+      # Upstream recommends `json` for production (docs/configuration.md,
+      # v1.38.2).
+      logFormat:
+        schema:
+          type: string
+        default: json
+        target:
+          envVar: DOCLING_SERVE_LOG_FORMAT
+        description: Log line format, json or text.
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of the API, resolvable only by workloads in
+          the same deployment. Clients append paths such as
+          /v1/convert/source.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: The key clients send in the `X-Api-Key` header, for a consumer's Docling API key input.
+        from:
+          input: apiKey

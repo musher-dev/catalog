@@ -1,0 +1,251 @@
+# PostgreSQL with the DocumentDB extension: the storage engine under FerretDB
+# (components/ferretdb.yaml), and so where every LibreChat user, conversation,
+# message, agent and preset finally lives. LibreChat speaks only the MongoDB
+# wire protocol; this item serves it from FerretDB on PostgreSQL rather than
+# from MongoDB, whose server is SSPL-licensed. DocumentDB is MIT-licensed and
+# FerretDB Apache-2.0.
+#
+# It follows the `pgvector` item's component (items/pgvector/components/
+# pgvector.yaml, revision 1): the same PGDATA handling, inputs and Perl
+# readiness supervisor, because FerretDB's image is the official Debian
+# postgres image with extensions added (packaging/production.Dockerfile in
+# FerretDB/documentdb, v0.107.0-ferretdb-2.7.0). It differs in three places:
+#
+# - no first-boot SQL of its own. The image ships two init scripts in
+#   /docker-entrypoint-initdb.d that the entrypoint runs once, on an empty data
+#   directory: 10-preload.sh appends `shared_preload_libraries = 'pg_cron,
+#   pg_documentdb_core,pg_documentdb'` and the DocumentDB settings to
+#   $PGDATA/postgresql.conf and restarts the temporary server, and
+#   20-install.sql runs `CREATE EXTENSION documentdb CASCADE`.
+# - the database is fixed at `postgres` (see `postgresDb`).
+# - the readiness log line names the DocumentDB version instead of pgvector's.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    PostgreSQL 17 with the DocumentDB extension that FerretDB stores documents
+    in, a single persistent data volume and an HTTP readiness check.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 17-0.107.0-ferretdb-2.7.0 is the image FerretDB publishes for
+      # its latest stable release, v2.7.0 (2025-11-10): PostgreSQL 17.6 with
+      # DocumentDB 0.107.0, multi-arch (amd64, arm64). FerretDB checks the
+      # DocumentDB version it finds at connect time and warns on a mismatch
+      # (internal/documentdb/pool_new.go, v2.7.0), so this tag and the
+      # FerretDB image in components/ferretdb.yaml move together. LibreChat's
+      # own FerretDB test suite pins this same pair
+      # (packages/data-schemas/misc/ferretdb/docker-compose.ferretdb.yml,
+      # v0.8.8). `17` and `17-0.107.0` float.
+      image: ghcr.io/ferretdb/postgres-documentdb:17-0.107.0-ferretdb-2.7.0
+    # The image's ENTRYPOINT (docker-entrypoint.sh) stays; this replaces its
+    # CMD (`postgres`). As in the `pgvector` item, Perl (perl-base, in the
+    # image) becomes PID 1 and:
+    #
+    # 1. forks `docker-entrypoint.sh postgres`, the image's own start, so
+    #    initdb, the two DocumentDB init scripts, the POSTGRES_* inputs and the
+    #    drop to the postgres user are upstream's. Signals are forwarded to it.
+    #    SIGTERM is sent on as SIGINT, a fast shutdown, which is the image's
+    #    STOPSIGNAL: a smart shutdown would wait on FerretDB's pooled
+    #    connections until the platform kills the container. When postgres
+    #    exits, so does the supervisor, with its status, and the platform
+    #    restarts the container as it would have.
+    # 2. answers HTTP on 8080 with 200 when `pg_isready` reaches the server
+    #    over TCP on 127.0.0.1:5432, and 503 otherwise. TCP, not the Unix
+    #    socket: during first boot the entrypoint runs a temporary server that
+    #    listens only on the socket (and restarts it once, for the preload
+    #    libraries), so the check stays red until the real server accepts the
+    #    connections FerretDB will make.
+    # 3. the first time the server is up, logs one line over the Unix socket
+    #    (trusted locally by the image's initdb defaults) naming the
+    #    DocumentDB extension version, so the runtime log shows the engine
+    #    FerretDB needs really is there.
+    #
+    # Why a supervisor rather than a background process beside postgres: an
+    # orphaned process is re-parented to PID 1, and the postmaster treats any
+    # child exiting with a status other than 0 or 1 as a crashed backend and
+    # restarts every session (CleanupBackend in
+    # src/backend/postmaster/postmaster.c, REL_17_STABLE). With Perl as PID 1
+    # the postmaster has no unknown children. A connection that sends nothing
+    # is cut after 4 s, so the single-threaded loop cannot be held.
+    command:
+      - perl
+      - -e
+      - |
+        use strict;
+        use warnings;
+        use IO::Select;
+        use IO::Socket::INET;
+        use POSIX ();
+        $| = 1;
+        my $user = $ENV{POSTGRES_USER} || 'postgres';
+        my $db = $ENV{POSTGRES_DB} || $user;
+        my $pg = fork() // die "fork: $!\n";
+        if ($pg == 0) {
+          $SIG{$_} = 'DEFAULT' for qw(INT QUIT TERM HUP USR1 USR2 PIPE);
+          exec('docker-entrypoint.sh', 'postgres') or POSIX::_exit(127);
+        }
+        $SIG{$_} = do { my $s = $_; sub { kill $s, $pg } } for qw(INT QUIT HUP USR1 USR2);
+        $SIG{TERM} = sub { kill 'INT', $pg };
+        $SIG{PIPE} = 'IGNORE';
+        my $srv = IO::Socket::INET->new(
+          LocalAddr => '0.0.0.0', LocalPort => 8080, Listen => 8, ReuseAddr => 1);
+        print STDERR $srv ? "readiness: answering on :8080\n"
+                          : "readiness: cannot listen on :8080: $!\n";
+        my $sel = IO::Select->new($srv ? ($srv) : ());
+        my $told = 0;
+        while (1) {
+          while ((my $w = waitpid(-1, POSIX::WNOHANG())) > 0) {
+            exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) if $w == $pg;
+          }
+          my @r = $sel->can_read(1) or do { sleep 1 unless $srv; next };
+          my $c = $srv->accept or next;
+          my $up = 0;
+          eval {
+            local $SIG{ALRM} = sub { die "timeout\n" };
+            alarm 4;
+            while (defined(my $l = <$c>)) { last if $l =~ /^\r?\n\z/ }
+            my $k = fork();
+            if (defined $k && $k == 0) {
+              open(STDOUT, '>', '/dev/null');
+              exec('pg_isready', '-q', '-h', '127.0.0.1', '-p', '5432', '-t', '2',
+                '-U', $user, '-d', $db) or POSIX::_exit(127);
+            }
+            $up = defined $k && waitpid($k, 0) == $k && $? == 0;
+            my $b = $up ? "accepting connections\n" : "not accepting connections\n";
+            print $c ($up ? 'HTTP/1.1 200 OK' : 'HTTP/1.1 503 Service Unavailable'),
+              "\r\nContent-Type: text/plain\r\nContent-Length: ", length($b),
+              "\r\nConnection: close\r\n\r\n", $b;
+            alarm 0;
+          };
+          alarm 0;
+          close $c;
+          next if $told || !$up;
+          $told = 1;
+          eval {
+            local $SIG{ALRM} = sub { die "timeout\n" };
+            alarm 10;
+            my $k = fork();
+            if (defined $k && $k == 0) {
+              exec('psql', '-X', '-q', '-t', '-A', '-h', '/var/run/postgresql',
+                '-U', $user, '-d', $db, '-c',
+                "SELECT 'readiness: accepting connections; documentdb extension '"
+                . " || coalesce((SELECT extversion FROM pg_extension"
+                . " WHERE extname = 'documentdb'), 'NOT installed')"
+                . " || ' in database ' || current_database()") or POSIX::_exit(127);
+            }
+            waitpid($k, 0) if defined $k;
+            alarm 0;
+          };
+          alarm 0;
+        }
+    endpoints:
+      primary:
+        targetPort: 5432
+        protocol: TCP
+      # Served by the supervisor above, for the readiness probe. Private, like
+      # `primary`; it reports only whether the server accepts connections.
+      health:
+        targetPort: 8080
+        protocol: HTTP
+    health:
+      # The platform probes HTTP only (component spec §5.4). First boot
+      # (initdb, the preload restart, CREATE EXTENSION) takes seconds on an
+      # empty volume; 10 + 3 x 10 s of failures stops traffic only, never
+      # restarts. No liveness probe, as in the `pgvector` item: crash recovery
+      # after an unclean stop can take minutes, and a restart in the middle of
+      # it would only start it again.
+      readiness:
+        http:
+          endpoint: health
+          path: /ready
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      data:
+        minSizeGiB: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including this one. It carries a default, so no blueprint has to
+      # wire it and the deploy form gains no field.
+      #
+      # Read on every boot, and by 10-preload.sh, which writes the DocumentDB
+      # settings into $PGDATA/postgresql.conf. A subdirectory of the mount, not
+      # the mount itself, because initdb refuses a directory it does not own
+      # and the volume root may carry lost+found.
+      pgdata:
+        schema:
+          type: string
+        default: /var/lib/postgresql/data/pgdata
+        target:
+          envVar: PGDATA
+        description: Directory PostgreSQL keeps its data files in.
+      # The inputs below are read by the image's docker-entrypoint.sh only
+      # while it initialises an EMPTY data directory. Once PGDATA holds a
+      # cluster they are ignored: use ALTER ROLE to change the password.
+      #
+      # FerretDB keeps no accounts of its own. A MongoDB client signs in with
+      # a PostgreSQL role's name and password, which FerretDB checks against
+      # this server (website/docs/security/authentication.md in
+      # FerretDB/FerretDB, v2.7.0). So this role is also LibreChat's MongoDB
+      # user.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: POSTGRES_PASSWORD
+        description: >-
+          Password the database superuser is created with on first boot; it is
+          also the MongoDB password FerretDB accepts for that user.
+      postgresUser:
+        schema:
+          type: string
+        default: postgres
+        required: false
+        target:
+          envVar: POSTGRES_USER
+        description: >-
+          Role the database is initialised with, which FerretDB and its MongoDB
+          clients sign in as.
+      # Not the application's database. The DocumentDB init scripts create the
+      # extension in POSTGRES_DB and point pg_cron at `postgres`
+      # (packaging/10-preload.sh, 20-install.sql), and FerretDB requires the
+      # `postgres` database (website/docs/security/authentication.md). Every
+      # MongoDB database FerretDB serves, LibreChat's included, is a logical
+      # database inside this one.
+      postgresDb:
+        schema:
+          type: string
+        default: postgres
+        required: false
+        target:
+          envVar: POSTGRES_DB
+        description: >-
+          Database the DocumentDB extension is installed in on first boot;
+          FerretDB requires `postgres`.
+    outputs:
+      host:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the database endpoint (5432).
+        from:
+          endpoint: primary
+          property: privatePort
