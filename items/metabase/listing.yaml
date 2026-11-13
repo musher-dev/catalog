@@ -1,0 +1,102 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: metabase
+spec:
+  itemType: BLUEPRINT
+  displayName: Metabase
+  summary: >-
+    Open-source business intelligence: dashboards, charts and SQL over your
+    databases, with a built-in MCP server so AI agents can query them too
+  overview: |
+    ## What it is
+    Metabase is an open-source business intelligence tool. You connect it to
+    your databases, such as PostgreSQL, MySQL, BigQuery, Snowflake or
+    ClickHouse, and then explore the data with a point-and-click query
+    builder or SQL. Answers become questions, charts and dashboards that you
+    can filter, share with your team, and send on a schedule as email or
+    Slack subscriptions and alerts. Metabase also has an MCP server, so AI
+    clients like Claude can search your Metabase content and run queries with
+    the permissions of the person who connected them.
+
+    ## When to use
+    - You want dashboards over the databases your apps and agents already
+      write to, without building a reporting UI yourself.
+    - You want analysts to write SQL and everyone else to explore data
+      without it.
+    - You want to give a client or another team dashboards over their own
+      data, with Metabase's groups and permissions deciding what they see.
+    - You want AI agents to answer questions from your data through Metabase's
+      semantic layer instead of raw database access.
+
+    ## Signing in
+    An **admin** account is created for you when the deployment first starts.
+    Its email is the one you deploy with, and its password is generated. Copy
+    the password from the deployment's Installation tab. Opening the
+    deployment's URL asks you to sign in to Musher first, and then Metabase
+    asks for its own email and password. Invite everyone else from Metabase's
+    **Admin > People**. They also need to be able to sign in to Musher.
+
+    ## Defaults
+    Two containers and a one-time setup job. The first container runs
+    `metabase/metabase:v0.65.4.3`, the open-source edition, on 2 vCPU and
+    4 GiB, with the web app and API on port 3000 behind the platform's HTTPS
+    edge and sign-in. The second container is a private PostgreSQL 17 server,
+    on 1 vCPU and 1 GiB, that only Metabase can reach. It holds all of
+    Metabase's own data (people, questions, dashboards, saved connections) on
+    a 10 GiB volume. Metabase itself keeps nothing on disk.
+
+    Metabase encrypts saved database credentials with a generated encryption
+    key, signs sessions with a generated session key, and requires passwords
+    of at least 15 characters. Anonymous usage tracking is turned off. The
+    database password and the encryption key are generated, and you can
+    reveal both on the Installation tab. Keep the encryption key with any
+    database backup, because saved connections can't be read without it.
+
+    ## Access and security
+    The web app sits behind Musher's sign-in, so only people in your
+    organization can open it. These paths pass straight through to
+    Metabase without that sign-in, because programs rather than people call
+    them, and Metabase checks their credentials itself:
+
+    - `/api`: Metabase's REST API, for scripts using an API key you create in
+      **Admin > Settings > Authentication > API keys**.
+    - `/api/metabase-mcp`, part of `/api`: the MCP server, which takes an
+      OAuth token.
+    - `/oauth` and `/.well-known`: Metabase's built-in OAuth server, which MCP
+      clients register with and get tokens from.
+
+    Public sharing links are turned off, because the pages they open would
+    still ask for a Musher sign-in.
+
+    ## Limitations
+    - Single sign-on with OIDC, SAML or JWT, and some MCP controls, are paid
+      Metabase features. This deployment runs the open-source edition.
+    - Interactive and static embedding pages are served behind Musher's
+      sign-in, so embeds don't load on outside sites.
+    - Metabot, Metabase's built-in AI assistant, needs an AI provider. Add one
+      with your own key in **Admin > AI**.
+  gettingStarted: |
+    1. Copy the **Admin password** from the deployment's Installation tab.
+    2. Open the deployment's URL, sign in to Musher, then sign in to Metabase
+       with the email you deployed with and that password.
+    3. Add a database in **Admin > Databases**. Use a read-only database user
+       that can see only the schemas you want to explore. Another deployment's
+       database works if it can be reached from the internet.
+    4. To use Metabase from Claude Code or another MCP client, add
+       `<deployment URL>/api/metabase-mcp` as an HTTP MCP server and sign in
+       when the client opens your browser.
+  category: PRODUCTIVITY
+  lifecycleStage: BETA
+  tags:
+    - business-intelligence
+    - dashboards
+    - analytics
+    - sql
+    - data-visualization
+    - mcp
+  homepageURL: https://www.metabase.com
+  sourceRepositoryURL: https://github.com/metabase/metabase
+  supportURL: https://www.metabase.com/docs/latest/
+  license: AGPL-3.0-only
+  icon: media/icon.png

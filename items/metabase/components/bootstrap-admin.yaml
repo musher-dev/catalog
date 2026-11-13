@@ -1,0 +1,143 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    One-shot job that creates Metabase's first admin account, for the
+    deployer, through the server's own setup API over the private network.
+spec:
+  # WHY A JOB. Metabase's first account is created by POST /api/setup, which
+  # takes the instance's one-time setup token instead of a credential. Before
+  # anyone has signed up, that token is readable by anyone at
+  # GET /api/session/properties (`setup-token`, :visibility :public,
+  # src/metabase/setup/settings.clj, v0.65.4.3). The route answers 403 once
+  # any user exists, and the token is then cleared (setup-create-user! and
+  # setup/clear-token!, src/metabase/setup_rest/api.clj). The `web` node lets
+  # all of /api past the platform's sign-in, for API keys and MCP clients
+  # (components/metabase.yaml). Exemptions are prefixes, so /api/setup cannot
+  # be kept back. Left alone, whoever found the URL first could make
+  # themselves admin.
+  #
+  # So this job creates the admin as soon as Metabase has initialised, over
+  # the deployment's private network, polling every two seconds. It also
+  # replaces Metabase's setup wizard: the deployer signs in with their own
+  # email and a generated password.
+  #
+  # The window that remains. In a live test (run zuxxw35f7) Metabase logged
+  # POST /api/setup about two seconds after the platform recorded `web` as
+  # ready and its public endpoint as activated, so the private address may
+  # also wait for readiness. A visitor would need the URL, the token from
+  # /api/session/properties and a valid request inside those seconds. Gating
+  # readiness on setup having run was rejected for the reason items/coder
+  # gives: if private routing waits for readiness, the job could never reach
+  # the server and the deployment would never become ready.
+  #
+  # A JOB without a schedule runs once per rollout: at deployment, on every
+  # update and on every redeploy (COMP-JOB-001). Every run after the first
+  # finds `has-user-setup` true and exits without changing anything, so a
+  # rotated password parameter does not reach an existing account. Change
+  # the password in Metabase instead. Nothing orders the job against `web`,
+  # so it waits for /api/health itself. A failed run is not retried until the
+  # next rollout; Metabase's own setup wizard, behind the platform's sign-in,
+  # is then the fallback.
+  type: JOB
+  workload:
+    source:
+      # PINNED. The official curl image, alpine-based, so busybox sh, sed,
+      # grep and date are present. Its /entrypoint.sh runs `exec "$@"` when
+      # the first argument is a command on PATH (etc/entrypoint.sh,
+      # curl/curl-container 8.23.0), so the `sh -c` below runs as written.
+      image: curlimages/curl:8.23.0
+    # The request body is the one the setup wizard sends: `token`, `user`
+    # {email, password, first_name?, last_name?} and `prefs` {site_name}, a
+    # closed schema (POST "/", src/metabase/setup_rest/api.clj, v0.65.4.3).
+    # No first or last name: the admin sets them in Metabase. The password
+    # must satisfy MB_PASSWORD_COMPLEXITY on the server (strong-enough, 15
+    # characters at least); the blueprint generates 32.
+    #
+    # The JSON body goes to curl on stdin, so the password is not in any
+    # process's argv. The password is BASE64URL and the token a UUID, neither
+    # of which needs escaping in JSON. The email and site name are escaped for
+    # `\` and `"`.
+    #
+    # Exec form: argv, no shell of the platform's own. `set -eu` plus `curl
+    # -f` turn any non-2xx into a failed run, which the platform records for
+    # the deployment. That includes a 403 from losing the race described
+    # above, which then needs a look rather than silence.
+    command:
+      - sh
+      - -c
+      - >-
+        set -eu;
+        base="http://${METABASE_ADDRESS}";
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ));
+        until curl -fsS -o /dev/null --max-time 5 "$base/api/health"; do
+        if [ "$(date +%s)" -ge "$deadline" ]; then
+        echo "bootstrap-admin: $base/api/health did not answer within ${READY_TIMEOUT_SECONDS}s" >&2;
+        exit 1;
+        fi;
+        sleep 2;
+        done;
+        props=$(curl -fsS --max-time 15 "$base/api/session/properties");
+        if printf '%s' "$props" | grep -q '"has-user-setup":true'; then
+        echo "bootstrap-admin: Metabase already has a user; nothing to do";
+        exit 0;
+        fi;
+        token=$(printf '%s' "$props" | sed -n 's/.*"setup-token":"\([0-9a-fA-F-]*\)".*/\1/p');
+        if [ -z "$token" ]; then
+        echo "bootstrap-admin: no setup token in /api/session/properties" >&2;
+        exit 1;
+        fi;
+        esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; };
+        printf '{"token":"%s","user":{"email":"%s","password":"%s"},"prefs":{"site_name":"%s"}}'
+        "$token" "$(esc "$ADMIN_EMAIL")" "$ADMIN_PASSWORD" "$(esc "$SITE_NAME")"
+        | curl -fsS -o /dev/null --max-time 60 -X POST
+        -H "Content-Type: application/json"
+        --data-binary @- "$base/api/setup";
+        echo "bootstrap-admin: created admin <${ADMIN_EMAIL}>"
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the address, the email and the password.
+      # The constants carry defaults.
+      metabaseAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: METABASE_ADDRESS
+        description: Private host:port of the Metabase server, from the web node's `address` output.
+      adminEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVar: ADMIN_EMAIL
+        description: Email address the admin account is created with, which is also its sign-in name.
+      adminPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: ADMIN_PASSWORD
+        description: Password the admin account is created with.
+      siteName:
+        schema:
+          type: string
+        default: Metabase
+        target:
+          envVar: SITE_NAME
+        description: Name of this Metabase instance, shown in the UI and in emails.
+      # A first install pulls an ~800 MB image, starts the JVM and runs every
+      # application-database migration before /api/health answers 200; the
+      # `web` node's startup probe allows 630 s for that.
+      readyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 900
+        target:
+          envVar: READY_TIMEOUT_SECONDS
+        description: How long the job waits for Metabase to answer /api/health before it fails.
+    outputs: {}

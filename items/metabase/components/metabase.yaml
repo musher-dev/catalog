@@ -1,0 +1,293 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Metabase open-source BI server: dashboards, questions and SQL over your
+    databases, with an MCP server for AI clients, keeping its own state in an
+    external PostgreSQL application database.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.65.4.3 is the latest stable release (image built
+      # 2026-11-12; the v0.65.4 GitHub release is dated 2026-11-13). Metabase
+      # publishes four-part patch tags on Docker Hub; `v0.65.4.x` is a moving
+      # tag and `latest` follows whatever ships next, so neither is used. This
+      # is the open-source (AGPL) image, not metabase/metabase-enterprise.
+      #
+      # The image is Alpine with a JDK 25, `ENTRYPOINT
+      # ["/app/run_metabase.sh"]`, no CMD and no USER. Started as root, the
+      # script creates a `metabase` user (uid/gid 2000, MUID/MGID) and runs
+      # the jar as it via `su`; it prepends nothing to JAVA_OPTS but its own
+      # flags (bin/docker/run_metabase.sh, bin/docker/Dockerfile, v0.65.4.3).
+      # The image has bash and curl. No `command`: the entrypoint already
+      # starts the server.
+      image: metabase/metabase:v0.65.4.3
+    endpoints:
+      primary:
+        # Jetty listens on MB_JETTY_PORT, 3000 by default, on MB_JETTY_HOST,
+        # which the run script sets to 0.0.0.0 when unset (EXPOSE 3000 and
+        # run_metabase.sh, v0.65.4.3).
+        targetPort: 3000
+        protocol: HTTP
+        # Machine traffic that never carries a platform session, all of which
+        # Metabase authenticates itself.
+        #
+        # `/api`: every REST route checks a Metabase session cookie, an
+        # `x-api-key` header (API keys an admin creates under Admin >
+        # Settings > Authentication) or an OAuth bearer token
+        # (merge-current-user-info, src/metabase/server/middleware/
+        # session.clj, v0.65.4.3). It includes the MCP server at
+        # /api/metabase-mcp, which takes only a bearer token
+        # (src/metabase/mcp/paths.clj), and the routes an MCP client's inline
+        # charts call (src/metabase/mcp/ui_surface.clj). The routes Metabase
+        # serves without a credential include health, the public session
+        # properties, login, password reset and first-user setup. Setup is the
+        # one that matters, and the blueprint's
+        # `bootstrap-admin` job closes it within seconds of Metabase answering
+        # (components/bootstrap-admin.yaml describes the window that remains).
+        #
+        # `/oauth` and `/.well-known`: Metabase's embedded OAuth 2.0 server,
+        # which MCP clients discover (RFC 8414 / RFC 9728 metadata), register
+        # with (dynamic client registration) and get tokens from
+        # (src/metabase/server/routes.clj, src/metabase/oauth_server/api/,
+        # v0.65.4.3; docs/ai/mcp.md). The consent page itself sends people to
+        # Metabase's /auth/login, which is not exempt, so they sign in to
+        # Musher first.
+        #
+        # Exemptions are prefixes, so `/api` cannot leave /api/setup behind.
+        exemptibleRequests:
+          paths:
+            - /api
+            - /oauth
+            - /.well-known
+    # No volume. With a PostgreSQL application database Metabase keeps no
+    # state on disk: the H2 file (MB_DB_FILE) is only used when MB_DB_TYPE is
+    # h2, and the driver plugins it extracts to /plugins at boot are rebuilt
+    # every start.
+    health:
+      # /api/health answers 503 {"status":"initializing"} until Metabase has
+      # finished initialising (application-database migrations, settings,
+      # plugins), then 200 {"status":"ok"} while it can reach the application
+      # database. /livez answers 200 as soon as Jetty is up and never touches
+      # the database (health-handler and livez-handler,
+      # src/metabase/server/routes.clj, v0.65.4.3). Upstream's compose probes
+      # /api/health (running-metabase-on-docker.md).
+      #
+      # Jetty comes up only after the JVM has loaded Metabase's jar; on a first
+      # boot Metabase then runs its whole Liquibase migration set against an
+      # empty PostgreSQL, which takes minutes on two vCPUs. The startup budget
+      # is 30 + 60 x 10 = 630 s. Readiness and liveness are suspended until it
+      # passes.
+      #
+      # Nothing makes `web` wait for `db`. In one live test (run zuxxw35f7)
+      # the container failed two minutes in, as `db` was only just becoming
+      # ready (the platform recorded no cause), and the platform restarted it;
+      # the deployment was ready 485 s after it was created. Another run, with
+      # `db` ready earlier, was ready in 282 s with no restart.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      # Liveness avoids the database: a slow or restarting `db` node should
+      # take Metabase out of rotation, not restart the JVM.
+      liveness:
+        http:
+          endpoint: primary
+          path: /livez
+        initialDelaySeconds: 30
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # The application database. The default is an embedded H2 file, which
+      # upstream says is not for production
+      # (configuring-application-database.md, v0.65.4.3).
+      dbType:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: MB_DB_TYPE
+        description: Kind of application database Metabase keeps its state in.
+      dbHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MB_DB_HOST
+        description: Mesh-internal hostname of the PostgreSQL application database.
+      dbPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: MB_DB_PORT
+        description: Port of the PostgreSQL application database on that hostname.
+      dbName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MB_DB_DBNAME
+        description: Database Metabase keeps its application data in.
+      dbUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MB_DB_USER
+        description: Role Metabase connects to the application database as.
+      dbPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: MB_DB_PASS
+        description: Password of the role above.
+      # Links in emails, alert and subscription footers, the OAuth issuer and
+      # the MCP server URL all come from the site URL. Unset, Metabase learns
+      # it from the first admin's browser request (MB_SITE_URL,
+      # docs/configuring-metabase/environment-variables.md, v0.65.4.3); set
+      # here, it is right from the first boot, including for MCP clients that
+      # connect before anyone has opened the UI.
+      siteURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: MB_SITE_URL
+        description: Public https URL people and MCP clients reach Metabase at.
+      # Upstream's hardening guide for self-hosting asks for both keys
+      # (`openssl rand -base64 32`) and for legacy startup encryption to be
+      # turned off on 64+ (security-best-practices-self-hosting.md,
+      # v0.65.4.3). The encryption key protects saved database credentials
+      # and MFA secrets in the application database; the session key signs
+      # stored session hashes, so database access alone cannot mint a session.
+      encryptionSecretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: MB_ENCRYPTION_SECRET_KEY
+        description: >-
+          Key Metabase encrypts saved database credentials and other secrets
+          with in its application database; at least 16 characters. Losing it
+          makes those values unrecoverable.
+      sessionSecretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: MB_SESSION_SECRET_KEY
+        description: >-
+          Key Metabase signs stored session keys with; at least 16 characters.
+          Changing it signs everyone out.
+      # Set from the first boot, so nothing is ever stored unencrypted that a
+      # later start would have to encrypt.
+      disableLegacyStartupEncryption:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: MB_DISABLE_LEGACY_STARTUP_ENCRYPTION
+        description: >-
+          Whether Metabase refuses to start, rather than encrypt in place, when
+          it finds values an older version stored unencrypted, as the literal
+          string Metabase parses.
+      # Upstream's recommendation for password logins on the open-source
+      # edition: `strong-enough`, a 15-character minimum
+      # (security-best-practices-self-hosting.md). It applies to new and
+      # changed passwords.
+      passwordComplexity:
+        schema:
+          type: string
+        default: strong-enough
+        target:
+          envVar: MB_PASSWORD_COMPLEXITY
+        description: >-
+          Password rule for new and changed passwords: weak, normal, strong or
+          strong-enough (at least 15 characters).
+      anonTrackingEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: MB_ANON_TRACKING_ENABLED
+        description: >-
+          Whether Metabase sends anonymous usage data upstream, as the literal
+          string Metabase parses.
+      # Public links and embeds are served from /public and /embed, which stay
+      # behind the platform's sign-in, so a link an admin created would not
+      # open for anyone outside the organization. Turned off so the option is
+      # not offered. The environment wins over anything saved in Admin
+      # settings.
+      enablePublicSharing:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: MB_ENABLE_PUBLIC_SHARING
+        description: >-
+          Whether admins can create public links to questions and dashboards,
+          as the literal string Metabase parses.
+      colorizeLogs:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: MB_COLORIZE_LOGS
+        description: Whether log lines carry ANSI colour codes, as the literal string Metabase parses.
+      # The JVM sizes its heap from the container's memory limit, 25% by
+      # default. Upstream's own load tests give the heap 80% of RAM, leaving
+      # the rest for non-heap memory ("Metabase in production",
+      # metabase.com/learn). 75% keeps a little more headroom and follows
+      # the node's profile if it changes. The run script appends its own
+      # flags after this value.
+      javaOpts:
+        schema:
+          type: string
+        default: -XX:MaxRAMPercentage=75
+        target:
+          envVar: JAVA_OPTS
+        description: Extra JVM options for the Metabase process.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL this deployment answers at, which Metabase uses as its site URL.
+        from:
+          endpoint: primary
+          property: publicURL
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the Metabase HTTP server, reachable only
+          by workloads in the same deployment, which the bootstrap job calls.
+        from:
+          endpoint: primary
+          property: privateAddress
