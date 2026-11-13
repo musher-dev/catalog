@@ -25,8 +25,11 @@ spec:
     # one-shot container on ghcr.io/simstudioai/migrations, `bun run
     # db:migrate` in /app/packages/db, which the app waits on with
     # `service_completed_successfully` (docker-compose.prod.yml, v0.9.56).
-    # This platform has no such ordering, and in catalog run ihc050a6e it
-    # never ran a blueprint's unscheduled JOB node at all. This image carries
+    # This platform has no such ordering (platform-api#1445): a JOB node
+    # starts when it is scheduled, not when something else is done, so the
+    # app could start against an unmigrated schema whichever node migrates.
+    # Here the migration runs first in the one container whose server needs
+    # it, which is an ordering this platform can express. This image carries
     # the same @sim/db package, its migrations folder, scripts/migrate.ts and
     # the script migrations, built from the same release (listed from the
     # image's layers), and its server refuses to start against an

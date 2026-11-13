@@ -116,8 +116,8 @@ spec:
       componentRef: ./components/activepieces-worker.yaml
       # Upstream sizes a worker at 1 GB per concurrent job ("0.5 vCPU / 1 GB,
       # concurrency 1", production-setup.mdx). Two slots (the component's
-      # default) fit in 2 GiB: the idle worker held about 230 MiB in catalog
-      # run ihc050a6e.
+      # default) fit in 2 GiB: the idle worker held about 230 MiB in a live
+      # deploy test.
       compute:
         profile: general.standard.nano
       volumes:

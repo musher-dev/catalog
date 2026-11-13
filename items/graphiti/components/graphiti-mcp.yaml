@@ -168,7 +168,7 @@ spec:
       # object", was tried on the default Claude connection and failed: entity
       # extraction parsed, but edge extraction came back as `{}` and the
       # episode was dropped with "1 validation error for ExtractedEdges ...
-      # Field required" (run vdem4c10a). Graphiti retries only unparseable
+      # Field required" (platform-api#1456). Graphiti retries only unparseable
       # JSON and rate limits, not schema mismatches.
       structuredOutputMode:
         schema:

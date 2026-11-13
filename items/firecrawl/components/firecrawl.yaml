@@ -51,7 +51,7 @@ spec:
     # workers die on a refused connection. PostgreSQL's entrypoint runs
     # nuq.sql on a socket-only server (listen_addresses ''), so the port
     # opens only once the queue schema exists. The probe is a Node one-liner
-    # because the image ships no nc. In live run owf7i85ea, without the
+    # because the image ships no nc. In a live deploy test without the
     # wait, the container exited nonzero 20 s in and the platform then held
     # the node in SCHEDULING/BindingHost for 38 minutes without starting it
     # again.

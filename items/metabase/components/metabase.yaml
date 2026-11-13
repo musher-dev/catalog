@@ -81,8 +81,8 @@ spec:
       # is 30 + 60 x 10 = 630 s. Readiness and liveness are suspended until it
       # passes.
       #
-      # Nothing makes `web` wait for `db`. In one live test (run zuxxw35f7)
-      # the container failed two minutes in, as `db` was only just becoming
+      # Nothing makes `web` wait for `db` (platform-api#1445). In one live
+      # deploy test the container failed two minutes in, as `db` was only just becoming
       # ready (the platform recorded no cause), and the platform restarted it;
       # the deployment was ready 485 s after it was created. Another run, with
       # `db` ready earlier, was ready in 282 s with no restart.

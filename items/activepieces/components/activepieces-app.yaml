@@ -28,10 +28,12 @@ spec:
     # creates that account for the deployer, with their verified email and
     # the generated password, through the app's own API on loopback.
     #
-    # Not a one-shot JOB node, the shape the `coder` item uses: in catalog run
-    # ihc050a6e the platform deployed this blueprint's other four nodes and
-    # never ran its unscheduled JOB node ("4 of 4 replicas"), so the owner was
-    # never created.
+    # In-process rather than a one-shot JOB node, the shape the `coder`,
+    # `gitea`, `metabase` and `uptime-kuma` items use. An early deploy test of
+    # this item never saw its JOB node run, so the bootstrap moved here, and
+    # this is the form the live test passed. JOB nodes do run (those
+    # bootstraps all ran live), so a JOB polling the app's private address
+    # would work as well; it would need its own live test.
     #
     # How it runs. `command` replaces CMD and keeps the ENTRYPOINT
     # (`tini -- ./docker-entrypoint.sh`), which execs its arguments when it has
@@ -270,7 +272,8 @@ spec:
       # configured URL (getPublicUrlFromRequest, helper/domain-helper.ts,
       # 0.93.0). The platform's edge ends TLS and the request arrives without
       # an https X-Forwarded-Proto, so without this the issuer and token
-      # endpoint were advertised as http:// (catalog run ihc050a6e). Setting it
+      # endpoint were advertised as http:// in a live deploy test
+      # (platform-api#539). Setting it
       # equal to AP_FRONTEND_URL is the one same-host value the startup check
       # allows (assertMcpUrlHasDistinctHost, helper/system-validator.ts).
       mcpURL:

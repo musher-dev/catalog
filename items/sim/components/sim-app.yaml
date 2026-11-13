@@ -48,8 +48,8 @@ spec:
     #      realtime node (components/sim-realtime.yaml), and it reports how
     #      many accounts exist. Both limit and offset are sent: v0.9.56
     #      answers 400 "expected number, received undefined" when either is
-    #      missing, though its contract gives both a default (catalog run
-    #      rleirb716; lib/api/contracts/v1/admin/shared.ts);
+    #      missing, though its contract gives both a default (seen in a live
+    #      deploy test; lib/api/contracts/v1/admin/shared.ts);
     #    - with no account yet, it posts {email, password, name} to
     #      /api/auth/sign-up/email, then signs in with the same pair, so it
     #      reports success only once the password really works. Better Auth
@@ -65,11 +65,16 @@ spec:
     #    failure, cut to 300 bytes. If it fails, the sign-up page, behind the
     #    platform's sign-in, is the fallback.
     #
-    #    Not a one-shot JOB node: in catalog run ihc050a6e the platform never
-    #    ran a blueprint's unscheduled JOB node. The bootstrap starts from a
-    #    subshell that exits at once, so it is orphaned to PID 1. That is Bun
-    #    here, which does not reap it, so it stays as one zombie entry after
-    #    it ends; it holds no memory.
+    #    Why in-process rather than a one-shot JOB node like the gitea,
+    #    metabase and uptime-kuma bootstraps: an early deploy test of this
+    #    item never saw its JOB node run, so the bootstrap moved here, and this
+    #    is the form the live test passed. JOB nodes do run (those three
+    #    bootstraps and temporal's schema-setup all ran live), so a JOB
+    #    polling the app's private address would work as well; it would need
+    #    its own live test. The bootstrap starts from a subshell that exits at
+    #    once, so it is orphaned to PID 1. That is Bun here, which does not
+    #    reap it, so it stays as one zombie entry after it ends; it holds no
+    #    memory.
     # 4. `env -u` keeps the owner's email and password, the raw parts of the
     #    URLs and the unstripped base URL out of the app's environment; only
     #    the background shell holds them.
