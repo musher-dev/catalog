@@ -1,0 +1,482 @@
+# The Sim web app: the workflow editor, the Next.js API behind it, workflow
+# execution (Agent, API, Function and the other blocks run in this process),
+# the public API and webhook triggers. It is upstream's `simstudio` service
+# (docker-compose.prod.yml, v0.9.56). The live collaboration channel the
+# editor holds open runs on the separate realtime server
+# (components/sim-realtime.yaml), which the browser reaches on its own public
+# address.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Sim's workflow editor, API and executor (Next.js on Bun), on an external
+    PostgreSQL with pgvector and a Redis-compatible store, with a separate
+    realtime server for live editing.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.9.56 is the latest stable release (2026-11-13). Upstream
+      # releases several times a week and moves app, realtime and the database
+      # schema together ("app, realtime and migrations share a database schema
+      # and must move together", docker-compose.prod.yml, v0.9.56), so this tag
+      # and components/sim-realtime.yaml's always change in one revision.
+      # `latest` would let the two drift apart. The image runs as `nextjs`
+      # (uid 1001), with ENTRYPOINT /usr/local/bin/docker-entrypoint.sh (Bun's,
+      # which execs its arguments) and CMD `bun apps/sim/bootstrap.js`, in
+      # WORKDIR /app (docker/app.Dockerfile, v0.9.56; crane config).
+      image: ghcr.io/simstudioai/simstudio:v0.9.56
+    # `command` replaces the CMD and keeps the ENTRYPOINT, which execs it.
+    #
+    # 1. Sim reads its database and Redis only as URLs (DATABASE_URL,
+    #    REDIS_URL in apps/sim/lib/core/config/env.ts, v0.9.56), and a URL
+    #    holding a generated password cannot be written as a template. The
+    #    shell assembles both from the inputs. The passwords are HEX, so they
+    #    need no percent-encoding.
+    # 2. Sim's OpenAI-compatible gateway provider ("LiteLLM") appends /v1 to
+    #    its base URL itself, for /v1/models and /v1/chat/completions
+    #    (providers/litellm/index.ts and app/api/providers/litellm/models/
+    #    route.ts, v0.9.56). A connection's base URL ends in the version
+    #    segment, so a trailing /v1 is taken off.
+    # 3. THE FIRST ACCOUNT. Sim reads no owner from the environment: accounts
+    #    are created through Better Auth's email sign-up. So a background
+    #    bootstrap creates one for the deployer, with their verified email and
+    #    the generated password, through the app's own API on loopback:
+    #    - it waits until GET /api/v1/admin/users answers 200 with the admin
+    #      key. That needs the server up and the schema migrated by the
+    #      realtime node (components/sim-realtime.yaml), and it reports how
+    #      many accounts exist. Both limit and offset are sent: v0.9.56
+    #      answers 400 "expected number, received undefined" when either is
+    #      missing, though its contract gives both a default (catalog run
+    #      rleirb716; lib/api/contracts/v1/admin/shared.ts);
+    #    - with no account yet, it posts {email, password, name} to
+    #      /api/auth/sign-up/email, then signs in with the same pair, so it
+    #      reports success only once the password really works. Better Auth
+    #      checks the Origin of these calls against its trusted origins, which
+    #      include NEXT_PUBLIC_APP_URL (lib/auth/auth.ts, v0.9.56), so that is
+    #      the Origin sent. Email verification is off unless an email
+    #      provider is configured, so the account can sign in at once;
+    #    - with any account already there it does nothing, so a rotated
+    #      password parameter does not reach the account.
+    #    The admin key and request bodies go to curl through files and a
+    #    config on stdin (umask 077), so no secret is in any process's argv.
+    #    Responses carry a session cookie, so they are printed only on
+    #    failure, cut to 300 bytes. If it fails, the sign-up page, behind the
+    #    platform's sign-in, is the fallback.
+    #
+    #    Not a one-shot JOB node: in catalog run ihc050a6e the platform never
+    #    ran a blueprint's unscheduled JOB node. The bootstrap starts from a
+    #    subshell that exits at once, so it is orphaned to PID 1. That is Bun
+    #    here, which does not reap it, so it stays as one zombie entry after
+    #    it ends; it holds no memory.
+    # 4. `env -u` keeps the owner's email and password, the raw parts of the
+    #    URLs and the unstripped base URL out of the app's environment; only
+    #    the background shell holds them.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        export HOSTNAME="$SIM_LISTEN_HOSTNAME"
+        export DATABASE_URL="postgresql://${SIM_PG_USER}:${SIM_PG_PASSWORD}@${SIM_PG_ADDRESS}/${SIM_PG_DATABASE}"
+        export REDIS_URL="redis://:${SIM_REDIS_PASSWORD}@${SIM_REDIS_ADDRESS}"
+        llm_base="${SIM_LLM_BASE_URL%/}"
+        export LITELLM_BASE_URL="${llm_base%/v1}"
+        bootstrap() {
+          umask 077
+          base="http://127.0.0.1:${PORT}"
+          dir=$(mktemp -d)
+          trap 'rm -rf "$dir"' EXIT
+          printf 'header = "x-admin-key: %s"\n' "$ADMIN_API_KEY" > "$dir/admin.cfg"
+          deadline=$(( $(date +%s) + OWNER_READY_TIMEOUT_SECONDS ))
+          until [ "$(curl -sS -o "$dir/users.json" -w '%{http_code}' --max-time 10 \
+            -K "$dir/admin.cfg" "$base/api/v1/admin/users?limit=1&offset=0" 2>/dev/null)" = 200 ]; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "bootstrap-owner: the admin API did not answer 200 within ${OWNER_READY_TIMEOUT_SECONDS}s" >&2
+              return 1
+            fi
+            sleep 10
+          done
+          if ! grep -q '"total":0' "$dir/users.json"; then
+            echo "bootstrap-owner: Sim already has an account; nothing to do"
+            return 0
+          fi
+          esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+          email=$(esc "$OWNER_EMAIL")
+          name=$(esc "${OWNER_NAME:-}")
+          [ -n "$name" ] || name=$(esc "${OWNER_EMAIL%@*}")
+          printf '{"email":"%s","password":"%s","name":"%s"}' "$email" "$OWNER_PASSWORD" "$name" > "$dir/sign-up.json"
+          printf '{"email":"%s","password":"%s"}' "$email" "$OWNER_PASSWORD" > "$dir/sign-in.json"
+          for step in sign-up sign-in; do
+            status=$(curl -sS -o "$dir/out" -w '%{http_code}' --max-time 60 -X POST \
+              -H 'Content-Type: application/json' -H "Origin: ${NEXT_PUBLIC_APP_URL}" \
+              --data-binary "@$dir/$step.json" "$base/api/auth/$step/email" || true)
+            case "$status" in
+              2??) ;;
+              *)
+                echo "bootstrap-owner: POST /api/auth/$step/email answered $status: $(head -c 300 "$dir/out")" >&2
+                return 1
+                ;;
+            esac
+          done
+          echo "bootstrap-owner: created the first account <${OWNER_EMAIL}> and signed in with it"
+        }
+        if [ -n "${OWNER_EMAIL:-}" ] && [ -n "${OWNER_PASSWORD:-}" ]; then
+          ( bootstrap & )
+        fi
+        exec env -u OWNER_EMAIL -u OWNER_NAME -u OWNER_PASSWORD -u SIM_PG_PASSWORD \
+          -u SIM_REDIS_PASSWORD -u SIM_LLM_BASE_URL bun apps/sim/bootstrap.js
+    endpoints:
+      # PORT and HOSTNAME=0.0.0.0 are the image's own (docker/app.Dockerfile,
+      # v0.9.56).
+      primary:
+        targetPort: 3000
+        protocol: HTTP
+        # The routes callers outside a browser use, which no viewer session
+        # can reach. A blueprint may let them past the platform's sign-in;
+        # every other route keeps it. Each one checks Sim's own credential:
+        #
+        # - /api/webhooks: webhook triggers (/api/webhooks/trigger/<path>) and
+        #   the provider webhooks (Slack, AgentMail, TikTok, QuickBooks), each
+        #   verified against the workflow's trigger configuration.
+        # - /api/workflows: the API trigger, POST /api/workflows/<id>/execute
+        #   with an X-API-Key. The editor's own routes under the same prefix
+        #   still demand a Sim session.
+        # - /api/v1: the public REST API (logs, workflows, tables, files,
+        #   knowledge), which takes only API keys (app/api/v1/middleware.ts),
+        #   and the admin API under /api/v1/admin, which takes only the admin
+        #   key in x-admin-key (app/api/v1/admin/auth.ts, v0.9.56).
+        # - /api/mcp/serve: workflows published as MCP servers, which demand
+        #   an API key or an OAuth token (app/api/mcp/serve/[serverId]/
+        #   route.ts, v0.9.56).
+        #
+        # Not exempt, so behind sign-in: the editor, sign-in and sign-up, and
+        # deployed chat and form pages.
+        exemptibleRequests:
+          paths:
+            - /api/webhooks
+            - /api/workflows
+            - /api/v1
+            - /api/mcp/serve
+    health:
+      # A Next.js cold start of a large bundle. Upstream's Helm chart gives it
+      # a 60 x 5 s = 300 s startup budget (helm/sim/values.yaml, v0.9.56);
+      # here 30 + 30 x 10 = 330 s. Readiness is suspended until it passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 30
+      # GET /api/health answers 200 once the server routes requests, without
+      # touching the database (app/api/health/route.ts, v0.9.56), so a
+      # database blip does not take the editor out of rotation. Not `/`,
+      # upstream's probe: for a request with no session the root redirects to
+      # /login. /api/* is also outside the proxy's user-agent filter, which
+      # answers 403 to an empty User-Agent elsewhere (proxy.ts, v0.9.56).
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # Uploaded files (workspace files, knowledge-base documents, chat
+      # attachments, execution outputs) when no object store is configured:
+      # "Local disk writes to /app/apps/sim/uploads inside the container", and
+      # upstream's compose and chart mount nothing there, so its files are
+      # lost on every recreate (apps/docs/content/docs/platform/self-hosting/
+      # object-storage.mdx, v0.9.56). The image runs as uid 1001 and cannot
+      # change ownership itself, so the volume must be writable by that uid.
+      # That relies on the platform mounting it with group or owner 1001, not
+      # on anything this document can state.
+      uploads:
+        minSizeGiB: 5
+        mountPath: /app/apps/sim/uploads
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the addresses, secrets and connection; the
+      # constants carry defaults.
+      appURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: NEXT_PUBLIC_APP_URL
+        description: >-
+          Public https URL of this app, which Sim builds webhook, OAuth and
+          invitation links from and injects into the browser at runtime.
+      # Upstream sets both from one value (docker-compose.prod.yml, v0.9.56).
+      betterAuthURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: BETTER_AUTH_URL
+        description: Public https URL Better Auth issues sessions for; the same address as the app's.
+      # Read by the browser, not the server. Its origin is also added to
+      # Better Auth's trusted origins and to the page's Content Security
+      # Policy connect-src at runtime (lib/auth/auth.ts, lib/core/security/
+      # csp.ts, v0.9.56).
+      socketURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: NEXT_PUBLIC_SOCKET_URL
+        description: >-
+          Public https URL of the realtime server, which the editor in the
+          browser opens its live-collaboration socket to.
+      socketServerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: SOCKET_SERVER_URL
+        description: >-
+          Private URL of the realtime server, which the app notifies when a
+          workflow is saved, deployed or deleted.
+      # Next.js' standalone server listens on HOSTNAME. The image sets it to
+      # 0.0.0.0 (docker/app.Dockerfile, v0.9.56), but a container runtime
+      # sets HOSTNAME to the container's own name, and the server then
+      # listens only on that name's address and not on 127.0.0.1, where the
+      # bootstrap above and the internal API base URL below call it. In
+      # catalog run wv5gy91ea the deployment was healthy (probes reach the
+      # replica's address) but the loopback bootstrap never created the
+      # account, which this explains; with the fix below, run yq9bcc90b created
+      # it. The input targets a name of its own and
+      # the shell in `command` exports it as HOSTNAME just before the server
+      # starts, so it wins whichever of the image, the spec or the runtime
+      # sets HOSTNAME.
+      listenHostname:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: SIM_LISTEN_HOSTNAME
+        description: Address the Next.js server listens on; all interfaces, so loopback calls reach it.
+      # Server-side self-calls go to NEXT_PUBLIC_APP_URL unless this is set
+      # (getInternalApiBaseUrl, lib/core/utils/urls.ts, v0.9.56). Through the
+      # public URL they would meet the platform's sign-in, so they stay on
+      # loopback.
+      internalAPIBaseURL:
+        schema:
+          type: string
+        default: http://127.0.0.1:3000
+        target:
+          envVar: INTERNAL_API_BASE_URL
+        description: Base URL the app calls its own API on from the server side.
+      # All three are `openssl rand -hex 32` in upstream's compose, which
+      # refuses to start without them (docker-compose.prod.yml, v0.9.56).
+      betterAuthSecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: BETTER_AUTH_SECRET
+        description: >-
+          Key Better Auth signs sessions and one-time socket tokens with; the
+          realtime server needs the same one.
+      encryptionKey:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: ENCRYPTION_KEY
+        description: >-
+          Key Sim encrypts stored credentials, environment variables and OAuth
+          tokens with. It cannot be changed later without losing them.
+      internalAPISecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: INTERNAL_API_SECRET
+        description: Shared secret the app and the realtime server authenticate each other's calls with.
+      # Optional upstream; without it API keys are stored in plain text
+      # (helm/sim/values.yaml, v0.9.56).
+      apiEncryptionKey:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: API_ENCRYPTION_KEY
+        description: Key Sim encrypts the API keys it issues with, at rest.
+      # Enables /api/v1/admin, the self-hosting admin API (users, workspaces,
+      # workflow import and export), and lets the bootstrap above see whether
+      # an account exists.
+      adminAPIKey:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: ADMIN_API_KEY
+        description: Key the admin API under /api/v1/admin accepts in the x-admin-key header.
+      postgresAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_PG_ADDRESS
+        description: Mesh-internal `host:port` of the PostgreSQL server (with pgvector).
+      postgresUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_PG_USER
+        description: Role Sim connects to PostgreSQL as.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SIM_PG_PASSWORD
+        description: Password of that role, placed unencoded in the database URL, so letters and digits only.
+      postgresDatabase:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_PG_DATABASE
+        description: Database Sim keeps its data in.
+      redisAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_REDIS_ADDRESS
+        description: Mesh-internal `host:port` of the Redis-compatible server.
+      # The same schema as the cache component's own password input, because
+      # one parameter fills both.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: SIM_REDIS_PASSWORD
+        description: Password of the Redis-compatible server, placed unencoded in the Redis URL.
+      # The two inputs below carry one language-model connection, wired from
+      # the `llm` node. Sim lists the models GET <base>/v1/models returns under
+      # its LiteLLM provider, as `litellm/<id>`, and calls the chosen one with
+      # this key (app/api/providers/litellm/models/route.ts, v0.9.56). The
+      # connection's own model is among them; Sim has no setting that would
+      # make it the default.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: SIM_LLM_BASE_URL
+        description: Base URL of the OpenAI-compatible model API, ending in its version segment.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LITELLM_API_KEY
+        description: Bearer credential for the model API above.
+      ownerEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVar: OWNER_EMAIL
+        description: Email address of the first account, created on first start if Sim has none.
+      ownerName:
+        schema:
+          type: string
+        required: false
+        default: ''
+        target:
+          envVar: OWNER_NAME
+        description: Display name of the first account; the email's local part when empty.
+      # Better Auth takes 8 to 128 characters by default.
+      ownerPassword:
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 128
+        sensitive: true
+        required: true
+        target:
+          envVar: OWNER_PASSWORD
+        description: Password of the first account. Changing it later does not change an existing account.
+      # Covers the image pull, PostgreSQL's first boot, and the realtime
+      # node's first migration run, which the admin API waits on.
+      ownerReadyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 1500
+        target:
+          envVar: OWNER_READY_TIMEOUT_SECONDS
+        description: How long the first-account bootstrap waits for the app and its schema before it gives up.
+      # Upstream infers the backend from the variables set and falls back to
+      # local disk; stating it keeps a stray cloud variable from switching it
+      # (object-storage.mdx, v0.9.56).
+      storageProvider:
+        schema:
+          type: string
+        default: local
+        target:
+          envVar: STORAGE_PROVIDER
+        description: Where uploaded files are stored; `local` is the volume above.
+      # Upstream's Docker and Helm default. Without it the browser's
+      # telemetry relay and server traces go to telemetry.simstudio.ai
+      # (environment-variables.mdx, v0.9.56).
+      nextTelemetryDisabled:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: NEXT_TELEMETRY_DISABLED
+        description: Whether Sim's and Next.js' anonymous telemetry is off, as the literal string the image parses.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https URL of the Sim editor and API, which Sim builds its
+          webhook, API and invitation URLs from.
+        from:
+          endpoint: primary
+          property: publicURL
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the app inside the deployment's private network, for the
+          realtime server's calls back to it; resolvable only by workloads in
+          the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

@@ -1,0 +1,283 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: sim
+  revision: 1
+  description: >-
+    Sim's AI-agent workflow builder behind the platform's sign-in, with its
+    realtime collaboration server on a second public address, PostgreSQL with
+    pgvector, Valkey, a first account for the deployer, and the
+    organization's language model.
+# Upstream's production compose, node for node (docker-compose.prod.yml,
+# v0.9.56): simstudio, realtime, migrations, redis, cron and db. Two
+# differences:
+#
+# - The one-shot `migrations` container is folded into the realtime node,
+#   which applies the schema before it serves (components/sim-realtime.yaml).
+# - The `cron` container is left out. Its image (ghcr.io/simstudioai/cron)
+#   serves no port, and in catalog run uccz47da6 the platform stopped it as a
+#   WORKER every time, about 15 s after start, with "port_bind_timeout". Its
+#   ENTRYPOINT ignores any `command`, so nothing can be started beside
+#   supercronic to hold a port. Without it, scheduled workflows, polling
+#   triggers and the other background jobs do not run (docker-compose.prod.yml,
+#   v0.9.56); the listing says so.
+#
+# TWO PUBLIC ADDRESSES. The browser talks to the app and, separately, keeps a
+# Socket.IO connection to the realtime server. Upstream either routes
+# /socket.io on the app's hostname to realtime, or gives realtime a hostname of
+# its own and sets NEXT_PUBLIC_SOCKET_URL to it (apps/docs/content/docs/
+# platform/self-hosting/networking.mdx, v0.9.56). A node here has one public
+# address and no path routing, so this is the second layout: `realtime` is a
+# public node of its own, and the app is told its URL.
+#
+# Producers first: map order is graph order.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the members
+      # of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    db:
+      componentRef: ./components/pgvector.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, and Sim's pools are small: at most 37 connections from
+      # the app's pools and 5 from realtime, under PostgreSQL's default 100
+      # (packages/db/pool-profiles.ts, v0.9.56). A trial deployment fits in
+      # 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only by `app` and `realtime`.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: sim
+        postgresDb:
+          value: sim
+    cache:
+      componentRef: ./components/valkey.yaml
+      # Pub/sub channels, the Socket.IO adapter and small caches; a few
+      # megabytes for one team.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: PRIVATE, and behind a password as well.
+      bindings:
+        valkeyPassword:
+          parameter: cachePassword
+    realtime:
+      componentRef: ./components/sim-realtime.yaml
+      # Upstream gives it 512 MiB, capped at 1 GiB (helm/sim/values.yaml and
+      # docker-compose.prod.yml, v0.9.56). One notch up, because the same
+      # container runs the migrations on every start.
+      compute:
+        profile: general.standard.nano
+      # Public with no platform sign-in. The editor's page lives on the
+      # app's address, so the browser opens this socket cross-origin, and a
+      # sign-in session for the app's address does not carry over to this
+      # one: behind the platform's sign-in the socket could never connect.
+      # The server checks every socket itself: the handshake must carry a
+      # one-time token the app issues to a signed-in Sim user, verified
+      # against the shared database (apps/realtime/src/middleware/auth.ts,
+      # v0.9.56), and only the app's origin passes CORS. Its POST routes
+      # demand the internal secret, and /health reports only a connection
+      # count.
+      exposure:
+        primary: PUBLIC
+      bindings:
+        appURL:
+          node: app
+          output: privateURL
+        betterAuthURL:
+          node: app
+          output: publicURL
+        allowedOrigins:
+          node: app
+          output: publicURL
+        betterAuthSecret:
+          parameter: betterAuthSecret
+        internalAPISecret:
+          parameter: internalAPISecret
+        encryptionKey:
+          parameter: encryptionKey
+        postgresAddress:
+          node: db
+          output: address
+        postgresUser:
+          value: sim
+        postgresPassword:
+          parameter: dbPassword
+        postgresDatabase:
+          value: sim
+        redisAddress:
+          node: cache
+          output: address
+        redisPassword:
+          parameter: cachePassword
+    app:
+      componentRef: ./components/sim-app.yaml
+      # Upstream requests 4 GiB and caps the app at 8 GiB, with 1 to 2 vCPU
+      # (helm/sim/values.yaml; "memory: 8G" in docker-compose.prod.yml,
+      # v0.9.56). Workflows run in this process, Function blocks in
+      # isolated-vm workers beside it. 4 GiB would leave no headroom over the
+      # request, so this is the 8 GiB profile.
+      compute:
+        profile: general.standard.medium
+      volumes:
+        uploads:
+          sizeGiB: 10
+      # The platform signs viewers in before forwarding: the editor is for
+      # people allowed into this deployment. Sim then signs them in again
+      # with its own accounts, because its single sign-on is an enterprise
+      # feature (apps/sim/ee). Webhook triggers, the API trigger, the public
+      # and admin API and workflow MCP servers are exempt, because their
+      # callers never hold a viewer session, and each checks Sim's own key
+      # (components/sim-app.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - PATHS
+      bindings:
+        # This node's own allocated address. A node reading its own endpoint
+        # output is a discovery dependency and not a value cycle (BP-BIND-002):
+        # an endpoint address is allocated before anything runs.
+        appURL:
+          node: app
+          output: publicURL
+        betterAuthURL:
+          node: app
+          output: publicURL
+        socketURL:
+          node: realtime
+          output: publicURL
+        socketServerURL:
+          node: realtime
+          output: privateURL
+        betterAuthSecret:
+          parameter: betterAuthSecret
+        encryptionKey:
+          parameter: encryptionKey
+        internalAPISecret:
+          parameter: internalAPISecret
+        apiEncryptionKey:
+          parameter: apiEncryptionKey
+        adminAPIKey:
+          parameter: adminAPIKey
+        postgresAddress:
+          node: db
+          output: address
+        postgresUser:
+          value: sim
+        postgresPassword:
+          parameter: dbPassword
+        postgresDatabase:
+          value: sim
+        redisAddress:
+          node: cache
+          output: address
+        redisPassword:
+          parameter: cachePassword
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        # The first account, created on first start by the bootstrap in the
+        # app component's command (components/sim-app.yaml).
+        ownerEmail:
+          parameter: ownerEmail
+        ownerName:
+          parameter: ownerName
+        ownerPassword:
+          parameter: ownerPassword
+  parameters:
+    # A connection parameter binds only to a connection input, and the `llm`
+    # node's is the only one here (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # The deployment's creator owns it: their verified email and name,
+    # captured once when the deployment is created (BP-PARAM-011).
+    ownerEmail:
+      from: "${{ deployment.creator.email }}"
+    ownerName:
+      from: "${{ deployment.creator.name }}"
+    # Disclosed to whoever manages the deployment. 24 bytes in BASE64URL is
+    # 32 characters: inside Better Auth's 8 to 128, and safe in JSON without
+    # escaping.
+    ownerPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Owner password
+        order: 2
+    # Disclosed for scripted administration: the x-admin-key of the admin API
+    # under /api/v1/admin (users, workspaces, workflow import and export).
+    adminAPIKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Admin API key
+        order: 3
+    # 32 bytes in HEX is the 64 hexadecimal characters of upstream's
+    # `openssl rand -hex 32`; at that length Sim also seals stored OAuth
+    # tokens with it. Disclosed because every saved credential and
+    # environment variable is encrypted with it: keep a copy with any
+    # database backup.
+    encryptionKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Encryption key
+        order: 4
+    # Upstream generates each of the three below with `openssl rand -hex 32`
+    # (docker-compose.prod.yml, helm/sim/values.yaml, v0.9.56). Nobody outside
+    # the deployment needs them, so they are not disclosed.
+    betterAuthSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    internalAPISecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    apiEncryptionKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    # HEX keeps the password free of characters a connection string would
+    # treat specially. Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 5
+    # HEX, because Valkey reads the password as one word of its
+    # configuration and Sim places it unencoded in the Redis URL.
+    cachePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Cache password
+        order: 6
