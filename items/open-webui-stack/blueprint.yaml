@@ -124,7 +124,7 @@ spec:
         # password shared by both ends: one parameter, so the two always agree.
         databaseHost:
           node: db
-          output: host
+          output: hostname
         databasePort:
           node: db
           output: port

@@ -90,3 +90,19 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the database endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

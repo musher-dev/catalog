@@ -241,7 +241,7 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
-      host:
+      hostname:
         schema:
           type: string
         description: >-

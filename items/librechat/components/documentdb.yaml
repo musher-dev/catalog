@@ -234,7 +234,7 @@ spec:
           Database the DocumentDB extension is installed in on first boot;
           FerretDB requires `postgres`.
     outputs:
-      host:
+      hostname:
         schema:
           type: string
         description: >-

@@ -94,7 +94,7 @@ spec:
         # password shared by both ends: one parameter, so the two always agree.
         postgresHost:
           node: db
-          output: host
+          output: hostname
         postgresPort:
           node: db
           output: port
