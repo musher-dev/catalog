@@ -1,0 +1,115 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Temporal Web UI for browsing namespaces, workflows and their event
+    histories, and for signalling, cancelling, resetting or terminating
+    workflows on a Temporal server it reaches over gRPC.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2.58.1 is the latest stable release of temporalio/ui
+      # (2026-11-06). The tag has no `v` prefix. The UI is versioned apart from
+      # the server and talks to it over the stable WorkflowService gRPC API.
+      #
+      # Alpine-based, USER temporal, WORKDIR /home/ui-server,
+      # `ENTRYPOINT ["./start-ui-server.sh"]`, which runs `ui-server --env
+      # docker start`. That renders config/docker.yaml, a template read from
+      # the environment (server/docker/start-ui-server.sh, server/config/
+      # docker.yaml, temporalio/ui v2.58.1). No `command`: the entrypoint
+      # already starts the server.
+      image: temporalio/ui:2.58.1
+    endpoints:
+      # TEMPORAL_UI_PORT default (server/config/docker.yaml); the image
+      # EXPOSEs 8080.
+      primary:
+        targetPort: 8080
+        protocol: HTTP
+    # No volume: the UI keeps no state.
+    health:
+      # GET /api/v1/cluster-info is proxied through the UI server's gRPC
+      # connection to the Temporal frontend (SetAPIRoutes, server/server/route/
+      # api.go, v2.58.1). So the UI is ready only when it can actually reach
+      # the server: a page that loads but cannot list a workflow is not ready.
+      # It names no namespace, so renaming or removing `default` later cannot
+      # take the UI offline.
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/v1/cluster-info
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      # /healthz answers from the UI server alone (server/server/route/
+      # health.go), so a server restart never restarts the UI.
+      liveness:
+        http:
+          endpoint: primary
+          path: /healthz
+        initialDelaySeconds: 30
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      temporalAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: TEMPORAL_ADDRESS
+        description: Mesh-internal `host:port` of the Temporal frontend gRPC API.
+      # The template's default allows only http://localhost:8080. The browser
+      # reaches the UI at the deployment's own https URL, so that origin is
+      # the one allowed.
+      corsOrigins:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: TEMPORAL_CORS_ORIGINS
+        description: Comma-separated origins the UI's API accepts browser requests from.
+      defaultNamespace:
+        schema:
+          type: string
+        default: default
+        target:
+          envVar: TEMPORAL_DEFAULT_NAMESPACE
+        description: Namespace the UI opens on.
+      # The UI's news panel has the viewer's browser fetch Temporal's feed,
+      # keyed by this cluster's ID (src/routes/(app)/+layout.svelte). Off, so
+      # nothing calls home. TEMPORAL_NOTIFY_ON_NEW_VERSION already defaults to
+      # false.
+      disableNewsFetch:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: TEMPORAL_DISABLE_NEWS_FETCH
+        description: Whether the UI skips fetching Temporal's news feed, as the literal string the UI parses.
+      # The platform signs viewers in before they reach the UI, and the
+      # Temporal server has no authorizer to check a token against, so the
+      # UI's own OpenID Connect sign-in stays off.
+      authEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: TEMPORAL_AUTH_ENABLED
+        description: Whether the UI runs its own OpenID Connect sign-in, as the literal string the UI parses.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL the UI answers at, which is also the origin it allows.
+        from:
+          endpoint: primary
+          property: publicURL
