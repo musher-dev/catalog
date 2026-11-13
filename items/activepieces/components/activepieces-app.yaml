@@ -51,8 +51,9 @@ spec:
     # signs in with the same pair, so it reports success only once the
     # password really works. The community edition verifies the address
     # itself, with no email. JSON goes to curl (in the image) on stdin, so the
-    # password is in no process's argv; it is BASE64URL and needs no escaping,
-    # and the email is escaped for `\` and `"`. Responses carry a session
+    # password is in no process's argv. Every string in it is escaped for `\`
+    # and `"`, the password included: it is BASE64URL today, but the input
+    # accepts any string. Responses carry a session
     # token, so they are printed only on failure, cut to 300 bytes. It runs on
     # every start and changes nothing once an account exists, so a rotated
     # password parameter does not reach the account. If it fails, the sign-up
@@ -76,14 +77,18 @@ spec:
             echo "bootstrap-owner: Activepieces already has an owner; nothing to do"
             return 0
           fi
-          email=$(printf '%s' "$OWNER_EMAIL" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+          email=$(esc "$OWNER_EMAIL")
+          password=$(esc "$OWNER_PASSWORD")
+          first=$(esc "$OWNER_FIRST_NAME")
+          last=$(esc "$OWNER_LAST_NAME")
           for step in sign-up sign-in; do
             if [ "$step" = sign-up ]; then
               fmt='{"email":"%s","password":"%s","firstName":"%s","lastName":"%s",'
               fmt="$fmt"'"trackEvents":false,"newsLetter":false}'
-              body=$(printf "$fmt" "$email" "$OWNER_PASSWORD" "$OWNER_FIRST_NAME" "$OWNER_LAST_NAME")
+              body=$(printf "$fmt" "$email" "$password" "$first" "$last")
             else
-              body=$(printf '{"email":"%s","password":"%s"}' "$email" "$OWNER_PASSWORD")
+              body=$(printf '{"email":"%s","password":"%s"}' "$email" "$password")
             fi
             status=$(printf '%s' "$body" | curl -sS -o "$out" -w '%{http_code}' --max-time 60 \
               -X POST -H 'Content-Type: application/json' --data-binary @- "$base/authentication/$step")
@@ -363,7 +368,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

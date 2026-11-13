@@ -77,7 +77,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:
@@ -85,7 +85,7 @@ spec:
         description: >-
           Password a client must present (AUTH) before Valkey serves it; copy it
           from the deployment's Installation tab. At least 16 letters, digits or
-          `._~+/=-`, with no spaces or quotes.
+          `._~-`, with no spaces or quotes.
     # The same outputs, with the same names, as the `redis` item's component,
     # so a blueprint can move a consumer from one to the other by changing the
     # node's componentRef and its password binding.
