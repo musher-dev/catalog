@@ -22,7 +22,7 @@ spec:
       # No exposure: PRIVATE, reachable only from this deployment.
       bindings:
         postgresPassword:
-          parameter: databasePassword
+          parameter: dbPassword
         postgresUser:
           value: contextforge
         postgresDb:
@@ -76,7 +76,7 @@ spec:
         databaseUser:
           value: contextforge
         databasePassword:
-          parameter: databasePassword
+          parameter: dbPassword
         databaseName:
           value: contextforge
         cacheAddress:
@@ -88,10 +88,10 @@ spec:
           parameter: jwtSecretKey
         authEncryptionSecret:
           parameter: authEncryptionSecret
-        platformAdminEmail:
-          parameter: adminEmail
-        platformAdminPassword:
-          parameter: adminPassword
+        ownerEmail:
+          parameter: ownerEmail
+        ownerPassword:
+          parameter: ownerPassword
         defaultUserPassword:
           parameter: defaultUserPassword
         ssrfAllowPrivateNetworks:
@@ -99,11 +99,11 @@ spec:
   parameters:
     # The deploying user's email, captured once when the deployment is
     # created (BP-PARAM-011), rather than a field on the deploy form.
-    adminEmail:
+    ownerEmail:
       from: "${{ deployment.creator.email }}"
     # Disclosed to whoever manages the deployment. 24 bytes in HEX is 48
     # characters, well over ContextForge's 12-character password floor.
-    adminPassword:
+    ownerPassword:
       generator:
         byteLength: 24
         encoding: HEX
@@ -139,7 +139,7 @@ spec:
         label: Allow MCP servers on private addresses
         order: 2
     # HEX, so it is safe unencoded in a URL as well.
-    databasePassword:
+    dbPassword:
       generator:
         byteLength: 24
         encoding: HEX

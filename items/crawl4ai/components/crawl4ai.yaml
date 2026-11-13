@@ -88,7 +88,7 @@ spec:
       # stated explicitly so the bind does not depend on the node having an
       # IPv6 stack. 0.0.0.0 still covers 127.0.0.1, where the MCP bridge calls
       # the server's own REST routes (`attach_mcp`, deploy/docker/server.py).
-      bind:
+      listenAddress:
         schema:
           type: string
         default: 0.0.0.0:11235

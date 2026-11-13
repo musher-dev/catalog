@@ -273,7 +273,7 @@ spec:
       # restated, because on a loopback host the MCP SDK also turns on its
       # DNS-rebinding check, which refuses every Host but localhost
       # (mcp/server/mcpserver/server.py, mcp 2.3.0).
-      serverHost:
+      host:
         schema:
           type: string
         default: 0.0.0.0

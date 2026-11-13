@@ -119,7 +119,7 @@ spec:
       # The image binds `::` (GRANIAN_HOST, container/Dockerfile). That fails
       # outright in a pod with IPv6 switched off, and the private network and
       # the probes reach this workload over IPv4.
-      bindHost:
+      host:
         schema:
           type: string
         default: 0.0.0.0

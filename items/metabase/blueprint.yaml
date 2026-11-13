@@ -80,8 +80,8 @@ spec:
           parameter: encryptionKey
         sessionSecretKey:
           parameter: sessionKey
-    bootstrap-admin:
-      componentRef: ./components/bootstrap-admin.yaml
+    bootstrap-owner:
+      componentRef: ./components/bootstrap-owner.yaml
       # A short curl script that mostly waits.
       compute:
         profile: general.economy.nano
@@ -91,19 +91,20 @@ spec:
         metabaseAddress:
           node: web
           output: address
-        adminEmail:
-          parameter: adminEmail
-        adminPassword:
-          parameter: adminPassword
+        ownerEmail:
+          parameter: ownerEmail
+        ownerPassword:
+          parameter: ownerPassword
   parameters:
     # The deployment's creator owns it: their verified email, captured once
     # when the deployment is created (BP-PARAM-011).
-    adminEmail:
+    ownerEmail:
       from: "${{ deployment.creator.email }}"
     # Disclosed to whoever manages the deployment. 24 bytes in BASE64URL is
-    # 32 characters: above the 15-character `strong-enough` rule and safe in
-    # JSON without escaping.
-    adminPassword:
+    # 32 characters: above the 15-character `strong-enough` rule. The job
+    # escapes it in JSON all the same. The label keeps Metabase's own word for
+    # the account.
+    ownerPassword:
       generator:
         byteLength: 24
         encoding: BASE64URL

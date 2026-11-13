@@ -252,15 +252,14 @@ spec:
       # 0.0.0.0 (docker/app.Dockerfile, v0.9.56), but a container runtime
       # sets HOSTNAME to the container's own name, and the server then
       # listens only on that name's address and not on 127.0.0.1, where the
-      # bootstrap above and the internal API base URL below call it. In
-      # catalog run wv5gy91ea the deployment was healthy (probes reach the
-      # replica's address) but the loopback bootstrap never created the
-      # account, which this explains; with the fix below, run yq9bcc90b created
-      # it. The input targets a name of its own and
-      # the shell in `command` exports it as HOSTNAME just before the server
-      # starts, so it wins whichever of the image, the spec or the runtime
-      # sets HOSTNAME.
-      listenHostname:
+      # bootstrap above and the internal API base URL below call it
+      # (platform-api#1443). In a live deploy test the deployment was healthy
+      # (probes reach the replica's address) but the loopback bootstrap never
+      # created the account; with the fix below, the next test created it. The
+      # input targets a name of its own and the shell in `command` exports it
+      # as HOSTNAME just before the server starts, so it wins whichever of the
+      # image, the spec or the runtime sets HOSTNAME.
+      host:
         schema:
           type: string
         default: 0.0.0.0

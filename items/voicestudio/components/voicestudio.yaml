@@ -99,7 +99,7 @@ spec:
       #
       # The backend's own default bind is 127.0.0.1. Inside the container it
       # must listen on every interface for the platform's proxy to reach it.
-      bindHost:
+      host:
         schema:
           type: string
         default: 0.0.0.0

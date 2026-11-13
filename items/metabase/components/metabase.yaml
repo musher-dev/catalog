@@ -45,8 +45,8 @@ spec:
         # serves without a credential include health, the public session
         # properties, login, password reset and first-user setup. Setup is the
         # one that matters, and the blueprint's
-        # `bootstrap-admin` job closes it within seconds of Metabase answering
-        # (components/bootstrap-admin.yaml describes the window that remains).
+        # `bootstrap-owner` job closes it within seconds of Metabase answering
+        # (components/bootstrap-owner.yaml describes the window that remains).
         #
         # `/oauth` and `/.well-known`: Metabase's embedded OAuth 2.0 server,
         # which MCP clients discover (RFC 8414 / RFC 9728 metadata), register

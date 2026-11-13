@@ -232,14 +232,14 @@ spec:
       # created once, and a later start never overwrites its password
       # (bootstrap_admin_user, mcpgateway/bootstrap_db.py, v1.1.1). A custom
       # password also skips the forced change on first login.
-      platformAdminEmail:
+      ownerEmail:
         schema:
           type: string
         required: true
         target:
           envVar: PLATFORM_ADMIN_EMAIL
         description: Email address of the platform administrator created on first boot.
-      platformAdminPassword:
+      ownerPassword:
         schema:
           type: string
           minLength: 12
