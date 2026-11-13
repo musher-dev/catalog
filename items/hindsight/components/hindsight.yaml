@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hindsight agent-memory API with its embedding and reranking models built in,
     keeping memory banks in embedded PostgreSQL on one volume or in a database
@@ -124,6 +124,7 @@ spec:
           type: string
         sensitive: true
         presentationHint: CONNECTION_STRING
+        required: false
         target:
           envVar: HINDSIGHT_API_DATABASE_URL
         description: >-
@@ -148,6 +149,7 @@ spec:
         schema:
           type: string
         presentationHint: ENDPOINT_URL
+        required: false
         target:
           envVar: HINDSIGHT_API_LLM_BASE_URL
         description: >-
