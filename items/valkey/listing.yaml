@@ -1,0 +1,68 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: valkey
+spec:
+  itemType: COMPONENT
+  displayName: Valkey
+  summary: >-
+    BSD-licensed, Redis-compatible in-memory data store for caching, queues,
+    sessions, and pub/sub
+  overview: |
+    ## What it is
+    Valkey is an open-source in-memory data store, a fork of Redis 7.2.4 kept
+    under the BSD 3-Clause licence by the Linux Foundation. It speaks the
+    Redis protocol (RESP) and its commands, so Redis clients, libraries, and
+    `redis://` URLs work against it unchanged. Teams reach for it as a cache,
+    session store, message broker, and lightweight queue.
+
+    ## When to use
+    - You're adding a cache or session store in front of a slower primary
+      database.
+    - You need a lightweight queue, rate limiter, or pub/sub channel between
+      your services.
+    - You're deploying another workload that expects a Redis URL, and you
+      want a permissively licensed server behind it.
+
+    ## Defaults
+    Single-container deployment of `valkey/valkey:9.1.3-alpine` listening on
+    the standard port 6379 as a private TCP endpoint — reachable by your other
+    workloads, not exposed to the public internet. The server runs with
+    append-only-file persistence enabled, journaling writes to the 5 GiB
+    persistent volume mounted at `/data` so data survives restarts. The one
+    thing you set at deploy is the password.
+
+    The component publishes the same outputs as the Redis component —
+    `address`, `hostname` and `port` — so a blueprint can switch a node
+    between the two without rewiring its consumers.
+
+    ## Access and security
+    Valkey requires a **password**. You set it when you deploy, and you can
+    reveal it on the deployment's Installation tab later. Every client
+    authenticates with it before Valkey answers, for example with the URL
+    `redis://:<password>@<host>:6379`. Use at least 16 letters, digits or
+    `._~+/=-`: Valkey reads the password as one word of its configuration,
+    so it can carry no spaces or quotes. The endpoint is private as well, so
+    the public internet cannot reach it.
+
+    ## Limitations
+    This is the plain Valkey server. The JSON, Bloom and Search modules ship
+    in the separate `valkey-bundle` image and are not loaded here.
+  gettingStarted: |
+    1. Reveal the password on the deployment's Installation tab.
+    2. Connect from another of your workloads on port 6379 with any Redis
+       client, for example with the URL `redis://:<password>@<host>:6379`. The
+       endpoint is private, so the public internet can't reach it.
+  category: DATABASES
+  lifecycleStage: BETA
+  tags:
+    - cache
+    - key-value
+    - valkey
+    - redis-compatible
+    - message-broker
+  homepageURL: https://valkey.io
+  sourceRepositoryURL: https://github.com/valkey-io/valkey
+  supportURL: https://valkey.io/topics/
+  license: BSD-3-Clause
+  icon: media/icon.png
