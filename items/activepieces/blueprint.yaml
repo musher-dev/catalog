@@ -1,0 +1,184 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: activepieces
+  revision: 1
+  description: >-
+    Activepieces community edition behind the platform's sign-in: app and a
+    separate flow worker, on their own PostgreSQL with pgvector and Valkey, with
+    an owner account created for the deployer and webhooks and MCP reachable.
+# Four nodes, upstream's compose shape (docker-compose.yml, activepieces
+# 0.93.0): app + worker + postgres + redis. The app creates the first account
+# itself (components/activepieces-app.yaml). Producers first: map order is
+# graph order.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/pgvector.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, so a trial instance's database fits in 1 GiB. Upstream's
+      # production guide puts a managed 2 vCPU / 4 GB database in front of
+      # fleets of tens of workers (docs/install/configure-operate/
+      # production-setup.mdx, 0.93.0), not one worker.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only from this deployment.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: activepieces
+        postgresDb:
+          value: activepieces
+    queue:
+      componentRef: ./components/valkey.yaml
+      # Single-threaded and a few megabytes when empty. It holds BullMQ's job
+      # queue, locks and webhook payloads under 512 KB
+      # (AP_WEBHOOK_PAYLOAD_INLINE_THRESHOLD_KB); upstream sizes it at
+      # 1 vCPU / 1 GB for a production fleet (production-setup.mdx).
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: PRIVATE, like `db`, and behind a password as well.
+      bindings:
+        valkeyPassword:
+          parameter: queuePassword
+    app:
+      componentRef: ./components/activepieces-app.yaml
+      # Upstream sizes an app at 1 vCPU / 1 GB (production-setup.mdx). One
+      # notch up for its first boot, which loads the whole API and runs over
+      # 400 migrations, and for the piece metadata it keeps in memory.
+      compute:
+        profile: general.standard.nano
+      # The platform signs viewers in before forwarding: the builder and its
+      # API are for people allowed into this deployment. Activepieces then
+      # signs them in again with its own accounts, because its single sign-on
+      # is an enterprise feature. Webhooks, app events, run callbacks and the
+      # MCP server with its OAuth routes are exempt, because the services that
+      # call them never hold a viewer session (components/
+      # activepieces-app.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          accessExemptions:
+            - PATHS
+      bindings:
+        # This node's own allocated address. A node reading its own endpoint
+        # output is a discovery dependency and not a value cycle (BP-BIND-002):
+        # an endpoint address is allocated before anything runs.
+        frontendURL:
+          node: app
+          output: publicURL
+        # The same address again: it makes MCP discovery advertise https URLs
+        # (components/activepieces-app.yaml).
+        mcpURL:
+          node: app
+          output: publicURL
+        encryptionKey:
+          parameter: encryptionKey
+        jwtSecret:
+          parameter: jwtSecret
+        # The first account, created on first start by the bootstrap in the
+        # app component's command (components/activepieces-app.yaml).
+        ownerEmail:
+          parameter: ownerEmail
+        ownerPassword:
+          parameter: ownerPassword
+        # The role and database `db` is initialised with, and one generated
+        # password shared by both ends: one parameter, so the two always agree.
+        postgresHost:
+          node: db
+          output: host
+        postgresPort:
+          node: db
+          output: port
+        postgresDatabase:
+          value: activepieces
+        postgresUsername:
+          value: activepieces
+        postgresPassword:
+          parameter: dbPassword
+        redisHost:
+          node: queue
+          output: hostname
+        redisPort:
+          node: queue
+          output: port
+        redisPassword:
+          parameter: queuePassword
+    worker:
+      componentRef: ./components/activepieces-worker.yaml
+      # Upstream sizes a worker at 1 GB per concurrent job ("0.5 vCPU / 1 GB,
+      # concurrency 1", production-setup.mdx). Two slots (the component's
+      # default) fit in 2 GiB: the idle worker held about 230 MiB in catalog
+      # run ihc050a6e.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        cache:
+          sizeGiB: 5
+      # No exposure: a WORKER is never public. It dials the app's private URL,
+      # so its traffic never meets the platform's sign-in.
+      bindings:
+        appURL:
+          node: app
+          output: privateURL
+        jwtSecret:
+          parameter: jwtSecret
+  parameters:
+    # The deployment's creator owns it: their verified email, captured once
+    # when the deployment is created (BP-PARAM-011).
+    ownerEmail:
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment. 24 bytes in BASE64URL is
+    # 32 characters: inside Activepieces' 8 to 64, and safe in JSON without
+    # escaping.
+    ownerPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Owner password
+        order: 1
+    # 16 bytes in HEX is the 32 hexadecimal characters Activepieces requires
+    # (`openssl rand -hex 16` in upstream's docs). Disclosed because every
+    # saved connection is encrypted with it: keep a copy with any database
+    # backup.
+    encryptionKey:
+      generator:
+        byteLength: 16
+        encoding: HEX
+      ui:
+        label: Encryption key
+        order: 2
+    # Upstream's docs generate it with `openssl rand -hex 32`.
+    jwtSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: JWT secret
+        order: 3
+    # HEX keeps the password free of characters a connection string would
+    # treat specially. Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 4
+    # HEX, because Valkey reads the password as one word of its configuration.
+    queuePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Queue password
+        order: 5

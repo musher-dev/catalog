@@ -1,0 +1,447 @@
+# The Activepieces API and web UI, as upstream's own compose runs its `app`
+# service: AP_CONTAINER_TYPE=APP, so this container serves the builder, the
+# REST API, webhooks and the MCP server, and runs no flows. Flows run on the
+# separate `worker` node (components/activepieces-worker.yaml), which reaches
+# this one over the deployment's private network.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Activepieces community edition API and web UI (app role), on an external
+    PostgreSQL and Redis-compatible queue, with flows run by separate workers.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 0.93.0 is the latest stable release (2026-11-08); the
+      # `-hotfix.N` tags are patches on older minors, and `latest` moves with
+      # every release. One image for every edition: what this runs is chosen by
+      # AP_EDITION below, and the community edition is MIT-licensed outside
+      # the packages/ee and server/api/src/app/ee directories (LICENSE).
+      image: ghcr.io/activepieces/activepieces:0.93.0
+    # The FIRST ACCOUNT. In the community edition the first account to sign
+    # up creates the instance's only platform and becomes its owner
+    # (provisionOrOnboard, server/api/src/app/authentication/
+    # authentication-utils.ts, 0.93.0); every later sign-up needs an
+    # invitation. Activepieces reads no owner from the environment, so this
+    # creates that account for the deployer, with their verified email and
+    # the generated password, through the app's own API on loopback.
+    #
+    # Not a one-shot JOB node, the shape the `coder` item uses: in catalog run
+    # ihc050a6e the platform deployed this blueprint's other four nodes and
+    # never ran its unscheduled JOB node ("4 of 4 replicas"), so the owner was
+    # never created.
+    #
+    # How it runs. `command` replaces CMD and keeps the ENTRYPOINT
+    # (`tini -- ./docker-entrypoint.sh`), which execs its arguments when it has
+    # any (docker-entrypoint.sh, 0.93.0). So the shell below starts the
+    # bootstrap in the background, then execs the entrypoint again with no
+    # arguments: the image's own start, which picks the API from
+    # AP_CONTAINER_TYPE. The bootstrap starts from a subshell that exits at
+    # once, so it is orphaned to tini, PID 1, which reaps it when it ends. A
+    # plain `bootstrap &` would stay a child of the shell's PID, which becomes
+    # node, and linger as a zombie after it finished.
+    # `env -u` keeps the owner's email and password out of the API process's
+    # environment; only the background shell holds them.
+    #
+    # The bootstrap waits for GET /api/v1/health, stops if GET /api/v1/flags
+    # already reports USER_CREATED, signs up with SignUpRequest
+    # (core/shared/src/lib/core/authentication/dto/sign-up-request.ts) and then
+    # signs in with the same pair, so it reports success only once the
+    # password really works. The community edition verifies the address
+    # itself, with no email. JSON goes to curl (in the image) on stdin, so the
+    # password is in no process's argv; it is BASE64URL and needs no escaping,
+    # and the email is escaped for `\` and `"`. Responses carry a session
+    # token, so they are printed only on failure, cut to 300 bytes. It runs on
+    # every start and changes nothing once an account exists, so a rotated
+    # password parameter does not reach the account. If it fails, the sign-up
+    # page, behind the platform's sign-in, is the fallback.
+    command:
+      - sh
+      - -c
+      - |
+        bootstrap() {
+          base="http://127.0.0.1:${AP_PORT}/api/v1"
+          out=/tmp/bootstrap-owner.json
+          deadline=$(( $(date +%s) + OWNER_READY_TIMEOUT_SECONDS ))
+          until curl -fsS -o /dev/null --max-time 5 "$base/health" 2>/dev/null; do
+            if [ "$(date +%s)" -ge "$deadline" ]; then
+              echo "bootstrap-owner: the API did not answer within ${OWNER_READY_TIMEOUT_SECONDS}s" >&2
+              return 1
+            fi
+            sleep 5
+          done
+          if curl -fsS --max-time 10 "$base/flags" | grep -q '"USER_CREATED":true'; then
+            echo "bootstrap-owner: Activepieces already has an owner; nothing to do"
+            return 0
+          fi
+          email=$(printf '%s' "$OWNER_EMAIL" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g')
+          for step in sign-up sign-in; do
+            if [ "$step" = sign-up ]; then
+              fmt='{"email":"%s","password":"%s","firstName":"%s","lastName":"%s",'
+              fmt="$fmt"'"trackEvents":false,"newsLetter":false}'
+              body=$(printf "$fmt" "$email" "$OWNER_PASSWORD" "$OWNER_FIRST_NAME" "$OWNER_LAST_NAME")
+            else
+              body=$(printf '{"email":"%s","password":"%s"}' "$email" "$OWNER_PASSWORD")
+            fi
+            status=$(printf '%s' "$body" | curl -sS -o "$out" -w '%{http_code}' --max-time 60 \
+              -X POST -H 'Content-Type: application/json' --data-binary @- "$base/authentication/$step")
+            case "$status" in
+              2??) ;;
+              *)
+                echo "bootstrap-owner: POST /authentication/$step answered $status: $(head -c 300 "$out")" >&2
+                rm -f "$out"
+                return 1
+                ;;
+            esac
+          done
+          rm -f "$out"
+          echo "bootstrap-owner: created the platform owner <${OWNER_EMAIL}> and signed in with it"
+        }
+        if [ -n "${OWNER_EMAIL:-}" ] && [ -n "${OWNER_PASSWORD:-}" ]; then
+          ( bootstrap & )
+        fi
+        exec env -u OWNER_EMAIL -u OWNER_PASSWORD ./docker-entrypoint.sh
+    endpoints:
+      # One port for everything: the API under /api, socket.io under
+      # /api/socket.io, MCP and its OAuth routes at the root, and the built web
+      # UI from dist/packages/web for every other path (server/api/src/app/
+      # server.ts, 0.93.0). The image EXPOSEs 80, but the port is AP_PORT, and
+      # 8080 needs no privilege to bind.
+      primary:
+        targetPort: 8080
+        protocol: HTTP
+        # The routes callers outside a browser use, which no viewer session can
+        # reach. A blueprint may let them past the platform's sign-in; every
+        # other route keeps it. Each one checks its own credential or carries
+        # an unguessable id, and none of them is what a viewer browses:
+        #
+        # - /api/v1/webhooks: catch-webhook triggers, sync and test variants,
+        #   keyed by flow id (webhooks/webhook-module.ts).
+        # - /api/v1/app-events: app-level webhooks for pieces such as Slack
+        #   (trigger/app-event-routing/app-event-routing.module.ts).
+        # - /api/v1/flow-runs: the resume, approval and signal callbacks a
+        #   paused run hands out, /:id/waitpoints/:waitpointId and friends
+        #   (waitpoints/resume-controller.ts). The run-list routes under the
+        #   same prefix still demand an Activepieces session token, so they
+        #   gain nothing from it.
+        # - /mcp (and /mcp/platform under it): the MCP server, which answers
+        #   401 to anything without an OAuth bearer token (mcp/oauth/
+        #   mcp-oauth.controller.ts).
+        # - /authorize, /token, /register, /revoke, /userinfo and the four
+        #   discovery documents: the OAuth authorization server MCP clients
+        #   register with and get that token from (mcp/oauth/
+        #   mcp-oauth.module.ts, core/security/oidc/
+        #   oidc-discovery.controller.ts). The consent page /authorize sends
+        #   the browser to, /mcp-authorize, is part of the web UI and stays
+        #   behind sign-in.
+        #
+        # Not exempt, so behind sign-in: the web UI itself, which includes the
+        # hosted form and chat pages (/forms/..., /chats/...) and the REST API
+        # the UI calls.
+        exemptibleRequests:
+          paths:
+            - /api/v1/webhooks
+            - /api/v1/app-events
+            - /api/v1/flow-runs
+            - /mcp
+            - /authorize
+            - /token
+            - /register
+            - /revoke
+            - /userinfo
+            - /.well-known/oauth-authorization-server
+            - /.well-known/oauth-protected-resource
+            - /.well-known/openid-configuration
+            - /.well-known/jwks.json
+    health:
+      # The server listens only after it has connected to PostgreSQL and Redis
+      # and run its migrations, over 400 of them on an empty database
+      # (server/api/src/main.ts and database/migration/postgres/, 0.93.0).
+      # On one vCPU that first boot
+      # gets a budget of its own: 30 + 60 x 10 = 630 s. Readiness is suspended
+      # until it passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/v1/health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # The image's own HEALTHCHECK path. It answers 200 only while the
+      # database answers, and 503 otherwise (health/health.service.ts,
+      # 0.93.0).
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/v1/health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants. Those carry defaults, so no blueprint
+      # has to wire them and the deploy form gains no field. Variable names
+      # and defaults are upstream's (docs/install/reference/
+      # environment-variables.mdx and server/api/src/app/helper/system/
+      # system.ts, 0.93.0).
+      containerType:
+        schema:
+          type: string
+        default: APP
+        target:
+          envVar: AP_CONTAINER_TYPE
+        description: >-
+          Which Activepieces process this container runs. APP serves the API
+          and UI and runs no flows; the image's default, WORKER_AND_APP, would
+          also run an embedded worker.
+      port:
+        schema:
+          type: string
+        default: '8080'
+        target:
+          envVar: AP_PORT
+        description: >-
+          Port the server listens on, as the literal string the image parses.
+          Must match the endpoint's targetPort.
+      edition:
+        schema:
+          type: string
+        default: ce
+        target:
+          envVar: AP_EDITION
+        description: >-
+          Activepieces edition. `ce` is the MIT-licensed community edition;
+          the enterprise editions need a licence key this item does not carry.
+      environment:
+        schema:
+          type: string
+        default: prod
+        target:
+          envVar: AP_ENVIRONMENT
+        description: Activepieces runtime environment; `prod` serves the built web UI.
+      # Code steps and pieces run in the worker's own Node.js processes, with
+      # no further isolation. The sandboxed modes need isolate, cgroups and
+      # extra privileges (docs/install/configure-operate/sandboxing.mdx); the
+      # deployment's own isolation and the platform's sign-in are the boundary.
+      executionMode:
+        schema:
+          type: string
+        default: UNSANDBOXED
+        target:
+          envVar: AP_EXECUTION_MODE
+        description: >-
+          How flows run: UNSANDBOXED, upstream's default, which needs no extra
+          privileges.
+      telemetryEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: AP_TELEMETRY_ENABLED
+        description: >-
+          Starting value of Activepieces' product analytics, as the literal
+          string the image parses. Off; a platform admin can change it later
+          under Platform Admin, Account, Configurations.
+      frontendURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: AP_FRONTEND_URL
+        description: >-
+          Public URL of this deployment. Activepieces builds webhook, OAuth
+          redirect and MCP URLs from it, so it must be the address callers
+          reach.
+      # The same public URL again, on purpose. MCP OAuth discovery, the
+      # WWW-Authenticate challenge and the OIDC documents build their URLs
+      # from the request (X-Forwarded-Proto, else the socket's scheme) unless
+      # the request's host matches AP_MCP_URL, in which case they use that
+      # configured URL (getPublicUrlFromRequest, helper/domain-helper.ts,
+      # 0.93.0). The platform's edge ends TLS and the request arrives without
+      # an https X-Forwarded-Proto, so without this the issuer and token
+      # endpoint were advertised as http:// (catalog run ihc050a6e). Setting it
+      # equal to AP_FRONTEND_URL is the one same-host value the startup check
+      # allows (assertMcpUrlHasDistinctHost, helper/system-validator.ts).
+      mcpURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: AP_MCP_URL
+        description: >-
+          Public URL MCP clients use; the same value as frontendURL, so MCP
+          OAuth discovery advertises https URLs.
+      # Checked at startup against /^[A-Za-z0-9]{32}$/ (helper/
+      # system-validator.ts, 0.93.0): 16 bytes in HEX.
+      encryptionKey:
+        schema:
+          type: string
+          pattern: ^[A-Za-z0-9]{32}$
+        sensitive: true
+        required: true
+        target:
+          envVar: AP_ENCRYPTION_KEY
+        description: >-
+          Key that encrypts every stored connection: 32 hexadecimal
+          characters. Losing it makes saved connections unreadable.
+      jwtSecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: AP_JWT_SECRET
+        description: >-
+          Secret that signs session and worker tokens. The worker derives its
+          own token from the same value.
+      postgresHost:
+        schema:
+          type: string
+        presentationHint: HOSTNAME
+        required: true
+        target:
+          envVar: AP_POSTGRES_HOST
+        description: Hostname of the PostgreSQL server.
+      postgresPort:
+        schema:
+          type: integer
+        default: 5432
+        target:
+          envVar: AP_POSTGRES_PORT
+        description: Port of the PostgreSQL server.
+      postgresDatabase:
+        schema:
+          type: string
+        default: activepieces
+        target:
+          envVar: AP_POSTGRES_DATABASE
+        description: Database Activepieces keeps its data in.
+      postgresUsername:
+        schema:
+          type: string
+        default: activepieces
+        target:
+          envVar: AP_POSTGRES_USERNAME
+        description: Role Activepieces connects to PostgreSQL as.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: AP_POSTGRES_PASSWORD
+        description: Password of that role.
+      # Host, port and password as separate settings, not AP_REDIS_URL: a
+      # component template reads only endpoint properties, so no URL could
+      # carry the password (default-redis.ts, 0.93.0, reads the three apart).
+      redisHost:
+        schema:
+          type: string
+        presentationHint: HOSTNAME
+        required: true
+        target:
+          envVar: AP_REDIS_HOST
+        description: Hostname of the Redis-compatible server the job queue runs on.
+      redisPort:
+        schema:
+          type: integer
+        default: 6379
+        target:
+          envVar: AP_REDIS_PORT
+        description: Port of that server.
+      # The same schema as the queue node's valkeyPassword (components/
+      # valkey.yaml): one parameter feeds both, so the two must agree.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: AP_REDIS_PASSWORD
+        description: Password the queue server requires (AUTH).
+      # Read only by the bootstrap in `command`, which the API never sees.
+      ownerEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVar: OWNER_EMAIL
+        description: >-
+          Email address the first account, the platform owner, is created with
+          on first start; also its sign-in name.
+      # PasswordType: 8 to 64 characters (core/shared/src/lib/core/user/
+      # user.ts, 0.93.0).
+      ownerPassword:
+        schema:
+          type: string
+          minLength: 8
+          maxLength: 64
+        sensitive: true
+        required: true
+        target:
+          envVar: OWNER_PASSWORD
+        description: >-
+          Password the owner account is created with on first start. Later
+          changes to it do not reach an existing account.
+      # SignUpRequest refuses `.` and `/` in names (SAFE_STRING_PATTERN,
+      # core/utils/src/lib/permission.ts, 0.93.0); `"` and `\` would break the
+      # JSON the bootstrap writes.
+      ownerFirstName:
+        schema:
+          type: string
+          pattern: ^[^./"\\]+$
+        default: Platform
+        target:
+          envVar: OWNER_FIRST_NAME
+        description: >-
+          First name on the owner account, which the owner can change in
+          Activepieces. No `.`, `/`, `"` or `\`.
+      ownerLastName:
+        schema:
+          type: string
+          pattern: ^[^./"\\]+$
+        default: Owner
+        target:
+          envVar: OWNER_LAST_NAME
+        description: >-
+          Last name on the owner account, which the owner can change in
+          Activepieces. No `.`, `/`, `"` or `\`.
+      # The startup probe's budget (630 s) with room to spare.
+      ownerReadyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 900
+        target:
+          envVar: OWNER_READY_TIMEOUT_SECONDS
+        description: How long the owner bootstrap waits for the API to answer before it gives up.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public base URL this deployment answers at, which Activepieces builds
+          its webhook, OAuth and MCP URLs from.
+        from:
+          endpoint: primary
+          property: publicURL
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the API inside the deployment's private network, for the
+          worker; resolvable only by workloads in the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

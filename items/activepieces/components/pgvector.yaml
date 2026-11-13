@@ -1,0 +1,261 @@
+# The PostgreSQL server Activepieces keeps everything in: users, projects,
+# flows, connections (encrypted with AP_ENCRYPTION_KEY), run history, tables
+# and, with no S3 configured, the files steps produce. A copy of the
+# `pgvector` item's component (items/pgvector/components/pgvector.yaml,
+# revision 1): a repo-local componentRef cannot leave its item directory, so a
+# blueprint that needs one carries its own. Keep the two in step.
+#
+# pgvector rather than plain postgres, because upstream's own compose runs
+# pgvector/pgvector (docker-compose.yml, activepieces 0.93.0) and the app
+# creates its knowledge-base chunk table with a `vector` column only when the
+# extension is present; without it that feature is skipped at boot
+# (database/migration/postgres/1773627989515-AddKnowledgeBaseChunkTable.ts,
+# 0.93.0).
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    PostgreSQL 17 with the pgvector extension enabled, a single persistent data
+    volume and an HTTP readiness check.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 0.8.7 is the latest stable pgvector release (2026-10-01,
+      # CHANGELOG.md); this tag carries PostgreSQL 17.12 on Debian bookworm,
+      # multi-arch (amd64, arm64). `pg17` moves with every pgvector release.
+      # PostgreSQL 17 is the major the rest of this catalog runs; upstream's
+      # README now leads with pg18, whose image moved PGDATA to a different
+      # path, so a later major is a deliberate migration (pg_upgrade), not a
+      # tag bump.
+      image: pgvector/pgvector:0.8.7-pg17
+    # The image's ENTRYPOINT (docker-entrypoint.sh) stays; this replaces its
+    # CMD (`postgres`). The entrypoint sees a first argument other than
+    # `postgres`, so it runs it as-is, as root, and Perl (perl-base, in the
+    # image) becomes PID 1. It:
+    #
+    # 1. writes /docker-entrypoint-initdb.d/00-vector.sql. The entrypoint runs
+    #    that directory once, against POSTGRES_DB as the superuser, only while
+    #    it initialises an empty data directory, which is the upstream
+    #    mechanism for first-boot SQL. `IF NOT EXISTS` keeps it harmless for
+    #    applications that create the extension themselves.
+    # 2. forks `docker-entrypoint.sh postgres`, the image's own start, so
+    #    initdb, the POSTGRES_* inputs and the drop to the postgres user are
+    #    upstream's. Signals are forwarded to it. SIGTERM is sent on as SIGINT,
+    #    a fast shutdown, which is the image's STOPSIGNAL: a smart shutdown
+    #    would wait on every pooled client until the platform kills the
+    #    container. When postgres exits, so does the supervisor, with its
+    #    status, and the platform restarts the container as it would have.
+    # 3. answers HTTP on 8080 with 200 when `pg_isready` reaches the server
+    #    over TCP on 127.0.0.1:5432, and 503 otherwise. TCP, not the Unix
+    #    socket: during first boot the entrypoint runs a temporary server that
+    #    listens only on the socket, so the check stays red until the real
+    #    server accepts the connections clients will make. pg_isready sends
+    #    no password: it names the deployed role and database only so the
+    #    server has nothing to log (as an unknown OS user, root, it would log
+    #    "role does not exist" on every probe). A server refusing for "too
+    #    many clients" still counts as up.
+    # 4. the first time the server is up, logs one line over the Unix socket
+    #    (trusted locally by the image's initdb defaults) naming the vector
+    #    extension version in the application database, so the runtime log
+    #    shows the extension really is there.
+    #
+    # Why a supervisor rather than a background process beside postgres: an
+    # orphaned process is re-parented to PID 1, and the postmaster treats any
+    # child exiting with a status other than 0 or 1 as a crashed backend and
+    # restarts every session (CleanupBackend in
+    # src/backend/postmaster/postmaster.c, REL_17_STABLE). With Perl as PID 1
+    # the postmaster has no unknown children. A connection that sends nothing
+    # is cut after 4 s, so the single-threaded loop cannot be held.
+    command:
+      - perl
+      - -e
+      - |
+        use strict;
+        use warnings;
+        use IO::Select;
+        use IO::Socket::INET;
+        use POSIX ();
+        $| = 1;
+        my $user = $ENV{POSTGRES_USER} || 'postgres';
+        my $db = $ENV{POSTGRES_DB} || $user;
+        if (open(my $f, '>', '/docker-entrypoint-initdb.d/00-vector.sql')) {
+          print $f "CREATE EXTENSION IF NOT EXISTS vector;\n";
+          close $f;
+        } else {
+          print STDERR "readiness: cannot write the vector init script: $!\n";
+        }
+        my $pg = fork() // die "fork: $!\n";
+        if ($pg == 0) {
+          $SIG{$_} = 'DEFAULT' for qw(INT QUIT TERM HUP USR1 USR2 PIPE);
+          exec('docker-entrypoint.sh', 'postgres') or POSIX::_exit(127);
+        }
+        $SIG{$_} = do { my $s = $_; sub { kill $s, $pg } } for qw(INT QUIT HUP USR1 USR2);
+        $SIG{TERM} = sub { kill 'INT', $pg };
+        $SIG{PIPE} = 'IGNORE';
+        my $srv = IO::Socket::INET->new(
+          LocalAddr => '0.0.0.0', LocalPort => 8080, Listen => 8, ReuseAddr => 1);
+        print STDERR $srv ? "readiness: answering on :8080\n"
+                          : "readiness: cannot listen on :8080: $!\n";
+        my $sel = IO::Select->new($srv ? ($srv) : ());
+        my $told = 0;
+        while (1) {
+          while ((my $w = waitpid(-1, POSIX::WNOHANG())) > 0) {
+            exit(($? & 127) ? 128 + ($? & 127) : $? >> 8) if $w == $pg;
+          }
+          my @r = $sel->can_read(1) or do { sleep 1 unless $srv; next };
+          my $c = $srv->accept or next;
+          my $up = 0;
+          eval {
+            local $SIG{ALRM} = sub { die "timeout\n" };
+            alarm 4;
+            while (defined(my $l = <$c>)) { last if $l =~ /^\r?\n\z/ }
+            my $k = fork();
+            if (defined $k && $k == 0) {
+              open(STDOUT, '>', '/dev/null');
+              exec('pg_isready', '-q', '-h', '127.0.0.1', '-p', '5432', '-t', '2',
+                '-U', $user, '-d', $db) or POSIX::_exit(127);
+            }
+            $up = defined $k && waitpid($k, 0) == $k && $? == 0;
+            my $b = $up ? "accepting connections\n" : "not accepting connections\n";
+            print $c ($up ? 'HTTP/1.1 200 OK' : 'HTTP/1.1 503 Service Unavailable'),
+              "\r\nContent-Type: text/plain\r\nContent-Length: ", length($b),
+              "\r\nConnection: close\r\n\r\n", $b;
+            alarm 0;
+          };
+          alarm 0;
+          close $c;
+          next if $told || !$up;
+          $told = 1;
+          eval {
+            local $SIG{ALRM} = sub { die "timeout\n" };
+            alarm 10;
+            my $k = fork();
+            if (defined $k && $k == 0) {
+              exec('psql', '-X', '-q', '-t', '-A', '-h', '/var/run/postgresql',
+                '-U', $user, '-d', $db, '-c',
+                "SELECT 'readiness: accepting connections; vector extension '"
+                . " || coalesce((SELECT extversion FROM pg_extension"
+                . " WHERE extname = 'vector'), 'NOT installed')"
+                . " || ' in database ' || current_database()") or POSIX::_exit(127);
+            }
+            waitpid($k, 0) if defined $k;
+            alarm 0;
+          };
+          alarm 0;
+        }
+    endpoints:
+      primary:
+        targetPort: 5432
+        protocol: TCP
+      # Served by the supervisor above, for the readiness probe. Private, like
+      # `primary`; it reports only whether the server accepts connections.
+      health:
+        targetPort: 8080
+        protocol: HTTP
+    health:
+      # The platform probes HTTP only (component spec §5.4), so without the
+      # endpoint above this node would be reported ready as soon as the
+      # container started, seconds before initdb finishes on a first boot.
+      # First boot (initdb, the init script, restart) takes a few seconds on
+      # an empty volume; 10 + 3 x 10 s of failures stops traffic only, never
+      # restarts. There is deliberately no liveness probe: crash recovery
+      # after an unclean stop can take minutes on a large database, and a
+      # restart in the middle of it would only start it again.
+      readiness:
+        http:
+          endpoint: health
+          path: /ready
+        initialDelaySeconds: 10
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      data:
+        minSizeGiB: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including this one. It carries a default, so no blueprint has to
+      # wire it and the deploy form gains no field.
+      #
+      # Unlike the three below, PGDATA is read on every boot: it is where the
+      # entrypoint looks for the cluster, not just where it would create one.
+      # A subdirectory of the mount, not the mount itself, because initdb
+      # refuses a directory it does not own and the volume root may carry
+      # lost+found.
+      pgdata:
+        schema:
+          type: string
+        default: /var/lib/postgresql/data/pgdata
+        target:
+          envVar: PGDATA
+        description: Directory PostgreSQL keeps its data files in.
+      # The three inputs below are read by the image's docker-entrypoint.sh
+      # only while it initialises an EMPTY data directory. Once PGDATA holds a
+      # cluster they are ignored, so changing any of them later does not change
+      # the database: use ALTER ROLE / CREATE DATABASE instead.
+      #
+      # The role is the cluster's superuser, so applications can also run
+      # CREATE EXTENSION vector in databases they create later.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: POSTGRES_PASSWORD
+        description: >-
+          Password the database superuser is created with on first boot; copy
+          it from the deployment's Installation tab.
+      postgresUser:
+        schema:
+          type: string
+        default: postgres
+        required: false
+        target:
+          envVar: POSTGRES_USER
+        description: Role the database is initialised with and clients connect as.
+      postgresDb:
+        schema:
+          type: string
+        default: app
+        required: false
+        target:
+          envVar: POSTGRES_DB
+        description: >-
+          Database created on first boot for the application to use, with the
+          vector extension already enabled in it.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the database endpoint (for example
+          `db-myapp.internal:5432`), resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's input to point that
+          workload at this database.
+        from:
+          endpoint: primary
+          property: privateAddress
+      host:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, for a consumer that
+          takes the host and port as separate settings.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: >-
+          Port of the database endpoint (5432), for a consumer that takes the
+          host and port as separate settings.
+        from:
+          endpoint: primary
+          property: privatePort
