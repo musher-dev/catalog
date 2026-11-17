@@ -1,0 +1,180 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Hindsight agent-memory API with its embedding and reranking models built in,
+    keeping memory banks in embedded PostgreSQL on one volume or in a database
+    you point it at.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.2.0 is the latest stable release (2026-11-03). Tags on ghcr
+      # carry no `v` prefix, and `latest` moves on every release.
+      #
+      # `hindsight-api` is the API and its background worker, without the
+      # Control Plane web UI that the combined `hindsight` image adds on 9999.
+      # This component has nothing to serve that UI through. The `-slim`
+      # variants leave out the local embedding and reranking models, which this
+      # component relies on (docker/standalone/Dockerfile, v1.2.0).
+      image: ghcr.io/vectorize-io/hindsight-api:1.2.0
+    endpoints:
+      primary:
+        targetPort: 8888
+        protocol: HTTP
+    health:
+      # The server listens only after initialisation: it connects to the
+      # database, applies migrations and loads both local models inside the
+      # FastAPI lifespan (hindsight_api/api/http.py). start-all.sh gives that
+      # at least 300 s and then exits, so the container restarts. 20 + 59 x 10
+      # = 610 s, the budget upstream's Helm chart suggests, leaves the wrapper
+      # to report the failure itself.
+      startup:
+        http:
+          endpoint: primary
+          path: /health/live
+        initialDelaySeconds: 20
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # The split upstream's Helm chart uses (helm/hindsight/values.yaml).
+      # /health reaches the database, so a database outage only stops traffic.
+      # /health/live touches nothing but the process. Both are open routes:
+      # neither takes the request context the API key is checked against.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: primary
+          path: /health/live
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+    volumes:
+      # Where pg0, the embedded PostgreSQL Hindsight runs when no database URL
+      # is set, keeps its instances (docker/standalone/start-all.sh). Upstream's
+      # single-container `docker run` mounts the same path. The image runs as
+      # uid 1000 and cannot change ownership itself, so the volume must be
+      # writable by that uid. That relies on the platform mounting it with
+      # group or owner 1000, not on anything this document can state.
+      # start-all.sh stops with a clear message if it is not.
+      data:
+        minSizeGiB: 10
+        mountPath: /home/hindsight/.pg0
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field. The
+      # image sets the same host and port; restating them keeps them visible.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HINDSIGHT_API_HOST
+        description: Address the API listens on inside the container.
+      port:
+        schema:
+          type: string
+        default: '8888'
+        target:
+          envVar: HINDSIGHT_API_PORT
+        description: Port the API listens on, the `primary` endpoint's target port.
+      # Without a tenant extension every route is open. This one checks the
+      # bearer token on every memory and MCP request against apiKey below
+      # (hindsight_api/extensions/builtin/tenant.py).
+      tenantExtension:
+        schema:
+          type: string
+        default: hindsight_api.extensions.builtin.tenant:ApiKeyTenantExtension
+        target:
+          envVar: HINDSIGHT_API_TENANT_EXTENSION
+        description: Extension that authenticates requests, in `module:Class` form.
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: HINDSIGHT_API_TENANT_API_KEY
+        description: Bearer token clients must send to the memory and MCP routes.
+      # The worker's identity defaults to the container hostname, which changes
+      # on every restart, and a task claimed under the old name stays parked
+      # (hindsight-docs/docs/developer/installation.md).
+      workerID:
+        schema:
+          type: string
+        default: hindsight
+        target:
+          envVar: HINDSIGHT_API_WORKER_ID
+        description: Stable name the background worker claims tasks under.
+      # Absent, Hindsight starts pg0 on the volume above. Upstream recommends an
+      # external PostgreSQL with a vector extension for production, and this
+      # input takes one. Sensitive because the URL holds the password.
+      databaseURL:
+        schema:
+          type: string
+        sensitive: true
+        presentationHint: CONNECTION_STRING
+        target:
+          envVar: HINDSIGHT_API_DATABASE_URL
+        description: >-
+          PostgreSQL URL with pgvector available, instead of the embedded
+          database on this deployment's volume.
+      # Hindsight's own model, for extracting facts, consolidating them and
+      # answering reflect. Embeddings and reranking run locally and do not use
+      # it. Every reflect turn asks for strict `json_schema` output, and only
+      # provider `deepseek` is exempt (`_supports_strict_schema`,
+      # hindsight_api/engine/providers/openai_compatible_llm.py).
+      llmProvider:
+        schema:
+          type: string
+        default: openai
+        target:
+          envVar: HINDSIGHT_API_LLM_PROVIDER
+        description: >-
+          Provider name Hindsight uses for its model calls; `openai` also covers
+          an OpenAI-compatible endpoint named by the base URL below, if it
+          supports JSON-schema structured output.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: HINDSIGHT_API_LLM_BASE_URL
+        description: >-
+          Base URL of the model API, ending in the version segment (for example
+          /v1). Leave it unset to use the provider's own address.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: HINDSIGHT_API_LLM_API_KEY
+        description: Credential for the model API.
+      llmModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: HINDSIGHT_API_LLM_MODEL
+        description: Model Hindsight processes memories with. It must support JSON-schema structured output.
+    outputs:
+      apiURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal URL of the API, resolvable only by workloads in the same
+          deployment. Wire it into a consuming component's input.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

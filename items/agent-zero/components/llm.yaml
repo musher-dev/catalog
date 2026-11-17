@@ -1,0 +1,62 @@
+# The language model Agent Zero thinks with, as a node this platform does not
+# run (component spec §5.6). A copy of the `llm-endpoint` item's building block:
+# a repo-local componentRef cannot leave its item directory, so a blueprint that
+# needs one carries its own.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The
+# `agent-zero` node declares three ordinary string inputs and the blueprint
+# wires them to the three outputs below, so the endpoint, the credential and the
+# model always come from one acquired connection rather than three
+# independently supplied values.
+#
+# Nothing resolves the address, connects to it, or checks that anything answers
+# there (component spec §11).
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: The language-model API Agent Zero sends its chat and utility requests to, taken whole as one connection.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection Agent Zero's main and utility models run
+          on: endpoint, credential and model, acquired together.
+        connection:
+          # Streaming only. Agent Zero streams its chat-model calls, and on the
+          # Chat Completions transport (`a0_api_mode: chat`, the "Other OpenAI
+          # compatible" provider in conf/model_providers.yaml) it sends an
+          # empty tool list and reads each tool call out of the reply text as
+          # JSON (AGENTS.md and prompts/agent.system.main.communication.md,
+          # v2.15). An endpoint without native tool calls still works.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the OpenAI-compatible API, from the connection this node
+          was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: Bearer credential for the API above, from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: Model the API answers with by default, from the same connection.
+        from:
+          input: llm
+          member: model

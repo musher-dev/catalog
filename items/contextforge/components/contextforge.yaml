@@ -1,0 +1,326 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    IBM ContextForge MCP gateway and registry: federates MCP servers, wraps
+    REST APIs as MCP tools and serves them behind one authenticated endpoint,
+    with an admin UI.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v1.1.1 is the latest stable release (2026-11-10). Release tags
+      # carry a `v` prefix; `latest` follows main, and tags such as
+      # v1.0.7-20260921 are patch rebuilds of older lines. The image runs as
+      # uid 10001 with /app as its working directory and
+      # ./docker-entrypoint.sh as its CMD, with no ENTRYPOINT.
+      image: ghcr.io/ibm/mcp-context-forge:v1.1.1
+    # ContextForge reads its database and cache from one URL each
+    # (DATABASE_URL, REDIS_URL in mcpgateway/config.py, v1.1.1), and a URL
+    # carries the password. A component template reads only endpoint
+    # properties, so nothing in the documents can compose a URL holding a
+    # secret. This small Python prelude builds both from separate inputs,
+    # percent-encoding each part, and then execs the image's own entrypoint
+    # with the same argv the image's CMD gives it. The values stay in the
+    # environment, out of argv. `command` replaces CMD, and the image has no
+    # ENTRYPOINT, so this is the whole process line. SQLAlchemy and redis-py
+    # both decode percent-encoded credentials.
+    command:
+      - python3
+      - -c
+      - |
+        import os
+        from urllib.parse import quote
+        e = os.environ
+        q = lambda k: quote(e[k], safe="")
+        e["DATABASE_URL"] = "postgresql+psycopg://%s:%s@%s/%s" % (
+            q("CF_DB_USER"), q("CF_DB_PASSWORD"), e["CF_DB_ADDRESS"], q("CF_DB_NAME"))
+        e["REDIS_URL"] = "redis://:%s@%s/0" % (q("CF_REDIS_PASSWORD"), e["CF_REDIS_ADDRESS"])
+        os.execv("./docker-entrypoint.sh", ["./docker-entrypoint.sh"])
+    # No volume. Every registry row, user, token and metric lives in
+    # Postgres; the cache is rebuilt from it.
+    endpoints:
+      primary:
+        # PORT's default (mcpgateway/config.py, v1.1.1) and the image's
+        # EXPOSE.
+        targetPort: 4444
+        protocol: HTTP
+        # A request carrying any bearer token passes the platform's sign-in
+        # and reaches ContextForge, which then checks it. With AUTH_REQUIRED
+        # (default true) every route but /health, /ready, static assets and
+        # the login pages wants a valid ContextForge JWT or API token, and
+        # the MCP transports follow it (MCP_REQUIRE_AUTH defaults to
+        # AUTH_REQUIRED, mcpgateway/config.py, v1.1.1). That is what lets MCP
+        # clients and scripts holding a ContextForge API token reach
+        # /servers/<id>/mcp, /mcp and the REST API without a browser session.
+        exemptibleRequests:
+          bearerToken: true
+    health:
+      # Alembic migrations and the admin, role and resource bootstrap run in
+      # the app's startup before a worker answers (mcpgateway/bootstrap_db.py,
+      # v1.1.1), so a first boot against an empty database gets a budget of
+      # its own: 30 + 60 x 10 = 630 s. Readiness is suspended until it passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /ready
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # /ready, not /health. /health answers 200 even when the database is
+      # down (it reports the failure in the body); /ready runs `SELECT 1`
+      # against the database and pings the cache when CACHE_TYPE=redis, and
+      # answers 503 unless both succeed (mcpgateway/main.py, v1.1.1). It is
+      # outside authentication, and upstream's Helm chart uses it as the
+      # readiness path (charts/mcp-stack/values.yaml, v1.1.1).
+      readiness:
+        http:
+          endpoint: primary
+          path: /ready
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # The default is 127.0.0.1 (mcpgateway/config.py, v1.1.1), which no
+      # other workload could reach. gunicorn binds HOST:PORT
+      # (gunicorn.config.py, v1.1.1).
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HOST
+        description: Address ContextForge binds to.
+      port:
+        schema:
+          type: string
+        default: '4444'
+        target:
+          envVar: PORT
+        description: Port ContextForge listens on, matching the endpoint above.
+      # `production` switches on secure cookies and derives the CORS
+      # allow-list from APP_DOMAIN (https://<host>, plus app. and admin.
+      # subdomains) instead of a list of localhost origins
+      # (mcpgateway/config.py, v1.1.1). Upstream's Helm chart sets it too.
+      environment:
+        schema:
+          type: string
+        default: production
+        target:
+          envVar: ENVIRONMENT
+        description: ContextForge's environment name; `production` enables its production cookie and CORS defaults.
+      appDomain:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: APP_DOMAIN
+        description: >-
+          Public HTTPS URL of this deployment, which ContextForge builds links,
+          cookies and its CORS allow-list from.
+      # Upstream's Helm chart fixes two workers on a 2-vCPU limit
+      # (charts/mcp-stack/values.yaml, v1.1.1). Left unset, run-gunicorn.sh
+      # computes 2 x CPUs + 1 from the host's `nproc`, up to 16.
+      gunicornWorkers:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: GUNICORN_WORKERS
+        description: Number of gunicorn worker processes.
+      # The default pool is 200 connections per worker (mcpgateway/config.py,
+      # v1.1.1), twice PostgreSQL's default max_connections of 100. Helm's
+      # figure, 15 plus the default overflow of 10, keeps two workers at 50.
+      dbPoolSize:
+        schema:
+          type: string
+        default: '15'
+        target:
+          envVar: DB_POOL_SIZE
+        description: SQLAlchemy connection pool size per worker.
+      databaseAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: CF_DB_ADDRESS
+        description: Mesh-internal `host:port` of the Postgres server ContextForge keeps its state in.
+      databaseUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: CF_DB_USER
+        description: Role ContextForge connects to Postgres as.
+      databasePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CF_DB_PASSWORD
+        description: Password of the Postgres role above.
+      databaseName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: CF_DB_NAME
+        description: Postgres database ContextForge applies its schema to.
+      # Upstream's compose and Helm both run the cache on Redis
+      # (CACHE_TYPE=redis); the default, `database`, would put session and
+      # cache traffic on Postgres. Two workers need a shared cache for the
+      # session registry, and multi-page MCP list traversals require it
+      # (release notes, v1.1.0).
+      cacheType:
+        schema:
+          type: string
+        default: redis
+        target:
+          envVar: CACHE_TYPE
+        description: ContextForge's cache backend.
+      cacheAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: CF_REDIS_ADDRESS
+        description: Mesh-internal `host:port` of the Valkey server ContextForge caches in.
+      # The schema the cache's own password input declares: one generated
+      # parameter fills both, so both ends describe the same value.
+      cachePassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: CF_REDIS_PASSWORD
+        description: Password ContextForge presents to that Valkey server.
+      # Both secrets are checked on every start: ContextForge refuses one
+      # shorter than 32 characters or with a Shannon entropy below 3.5 bits
+      # per character (validate_security_combinations, mcpgateway/config.py,
+      # v1.1.1), so they are generated, never typed.
+      jwtSecretKey:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: JWT_SECRET_KEY
+        description: >-
+          HMAC key ContextForge signs its session and API tokens with. Rotating
+          it invalidates every issued token.
+      authEncryptionSecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: AUTH_ENCRYPTION_SECRET
+        description: >-
+          Key ContextForge encrypts stored upstream credentials (gateway auth,
+          OAuth secrets) with. Never rotate it once a credential is saved.
+      # Read only on the first boot against an empty database: the admin is
+      # created once, and a later start never overwrites its password
+      # (bootstrap_admin_user, mcpgateway/bootstrap_db.py, v1.1.1). A custom
+      # password also skips the forced change on first login.
+      platformAdminEmail:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: PLATFORM_ADMIN_EMAIL
+        description: Email address of the platform administrator created on first boot.
+      platformAdminPassword:
+        schema:
+          type: string
+          minLength: 12
+        sensitive: true
+        required: true
+        target:
+          envVar: PLATFORM_ADMIN_PASSWORD
+        description: >-
+          Password of that administrator, set on first boot; copy it from the
+          deployment's Installation tab.
+      # ContextForge refuses to start without a strong value here while email
+      # sign-in is on (mcpgateway/config.py, v1.1.1). A user created with
+      # exactly this password must change it at first sign-in.
+      defaultUserPassword:
+        schema:
+          type: string
+          minLength: 12
+        sensitive: true
+        required: true
+        target:
+          envVar: DEFAULT_USER_PASSWORD
+        description: >-
+          Temporary password for users an administrator creates without one;
+          such users must change it when they first sign in.
+      # Both default to false (mcpgateway/config.py, v1.1.1); upstream's
+      # compose and Helm chart turn both on. The admin UI calls the admin API.
+      uiEnabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: MCPGATEWAY_UI_ENABLED
+        description: Whether the built-in admin UI is served at /admin, as the literal string the image parses.
+      adminAPIEnabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: MCPGATEWAY_ADMIN_API_ENABLED
+        description: Whether the admin REST API is served, as the literal string the image parses.
+      # SSRF protection is on, and by default it refuses MCP server and tool
+      # URLs that resolve to private (RFC 1918) addresses
+      # (mcpgateway/config.py, v1.1.1). Cloud metadata addresses stay blocked
+      # either way. Turning this on lets ContextForge federate MCP servers
+      # running on mesh-internal addresses, such as another node added to
+      # this deployment.
+      ssrfAllowPrivateNetworks:
+        schema:
+          type: string
+          enum:
+            - 'true'
+            - 'false'
+        default: 'false'
+        target:
+          envVar: SSRF_ALLOW_PRIVATE_NETWORKS
+        description: >-
+          Whether MCP servers and tools on private network addresses may be
+          registered, as the literal string the image parses.
+      # Both default off (mcpgateway/config.py, v1.1.1); stated so a future
+      # default cannot start exporting traces.
+      otelEnableObservability:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: OTEL_ENABLE_OBSERVABILITY
+        description: Whether OpenTelemetry tracing is exported, as the literal string the image parses.
+      observabilityEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: OBSERVABILITY_ENABLED
+        description: >-
+          Whether ContextForge records its internal traces and metrics, as the
+          literal string the image parses.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        description: Public HTTPS URL of the gateway, its admin UI at /admin and its MCP endpoints.
+        from:
+          endpoint: primary
+          property: publicURL

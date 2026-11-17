@@ -1,0 +1,97 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: llama-cpp
+spec:
+  itemType: COMPONENT
+  displayName: llama.cpp Server
+  summary: >-
+    A self-hosted language model on CPU — llama.cpp serves an open GGUF model
+    from Hugging Face through an OpenAI-compatible API, ready to stand in for a
+    hosted model in your stack
+  overview: |
+    ## What it is
+    llama.cpp is the open-source C/C++ inference engine for running language
+    models on ordinary hardware. This component runs its `llama-server` on
+    CPU with one GGUF model, which it downloads from Hugging Face on first
+    boot. It answers OpenAI-style requests at `/v1/chat/completions`,
+    `/v1/completions` and `/v1/models`, with streaming and tool calls, and
+    Anthropic-style requests at `/v1/messages`.
+
+    ## When to use
+    - You want a language model that runs inside your deployment, with no
+      provider account, no per-token bill and no prompts leaving your stack.
+    - An app or agent in your blueprint takes an OpenAI-compatible base URL,
+      key and model name, and you want to point it at a model you host.
+    - You're prototyping with small open models, or need a fallback that
+      keeps working when a hosted API doesn't.
+
+    ## What you'll be asked for
+    - An **API key**. Clients send it as `Authorization: Bearer <key>` (or as
+      `X-Api-Key`) on every request except `/health`.
+    - Optionally, a different **model**, as a Hugging Face repository with an
+      optional quantization, such as `ggml-org/Qwen3-1.7B-GGUF:Q4_K_M`, and a
+      Hugging Face token if that model is gated or private.
+
+    ## Defaults
+    A single container runs `ghcr.io/ggml-org/llama.cpp:server-b12110` (the
+    v0.9.0 release) on port 8080 as a private endpoint, reachable by your
+    other workloads and not by the public internet. The model is Qwen3 1.7B
+    at Q4_K_M quantization (Apache-2.0, about 1.2 GB), reported as
+    `qwen3-1.7b`. The component hands consumers three values, the same ones
+    a hosted model connection provides: the OpenAI-compatible base URL
+    (ending in `/v1`), the API key and the model name.
+
+    The model is downloaded on first boot into a volume of at least 10 GiB
+    mounted at `/models`, so later restarts reuse it. The server reports
+    ready only once the model is loaded, and it allows about 15 minutes for
+    the download and load. The context window is 8,192 tokens, shared by up
+    to four requests at a time. Generation uses 2 CPU threads, and thinking
+    is switched off so that replies start promptly on a CPU.
+
+    The default model needs about 2.5 GB of memory, so run it on a node with
+    at least 4 GB (2 vCPU, 4 GiB) and set the thread count to the node's
+    vCPUs. Larger models need more memory and a bigger node: roughly the
+    GGUF file size plus 1 GB.
+
+    ## Access and security
+    `/health` answers without the key, as upstream designed it. The
+    built-in chat page at `/` loads without the key too, but asks for it
+    before it can send anything. Every other route needs the key.
+
+    ## Limitations
+    - CPU only. Expect a few to a few tens of tokens a second, depending on
+      the model and the node's vCPUs. It suits small models, light traffic and
+      background jobs, not a busy chat service.
+    - One model per deployment. Changing the repository downloads the new
+      model on the next start; change the reported model name with it. Old
+      model files stay in the volume.
+    - Small models follow instructions and call tools less reliably than
+      large hosted ones. Test your app against the model you choose.
+  gettingStarted: |
+    1. Reveal the **API key** on the deployment's Installation tab if you need
+       it again.
+    2. From another of your workloads, send a request to the deployment's
+       private address on port 8080, for example `POST /v1/chat/completions`
+       with `{"model": "qwen3-1.7b", "messages": [{"role": "user",
+       "content": "Hello"}]}` and `Authorization: Bearer <key>`. The public
+       internet can't reach it.
+    3. Point your app at `http://<private address>/v1` as its
+       OpenAI-compatible base URL, with the same key and model name.
+
+    The first boot downloads the model, so allow a few minutes before the
+    deployment reports ready.
+  category: MODELS
+  lifecycleStage: BETA
+  tags:
+    - llm
+    - inference
+    - openai-compatible
+    - self-hosted
+    - gguf
+    - ai
+  homepageURL: https://github.com/ggml-org/llama.cpp
+  sourceRepositoryURL: https://github.com/ggml-org/llama.cpp
+  supportURL: https://github.com/ggml-org/llama.cpp/blob/master/tools/server/README.md
+  license: MIT
+  icon: media/icon.png

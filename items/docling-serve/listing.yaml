@@ -1,0 +1,93 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: docling-serve
+spec:
+  itemType: COMPONENT
+  displayName: Docling Serve
+  summary: >-
+    Document conversion API on CPU — turns PDFs, Word, PowerPoint, Excel, HTML
+    and scanned images into clean Markdown, JSON or text with layout, table
+    and OCR models, for RAG ingestion and agents that read documents
+  overview: |
+    ## What it is
+    Docling Serve is the API server for Docling, the open-source document
+    parser started at IBM Research and now hosted by the LF AI & Data
+    Foundation. Send it a document, by URL or as base64, and it returns the
+    content as Markdown, Docling JSON, HTML or plain text. It reads the page
+    layout, keeps reading order, rebuilds tables and runs OCR on scanned
+    pages. This component runs its CPU build with the models built into the
+    image, behind an API key.
+
+    ## When to use
+    - A RAG pipeline or agent needs the text and tables out of PDFs, Office
+      files or web pages before chunking and embedding them.
+    - You want Open WebUI, LangChain, LlamaIndex or your own code to call a
+      document parser inside your deployment rather than a hosted service.
+    - Your documents include scans or photos that need OCR.
+
+    ## What you'll be asked for
+    - An **API key**. Clients send it in the `X-Api-Key` header on every
+      conversion, task and result request.
+
+    ## Defaults
+    A single container runs `quay.io/docling-project/docling-serve-cpu:v1.38.2`
+    on port 5001 as a private endpoint, reachable by your other workloads and
+    not by the public internet. The component hands consumers two values: the
+    API's private base URL and the API key.
+
+    The layout, table structure and OCR models (RapidOCR and EasyOCR) ship in
+    the image, so nothing is downloaded at boot and there is no volume.
+    Conversions are processed by two workers in parallel, each with its own
+    copy of the models, using 2 threads each. Upstream's examples give the
+    server 2 CPUs and 4 GiB of memory, so run it on 2 vCPU and 4 GiB or more.
+    The server reports ready only once the models are loaded, and it allows
+    up to 10 minutes for that. The web UI and the key-less Prometheus
+    `/metrics` route are off. Calls to remote model APIs are not allowed.
+
+    ## Access and security
+    `/health`, `/ready`, `/livez`, `/version`, `/v1/capabilities` and the API
+    reference (`/docs`, `/swagger`, `/scalar`, `/openapi.json`) answer without
+    the key, as upstream designed them. They show versions and the options
+    the server accepts, never documents. Every conversion, task status and
+    result route needs the key.
+
+    Converting by URL makes the server fetch that URL, so anyone holding the
+    key can make it request addresses inside your deployment. Give the key
+    only to workloads you trust.
+
+    ## Limitations
+    - The synchronous `/v1/convert/source` and `/v1/convert/file` routes wait
+      at most 120 seconds. Send long documents to the `/async` variants and
+      poll `/v1/status/poll/{task_id}`, then fetch `/v1/result/{task_id}`.
+    - A result can be fetched once, and is removed 5 minutes after that.
+      Tasks and results live in memory and are lost on restart.
+    - Conversion is CPU-bound. Expect seconds per page, more with OCR, so
+      large backfills are much slower than on a GPU.
+    - Converting a document doesn't store it. Pair the output with a vector
+      database for search.
+  gettingStarted: |
+    1. Reveal the **API key** on the deployment's Installation tab if you need
+       it again.
+    2. From another of your workloads, send `POST /v1/convert/source` to the
+       deployment's private address on port 5001 with the header
+       `X-Api-Key: <key>` and a body such as
+       `{"sources": [{"kind": "http", "url": "https://arxiv.org/pdf/2408.09869"}]}`.
+       The Markdown comes back in `document.md_content`. The public internet
+       can't reach it.
+    3. To upload a file instead, send it as multipart form data to
+       `POST /v1/convert/file` in a `files` field, with the same header.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - document-parsing
+    - pdf
+    - ocr
+    - rag
+    - markdown
+    - ai
+  homepageURL: https://docling-project.github.io/docling
+  sourceRepositoryURL: https://github.com/docling-project/docling-serve
+  supportURL: https://github.com/docling-project/docling-serve/blob/main/docs/usage.md
+  license: MIT
+  icon: media/icon.png

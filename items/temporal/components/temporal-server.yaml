@@ -1,0 +1,244 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Temporal server running its frontend, history, matching and internal worker
+    services in one process, on an external PostgreSQL whose schema is set up
+    beforehand.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.32.2 is the latest stable release (2026-11-02). The tag has
+      # no `v` prefix; `1.32` is a moving minor tag and `latest` would follow
+      # the next minor, whose schema migrations the setup job must apply first.
+      #
+      # This is the plain server image, not `temporalio/auto-setup`, which
+      # upstream stopped publishing after 1.29 and which set up the schema on
+      # every start. Alpine, USER temporal (uid 1000), no ENTRYPOINT and
+      # `CMD ["/etc/temporal/entrypoint.sh"]`, which resolves the pod's IP as
+      # the membership broadcast address and execs `temporal-server start`
+      # (docker/targets/server.Dockerfile, docker/scripts/sh/entrypoint.sh,
+      # v1.32.2). No `command`: that CMD is what should run. With no
+      # --config-file the server renders its embedded template from the
+      # environment (cmd/server/main.go, common/config/
+      # config_template_embedded.yaml, v1.32.2), so every setting below is an
+      # environment variable.
+      #
+      # The server does not create or migrate its schema: the blueprint's
+      # `schema-setup` job does, with the matching admin-tools image. Until it
+      # has, the server exits at start on the schema version check and the
+      # platform restarts it.
+      image: temporalio/server:1.32.2
+    endpoints:
+      # The frontend gRPC API that SDK workers, clients and the UI call.
+      # Port 7233 (FRONTEND_GRPC_PORT default, config_template_embedded.yaml).
+      grpc:
+        targetPort: 7233
+        protocol: GRPC
+      # The frontend's HTTP API: the same WorkflowService over JSON, under
+      # /api/v1 (temporalio/api, workflowservice/v1/service.proto http
+      # annotations). Port 7243 (FRONTEND_HTTP_PORT default). It is here for
+      # the probes, which can only speak HTTP; upstream's compose checks the
+      # gRPC port with `nc -z` instead.
+      http:
+        targetPort: 7243
+        protocol: HTTP
+    # No volume. All of Temporal's state, workflow histories and visibility
+    # records included, is in PostgreSQL.
+    health:
+      # GET /api/v1/cluster-info is GetClusterInfo over the HTTP API. It
+      # answers only once the frontend is serving, which is after the server
+      # has passed its schema version check against PostgreSQL. It does not
+      # depend on any namespace, so the `schema-setup` job, which needs this
+      # node reachable to create the default namespace, is never waiting on
+      # itself.
+      #
+      # On a first deployment the server restarts until `schema-setup` has
+      # created both databases and their tables, which waits on PostgreSQL's
+      # own first boot. The startup budget, 30 + 10 x 60 = 630 s, covers that
+      # and a few restarts with backoff.
+      startup:
+        http:
+          endpoint: http
+          path: /api/v1/cluster-info
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      readiness:
+        http:
+          endpoint: http
+          path: /api/v1/cluster-info
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: http
+          path: /api/v1/cluster-info
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # `postgres12` is the PostgreSQL plugin for PostgreSQL 12 and later,
+      # the one upstream's compose uses.
+      dbPlugin:
+        schema:
+          type: string
+        default: postgres12
+        target:
+          envVar: DB
+        description: Temporal persistence plugin for the default and visibility stores.
+      # The template's default is 127.0.0.1, which nothing outside the
+      # container could reach. With 0.0.0.0 the entrypoint broadcasts the
+      # pod's own IP for cluster membership (entrypoint.sh).
+      bindOnIP:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: BIND_ON_IP
+        description: Address every Temporal service binds inside the container.
+      # Recorded in the database when the cluster is first created, and the
+      # server refuses to start against it with a different count. Four is the
+      # template's default (config_template_embedded.yaml) and ample for a
+      # single node.
+      numHistoryShards:
+        schema:
+          type: string
+        default: '4'
+        target:
+          envVar: NUM_HISTORY_SHARDS
+        description: >-
+          Number of history shards, fixed when the cluster is created; a
+          changed value against an existing database stops the server.
+      # The template points dynamic config at
+      # /etc/temporal/config/dynamicconfig/docker.yaml, which this image does
+      # not ship, and a dynamic config file that cannot be read stops the
+      # server at start (FileBasedClient.init, common/dynamicconfig/
+      # file_based_client.go, v1.32.2). Upstream's compose mounts one. Reading
+      # /dev/null gives an empty, valid file, so every key keeps its default.
+      dynamicConfigFilePath:
+        schema:
+          type: string
+        default: /dev/null
+        target:
+          envVar: DYNAMIC_CONFIG_FILE_PATH
+        description: Dynamic config file the server reads and polls; empty, so every key keeps its built-in default.
+      # The frontend runs without an authorizer, as upstream's compose does.
+      # Only workloads in this deployment can reach it. This says so
+      # explicitly and silences the warning that future versions will require
+      # the flag (cmd/server/main.go, v1.32.2).
+      allowNoAuth:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: TEMPORAL_ALLOW_NO_AUTH
+        description: Whether the server may run with no authorizer, as the literal string the server parses.
+      # Each of the four services in this process opens its own pool against
+      # each store. Upstream's defaults (20 default + 10 visibility) would allow
+      # 120 connections in all, beyond PostgreSQL's default max_connections
+      # of 100. These keep the total at 4 x (10 + 5) = 60, which leaves room
+      # for the setup job and an operator's psql.
+      sqlMaxConns:
+        schema:
+          type: string
+        default: '10'
+        target:
+          envVar: SQL_MAX_CONNS
+        description: Most connections each service opens to the default store.
+      sqlMaxIdleConns:
+        schema:
+          type: string
+        default: '10'
+        target:
+          envVar: SQL_MAX_IDLE_CONNS
+        description: Most idle connections each service keeps to the default store.
+      sqlVisMaxConns:
+        schema:
+          type: string
+        default: '5'
+        target:
+          envVar: SQL_VIS_MAX_CONNS
+        description: Most connections each service opens to the visibility store.
+      sqlVisMaxIdleConns:
+        schema:
+          type: string
+        default: '5'
+        target:
+          envVar: SQL_VIS_MAX_IDLE_CONNS
+        description: Most idle connections each service keeps to the visibility store.
+      # The connection. The template builds `<POSTGRES_SEEDS>:<DB_PORT>` for
+      # both stores, so host and port arrive separately.
+      postgresHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: POSTGRES_SEEDS
+        description: Mesh-internal hostname of the PostgreSQL server.
+      postgresPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: DB_PORT
+        description: Port of the PostgreSQL server on that hostname.
+      postgresUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: POSTGRES_USER
+        description: Role Temporal connects to PostgreSQL as.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: POSTGRES_PWD
+        description: Password of the role above.
+      databaseName:
+        schema:
+          type: string
+        default: temporal
+        target:
+          envVar: DBNAME
+        description: Database holding Temporal's default store, as the setup job created it.
+      visibilityDatabaseName:
+        schema:
+          type: string
+        default: temporal_visibility
+        target:
+          envVar: VISIBILITY_DBNAME
+        description: Database holding Temporal's visibility store, as the setup job created it.
+    outputs:
+      grpcAddress:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the frontend gRPC API, reachable only by
+          workloads in the same deployment: the address SDK workers, clients
+          and the UI connect to.
+        from:
+          endpoint: grpc
+          property: privateAddress
+      httpAddress:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the frontend HTTP API (paths under
+          /api/v1), reachable only by workloads in the same deployment.
+        from:
+          endpoint: http
+          property: privateAddress

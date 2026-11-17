@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     One-shot job that creates Coder's first Owner account, for the deployer,
     through the server's own API over the private network.
@@ -9,7 +9,7 @@ spec:
   # WHY A JOB. Coder's first account becomes its Owner, and it is created by
   # POST /api/v2/users/first. That route checks no credential. It answers 409
   # once any user exists, and it ignores CODER_DISABLE_PASSWORD_AUTH
-  # (postFirstUser, coderd/users.go, v2.36.6). The `web` node lets all of /api
+  # (postFirstUser, coderd/users.go, v2.38.6). The `web` node lets all of /api
   # past the platform's sign-in, because the CLI and workspace agents need it
   # (components/coder.yaml). Exemptions are prefixes, so this one route cannot
   # be kept back. Left alone, whoever found the URL first could make
@@ -18,7 +18,7 @@ spec:
   # So this job creates the Owner as soon as coderd answers, over the
   # deployment's private network. Once it has, the public route answers 409. It
   # also replaces Coder's setup page, which offers only a password form and
-  # GitHub, not the platform's OIDC (site/src/pages/SetupPage, v2.36.6).
+  # GitHub, not the platform's OIDC (site/src/pages/SetupPage, v2.38.6).
   #
   # The window that remains. The job polls the private address, and it
   # usually creates the Owner within seconds of coderd listening, before
@@ -42,9 +42,9 @@ spec:
       # PINNED. The official curl image, alpine-based, so busybox sh, sed and
       # date are present. Its /entrypoint.sh runs `exec "$@"` when the first
       # argument is a command on PATH (etc/entrypoint.sh, curl/curl-container
-      # 8.22.0), so the `sh -c` below runs as written.
-      image: curlimages/curl:8.22.0
-    # The request body is CreateFirstUserRequest (codersdk/users.go, v2.36.6).
+      # 8.23.0), so the `sh -c` below runs as written.
+      image: curlimages/curl:8.23.0
+    # The request body is CreateFirstUserRequest (codersdk/users.go, v2.38.6).
     # `trial: false` declines the Enterprise trial the CLI would otherwise
     # offer. No display name: Coder validates it (`user_real_name`), and one
     # it rejected would fail the whole request. The Owner sets it in Coder.
@@ -117,7 +117,7 @@ spec:
           Coder username of the Owner account: letters, digits and single
           hyphens, at most 32 characters.
       # Coder requires at least 52 bits of entropy and at most 64 characters
-      # (userpassword.Validate, coderd/userpassword, v2.36.6).
+      # (userpassword.Validate, coderd/userpassword, v2.38.6).
       ownerPassword:
         schema:
           type: string

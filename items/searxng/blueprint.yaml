@@ -1,0 +1,45 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: searxng
+  revision: 1
+  description: >-
+    SearXNG metasearch behind the platform's sign-in, as a private web search
+    engine for the organization's members.
+# One node. Valkey, which upstream's compose runs beside SearXNG, backs only the
+# limiter's bot detection (searx/valkeydb.py, de722ab1b). The platform's
+# sign-in already keeps bots out, so the limiter is off and there is nothing for
+# a Valkey node to do (components/searxng.yaml).
+spec:
+  nodes:
+    web:
+      componentRef: ./components/searxng.yaml
+      # Upstream states no memory floor. One Granian worker holding the engine
+      # modules idles in the low hundreds of MiB, and a search is network-bound
+      # fan-out to the engines, so 1 GiB is ample.
+      compute:
+        profile: general.economy.nano
+      # The platform signs the viewer in before forwarding, and SearXNG keeps
+      # no accounts of its own, so no identity is passed on. Only members
+      # reach the search page, which is what keeps the instance's outbound IP
+      # from being burned by strangers' bot traffic.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+      bindings:
+        secretKey:
+          parameter: secretKey
+        # The node's own public URL. A node reading its own endpoint output is
+        # a discovery dependency and not a value cycle (BP-BIND-002).
+        baseURL:
+          node: web
+          output: publicURL
+  parameters:
+    secretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Secret key

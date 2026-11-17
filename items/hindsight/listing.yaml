@@ -1,0 +1,75 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: hindsight
+spec:
+  itemType: COMPONENT
+  displayName: Hindsight
+  summary: >-
+    Long-term memory for AI agents — stores what they learn as a knowledge graph
+    and recalls it with multi-strategy search
+  overview: |
+    ## What it is
+    Hindsight, from Vectorize, is an open-source memory service for AI agents.
+    An agent retains conversations and documents into a memory bank. Hindsight
+    extracts facts and entities from them and links them into a knowledge
+    graph. The agent can then recall what is relevant, or ask Hindsight to
+    reflect across everything it knows. Agents reach it through a REST API,
+    client SDKs or its built-in MCP server.
+
+    ## When to use
+    - Your agents forget everything between sessions and you want them to keep
+      facts, preferences and decisions.
+    - You want recall that combines semantic, keyword, graph and temporal
+      search, not a single vector lookup.
+    - You want agent memory on infrastructure you control.
+
+    ## What you'll be asked for
+    - An **API key** you choose. Clients send it as
+      `Authorization: Bearer <key>` on every memory and MCP request.
+    - The **model** Hindsight processes memories with: the credential and the
+      model name, plus a base URL for anything other than OpenAI. An endpoint
+      compatible with OpenAI's chat-completions API will do if it supports
+      JSON-schema structured output, which reflect needs.
+
+    ## Defaults
+    A single container runs `ghcr.io/vectorize-io/hindsight-api:1.2.0` on port
+    8888 as a private endpoint, reachable by your other workloads and not by
+    the public internet. The API key is set when you deploy, and you can reveal
+    it on the deployment's Installation tab later.
+
+    Embeddings and reranking run on CPU, with models built into the image,
+    and use none of your model quota. Hindsight does contact Hugging Face at
+    each start to check those models. The model you name is called each time
+    a memory is stored, so expect usage to grow with what agents retain.
+
+    A 10 GiB volume at `/home/hindsight/.pg0` holds Hindsight's embedded
+    PostgreSQL. To use your own server, supply a PostgreSQL connection URL
+    with pgvector available, which upstream recommends for production. The
+    catalog's PostgreSQL item doesn't include pgvector.
+
+    The Control Plane, Hindsight's web UI for browsing memory banks, is not
+    part of this component.
+  gettingStarted: |
+    1. Reveal the API key on the deployment's Installation tab if you need it
+       again.
+    2. Point another of your workloads at the deployment's private address on
+       port 8888, sending the key as `Authorization: Bearer <key>`. The public
+       internet can't reach it.
+    3. Retain a first memory into a bank, then recall it. A bank is created the
+       first time something is written to it.
+
+    MCP clients connect to `/mcp/<bank-id>/` with the same key.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - memory
+    - agents
+    - knowledge-graph
+    - mcp
+    - ai
+  homepageURL: https://hindsight.vectorize.io
+  sourceRepositoryURL: https://github.com/vectorize-io/hindsight
+  supportURL: https://hindsight.vectorize.io/developer/installation
+  license: MIT
+  icon: media/icon.png

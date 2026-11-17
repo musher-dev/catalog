@@ -1,0 +1,531 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    LibreChat's API server and web app in one container, signing viewers in
+    through the platform's OpenID Connect provider, with its data in a
+    MongoDB-compatible database and conversation search in Meilisearch.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.8.8 is the latest stable release (image built 2026-10-01,
+      # BUILD_BRANCH=v0.8.8 in its config). Upstream no longer cuts GitHub
+      # releases; the git tag and this registry are the release channel.
+      # Stable tags exist only on upstream's own registry: ghcr.io/danny-avila/
+      # librechat stops at v0.8.8-rc4. `v0.8.9-rc1` is a pre-release, and
+      # `latest` and the `librechat-dev-api` image that upstream's
+      # deploy-compose.yml uses follow main. Multi-arch (amd64, arm64).
+      #
+      # When bumping, re-read .env.example (every input below),
+      # api/strategies/openidStrategy.js (the sign-in), api/server/index.js
+      # (the boot order the probes rely on) and
+      # packages/data-schemas/misc/ferretdb (which FerretDB release upstream
+      # tests against).
+      image: registry.librechat.ai/librechat-ai/librechat-api:v0.8.8
+    # `command` replaces the image's CMD (`node server/index.js`) and keeps its
+    # ENTRYPOINT, node's docker-entrypoint.sh, which execs a first argument
+    # that is a command. The image is node:24.16.0-alpine, so `sh` is busybox.
+    #
+    # LibreChat reads its database only from MONGO_URI (api/db/connect.js,
+    # v0.8.8), and FerretDB needs the password inside it. A blueprint cannot
+    # compose a URL from a node's address and a generated password, so the
+    # shell does, from the four MONGO_* inputs below (which LibreChat itself
+    # does not read), drops them from the environment and execs the image's
+    # own start. The values are hex and host:port, so nothing needs escaping.
+    command:
+      - sh
+      - -c
+      - |
+        export MONGO_URI="mongodb://${MONGO_USER}:${MONGO_PASSWORD}@${MONGO_ADDRESS}/${MONGO_DATABASE}"
+        unset MONGO_USER MONGO_PASSWORD MONGO_ADDRESS MONGO_DATABASE
+        exec node server/index.js
+    endpoints:
+      # The API and the built web app on one port (EXPOSE 3080 and PORT,
+      # .env.example, v0.8.8). Upstream's deploy-compose.yml puts nginx in
+      # front only for TLS; the platform's edge does that here.
+      primary:
+        targetPort: 3080
+        protocol: HTTP
+        # LibreChat's OpenID callback: DOMAIN_SERVER + OPENID_CALLBACK_URL
+        # (setupOpenId, api/strategies/openidStrategy.js, v0.8.8). The
+        # platform registers publicURL followed by it. The admin panel's
+        # callback, /api/admin/oauth/openid/callback, is left out: the
+        # separate admin-panel app is not part of this item.
+        oidc:
+          redirectPaths:
+            - /oauth/openid/callback
+        # LibreChat's Remote Agents API: the OpenAI-compatible
+        # /api/agents/v1/chat/completions and /models, and the Open Responses
+        # API at /api/agents/v1/responses. Machine clients call them with an
+        # agent API key a user creates in LibreChat, and no viewer session.
+        # Every route under it authenticates the request itself. The chat,
+        # models, events and responses routes pass requireRemoteAgentAuth
+        # (api/server/routes/agents/openai.js, responses.js and middleware.js,
+        # v0.8.8), and an admin must grant the Remote Agents permission before
+        # any key works. /v1/agents and /v1/skills pass
+        # requireAgentManagementAuth, which answers 401 to everything unless
+        # librechat.yaml configures OIDC machine clients
+        # (packages/api/src/middleware/management.ts), and this item ships no
+        # librechat.yaml. A blueprint may let this prefix past the platform's
+        # sign-in.
+        #
+        # Not `bearerToken`. The rest of the API also takes a bearer, a
+        # LibreChat session JWT, and nothing about the pages and sign-in
+        # routes needs to be reachable without the platform's sign-in.
+        exemptibleRequests:
+          paths:
+            - /api/agents/v1
+    health:
+      # First boot connects to FerretDB and creates LibreChat's collections
+      # and indexes (29 models and 98 indexes in upstream's FerretDB notes),
+      # seeds roles and permissions, then runs OpenID discovery, all before
+      # the server listens (api/server/index.js, v0.8.8); nothing answers on
+      # 3080 until then. On one vCPU, with FerretDB translating every index
+      # build, that gets a budget of its own rather than the readiness
+      # gate's retries: 30 + 60 x 10 = 630 s. Later boots find the indexes in
+      # place and listen in well under a minute.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # /health answers 200 "OK" with no credentials once the server listens
+      # (api/server/index.js; upstream's Helm chart probes it,
+      # helm/librechat/values.yaml, v0.8.8). The process exits if the database
+      # connection fails at boot, so a listening server has reached FerretDB.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # Files people attach to chats (paths.uploads, api/config/paths.js,
+      # v0.8.8; deploy-compose.yml mounts ./uploads here).
+      uploads:
+        minSizeGiB: 5
+        mountPath: /app/uploads
+      # Avatars and generated images, served back by the app
+      # (paths.imageOutput; the Helm chart's imageVolume mounts the same
+      # path).
+      images:
+        minSizeGiB: 2
+        mountPath: /app/client/public/images
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # The image does not set it, and upstream's compose files do. It
+      # selects production behaviour, including Secure session cookies
+      # (shouldUseSecureCookie, packages/api).
+      nodeEnv:
+        schema:
+          type: string
+        default: production
+        target:
+          envVar: NODE_ENV
+        description: Node.js environment LibreChat runs in.
+      # Where the browser app and the API are served from. Both are the
+      # deployment's public URL: one origin serves both. The OpenID callback
+      # and the post-sign-in redirect are built from them.
+      domainClient:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: DOMAIN_CLIENT
+        description: Public URL the web app is served from.
+      domainServer:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: DOMAIN_SERVER
+        description: Public URL the API is served from.
+      # Container logs only. The default also writes rotating files under
+      # /app/api/logs, which no volume keeps.
+      logToFile:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: LOG_TO_FILE
+        description: >-
+          Whether LibreChat also writes its logs to files in the container, as
+          the literal string the image parses.
+
+      # THE DATABASE. Four parts the boot command joins into MONGO_URI. The
+      # user and password are a PostgreSQL role's: FerretDB signs MongoDB
+      # clients in against the server under it (components/ferretdb.yaml).
+      mongoAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MONGO_ADDRESS
+        description: Mesh-internal host:port of the MongoDB-compatible server.
+      mongoUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MONGO_USER
+        description: User LibreChat signs in to the database as.
+      mongoPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: MONGO_PASSWORD
+        description: Password of that user.
+      mongoDatabase:
+        schema:
+          type: string
+        default: LibreChat
+        target:
+          envVar: MONGO_DATABASE
+        description: >-
+          Database LibreChat keeps its collections in, the name upstream's
+          compose files use.
+
+      # SECRETS. Upstream generates temporary values into /app/data/.env.temp
+      # when these are blank (.env.example, v0.8.8), which no volume here
+      # keeps, so a restart would sign everyone out and make every stored
+      # credential unreadable. Each is supplied instead.
+      #
+      # AES key and IV for credentials LibreChat stores for users: their own
+      # provider keys and MCP server tokens. Upstream generates them with
+      # `openssl rand -hex 32` and `-hex 16` (helm/librechat/readme.md).
+      # Changing either later makes what is stored unreadable.
+      credsKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CREDS_KEY
+        description: 32-byte key, as 64 hex characters, that encrypts stored user credentials.
+      credsIV:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CREDS_IV
+        description: 16-byte initialisation vector, as 32 hex characters, for the key above.
+      jwtSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: JWT_SECRET
+        description: Secret that signs LibreChat's session tokens.
+      jwtRefreshSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: JWT_REFRESH_SECRET
+        description: Secret that signs LibreChat's refresh tokens.
+
+      # SIGN-IN. LibreChat signs viewers in as an OpenID Connect client of the
+      # platform, and its own email and password sign-in is off, so nobody
+      # holds a second password. OpenID is enabled when the client ID, a
+      # client secret, the issuer, the scope and a session secret are all
+      # present (configureSocialLogins, api/server/socialLogins.js, v0.8.8).
+      # These are read on every start.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OPENID_ISSUER
+        # The bare issuer: LibreChat runs openid-client's discovery on it,
+        # which fetches /.well-known/openid-configuration itself.
+        description: Issuer URL of the platform's OpenID Connect provider.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: OPENID_CLIENT_ID
+        description: Client identifier the platform registered for this endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: OPENID_CLIENT_SECRET
+        description: Client secret the platform registered for this endpoint.
+      # Signs the short-lived server-side session that carries the OpenID
+      # state between the redirect and the callback.
+      openidSessionSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: OPENID_SESSION_SECRET
+        description: Secret that signs LibreChat's OpenID sign-in session.
+      openidScope:
+        schema:
+          type: string
+        default: openid profile email
+        target:
+          envVar: OPENID_SCOPE
+        description: Scopes LibreChat requests from the provider.
+      openidCallbackPath:
+        schema:
+          type: string
+        default: /oauth/openid/callback
+        target:
+          envVar: OPENID_CALLBACK_URL
+        description: >-
+          Path LibreChat receives the authorization response on, appended to
+          DOMAIN_SERVER; it must match the endpoint's redirect path.
+      # The platform's provider requires PKCE with S256 (BP-ACCESS-008).
+      openidUsePKCE:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OPENID_USE_PKCE
+        description: >-
+          Whether LibreChat sends a PKCE challenge with its authorization
+          request, as the literal string the image parses.
+      # The platform's sign-in is the only way in, so the sign-in page goes
+      # straight to it.
+      openidAutoRedirect:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OPENID_AUTO_REDIRECT
+        description: >-
+          Whether the sign-in page goes straight to the platform's provider, as
+          the literal string the image parses.
+      openidButtonLabel:
+        schema:
+          type: string
+        default: Sign in with Musher
+        target:
+          envVar: OPENID_BUTTON_LABEL
+        description: Label of the sign-in button, shown after signing out.
+      # The platform releases the NAME claim as `name`. Without this,
+      # LibreChat builds the display name from given_name and family_name and
+      # falls back to the email.
+      openidNameClaim:
+        schema:
+          type: string
+        default: name
+        target:
+          envVar: OPENID_NAME_CLAIM
+        description: Claim LibreChat takes each account's display name from.
+      # THE ADMIN. A local sign-up makes the first account an admin, but an
+      # OpenID sign-in never does: accounts are created as plain users
+      # (createUser in processOpenIDAuth). An account is made an admin only
+      # when a claim matches OPENID_ADMIN_ROLE, checked on every sign-in, and
+      # demoted when it stops matching (api/strategies/openidStrategy.js,
+      # v0.8.8). The claim checked here is the verified email, and the value
+      # the blueprint binds is the deployer's, so exactly one person is the
+      # admin. The value is split on spaces and commas, so it must be one
+      # address.
+      adminEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVar: OPENID_ADMIN_ROLE
+        description: Email address whose account is LibreChat's admin.
+      adminClaim:
+        schema:
+          type: string
+        default: email
+        target:
+          envVar: OPENID_ADMIN_ROLE_PARAMETER_PATH
+        description: Claim compared with the admin email above.
+      # `userinfo` is the ID token's claims merged with the provider's
+      # userinfo response, so the email is there whichever one carries it.
+      adminClaimSource:
+        schema:
+          type: string
+        default: userinfo
+        target:
+          envVar: OPENID_ADMIN_ROLE_TOKEN_KIND
+        description: Where LibreChat reads that claim from (access, id or userinfo).
+      allowEmailLogin:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ALLOW_EMAIL_LOGIN
+        description: >-
+          Whether accounts may sign in with an email and password, as the
+          literal string the image parses.
+      allowRegistration:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ALLOW_REGISTRATION
+        description: >-
+          Whether people may register an email and password account, as the
+          literal string the image parses.
+      # Shows the configured sign-in providers on the sign-in page
+      # (socialLoginEnabled, api/server/routes/config.js). OpenID is the only
+      # one configured. New OpenID accounts do not depend on
+      # ALLOW_SOCIAL_REGISTRATION, which only the other social providers
+      # check (api/strategies/socialLogin.js).
+      allowSocialLogin:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ALLOW_SOCIAL_LOGIN
+        description: >-
+          Whether the sign-in page offers the configured single sign-on
+          provider, as the literal string the image parses.
+
+      # SEARCH. Conversations and messages are indexed in Meilisearch as they
+      # are saved, and the index is synced from the database at every boot
+      # (indexSync, api/server/index.js). Search is on only with SEARCH=true
+      # and both values below (.env.example, v0.8.8).
+      search:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: SEARCH
+        description: >-
+          Whether conversation search is on, as the literal string the image
+          parses.
+      meiliHost:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: MEILI_HOST
+        description: Base URL of the Meilisearch server.
+      meiliMasterKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: MEILI_MASTER_KEY
+        description: Master key of that Meilisearch server.
+
+      # THE LANGUAGE MODEL. LibreChat's built-in OpenAI endpoint, pointed at
+      # the connection's base URL. The three inputs below carry one
+      # connection: the blueprint wires all three to the `llm` node's outputs
+      # (components/llm.yaml). Read on every start, so a changed connection
+      # reaches the deployment on its next restart.
+      #
+      # Only `openAI` and `agents` are offered. Without this, LibreChat shows
+      # every endpoint whose key variable is set; pinning it keeps the model
+      # menu to the connection and agents built on it.
+      endpoints:
+        schema:
+          type: string
+        default: openAI,agents
+        target:
+          envVar: ENDPOINTS
+        description: Comma-separated model endpoints LibreChat offers.
+      openaiReverseProxy:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OPENAI_REVERSE_PROXY
+        description: >-
+          Base URL of the OpenAI-compatible API LibreChat sends chat requests
+          to; the client appends /chat/completions.
+      openaiApiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: OPENAI_API_KEY
+        description: Bearer credential for the API above.
+      # With a model list set, LibreChat offers exactly it and does not call
+      # GET /models on the API (packages/api/src/endpoints/models.ts, v0.8.8),
+      # so the connection need not list models. Titles for new chats are
+      # generated with the same model.
+      openaiModels:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: OPENAI_MODELS
+        description: Models LibreChat offers on its OpenAI endpoint, comma-separated.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https URL LibreChat answers at, as the platform allocated it.
+          The blueprint binds it back into this node's domainClient and
+          domainServer inputs.
+        from:
+          endpoint: primary
+          property: publicURL
+      # The client the platform registers for `primary` (component §5.2,
+      # COMP-EP-012/014). Reading these means any blueprint deploying this
+      # component must select viewerIdentity OIDC there. The blueprint binds
+      # each output back into the input of the same name.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+        from:
+          endpoint: primary
+          property: oidcIssuerURL
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret
+      # For workloads composed into the same deployment, such as one calling
+      # the Remote Agents API with an agent API key, without crossing the
+      # platform's edge.
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of LibreChat, for workloads in the same
+          deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

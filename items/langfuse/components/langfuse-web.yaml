@@ -1,0 +1,569 @@
+# Langfuse's web container: the UI, the public API the SDKs and OpenTelemetry
+# exporters send traces to, and the database migrations. Its background work
+# (turning ingested events into ClickHouse rows, evaluations, exports) runs in
+# the worker container (components/langfuse-worker.yaml), which must run the
+# same release.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Langfuse web server and public API, signing viewers in through the
+    platform's OpenID Connect provider beside its own email and password, and
+    creating an organization, project, owner and API key on first boot.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 4.79.0 is the latest stable release (2026-11-12). Docker Hub
+      # tags carry no `v` prefix. `4` and `4.79` float, and `latest` follows
+      # main. The 3.x line (3.227.x) is maintenance-only. Keep this tag equal
+      # to the worker's (components/langfuse-worker.yaml): the two share the
+      # queue payloads and the database schema.
+      #
+      # The image runs as uid 1001 with ENTRYPOINT `dumb-init --
+      # ./web/entrypoint.sh` and a CMD that starts `node ./web/server.js`
+      # (web/Dockerfile, v4.79.0). No `command`: the entrypoint composes
+      # DATABASE_URL from the four DATABASE_* inputs below, applies the
+      # PostgreSQL migrations (prisma migrate deploy) and the ClickHouse
+      # migrations (packages/shared/clickhouse/scripts/up.sh), and only then
+      # execs the server. If either database is not ready yet it exits, and
+      # the container restarts until both answer.
+      image: langfuse/langfuse:4.79.0
+    endpoints:
+      primary:
+        targetPort: 3000
+        protocol: HTTP
+        # Langfuse signs viewers in as an OpenID Connect client of the
+        # platform through its generic `custom` provider
+        # (packages/shared/src/server/auth/customSsoProvider.ts, v4.79.0):
+        # authorization code with PKCE and state, and the ID token's email
+        # and name. NextAuth sends <NEXTAUTH_URL>/api/auth/callback/<provider
+        # id> as the redirect URI.
+        oidc:
+          redirectPaths:
+            - /api/auth/callback/custom
+        # The public API: ingestion (/api/public/ingestion), the OpenTelemetry
+        # endpoint (/api/public/otel), prompts, datasets, scores, the MCP
+        # server (/api/public/mcp) and the health routes. SDKs and exporters
+        # call it with the project's API keys and no viewer session. Langfuse
+        # authenticates every route under it itself, with Basic auth (public
+        # key and secret key), or a Bearer public key for score writes only
+        # (web/src/features/public-api/server/apiAuth.ts); the exceptions are
+        # /api/public/health and /api/public/ready, which reveal only the
+        # version.
+        exemptibleRequests:
+          paths:
+            - /api/public
+    health:
+      # First boot applies every PostgreSQL migration and every ClickHouse
+      # migration before the server listens, after waiting for both
+      # databases. 30 + 10 x 60 = 630 s.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/public/ready
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # The routes upstream's Helm chart probes (templates/web/deployment.yaml,
+      # langfuse-k8s chart 2.2.4): /api/public/ready for readiness, which
+      # fails once the server has received SIGTERM, and /api/public/health for
+      # liveness. Neither needs a key.
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/public/ready
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: primary
+          path: /api/public/health
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # Next.js's standalone server binds HOSTNAME, which the runtime sets to
+      # the pod's name. Upstream's Helm chart sets it to 0.0.0.0 for the same
+      # reason (templates/web/deployment.yaml).
+      hostname:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HOSTNAME
+        description: Address the web server listens on inside the container.
+      port:
+        schema:
+          type: string
+        default: '3000'
+        target:
+          envVar: PORT
+        description: Port the web server listens on, the `primary` endpoint's target port.
+      telemetryEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: TELEMETRY_ENABLED
+        description: >-
+          Whether Langfuse sends anonymous usage statistics to its developers,
+          as the literal string the image parses. Off.
+      # This node's own public origin. NextAuth builds its sign-in callbacks
+      # and Langfuse its links from it.
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: NEXTAUTH_URL
+        description: Public https URL of this deployment's web endpoint.
+      nextauthSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: NEXTAUTH_SECRET
+        description: Secret NextAuth signs and encrypts session cookies with.
+      # SALT hashes API secret keys. Changing it invalidates every key.
+      salt:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SALT
+        description: Salt Langfuse hashes API secret keys with. Changing it invalidates every key.
+      encryptionKey:
+        schema:
+          type: string
+          pattern: ^[0-9A-Fa-f]{64}$
+        sensitive: true
+        required: true
+        target:
+          envVar: ENCRYPTION_KEY
+        description: >-
+          256-bit key, as 64 hex characters, that encrypts the LLM provider keys
+          and other secrets Langfuse stores. Changing it makes them unreadable.
+      # PostgreSQL. The entrypoint composes
+      # postgresql://USER:PASSWORD@HOST/NAME from these (web/entrypoint.sh).
+      # The password goes into the URL unencoded, so it must need no
+      # percent-encoding.
+      databaseHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_HOST
+        description: Mesh-internal `host:port` of the PostgreSQL server.
+      databaseUsername:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_USERNAME
+        description: Role Langfuse connects to PostgreSQL as.
+      databasePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: DATABASE_PASSWORD
+        description: Password of that role. It must need no percent-encoding in a URL.
+      databaseName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_NAME
+        description: Database Langfuse keeps its transactional data in.
+      # ClickHouse.
+      clickhouseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: CLICKHOUSE_URL
+        description: URL of ClickHouse's HTTP interface, which queries and inserts use.
+      clickhouseMigrationURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: CLICKHOUSE_MIGRATION_URL
+        description: clickhouse:// URL of ClickHouse's native interface, which the boot-time migrations use.
+      clickhouseUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: CLICKHOUSE_USER
+        description: ClickHouse user Langfuse connects as.
+      clickhousePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CLICKHOUSE_PASSWORD
+        description: Password of that user. It must need no percent-encoding in a URL.
+      clickhouseClusterEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: CLICKHOUSE_CLUSTER_ENABLED
+        description: >-
+          Whether ClickHouse is a replicated cluster, as the literal string the
+          image parses. A single node here, so the migrations create plain
+          MergeTree tables.
+      # Valkey. Separate host and port rather than REDIS_CONNECTION_STRING,
+      # which would need the password composed into a URL.
+      redisHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: REDIS_HOST
+        description: Mesh-internal hostname of the Valkey server Langfuse queues jobs in.
+      redisPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: REDIS_PORT
+        description: Port of that Valkey server.
+      # The schema the cache's own password input declares: one generated
+      # parameter fills both, so both ends describe the same value.
+      redisAuth:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: REDIS_AUTH
+        description: Password Langfuse authenticates to Valkey with.
+      # S3 event storage. Every ingested event is written to the bucket before
+      # the worker reads it back and writes it to ClickHouse.
+      s3EventBucket:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+        description: Bucket ingested events are written to.
+      s3EventPrefix:
+        schema:
+          type: string
+        default: events/
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+        description: Key prefix events are written under, ending in a slash.
+      s3EventRegion:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_REGION
+        description: Region the S3 client signs requests for.
+      s3EventEndpoint:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+        description: URL of the S3 service, without the bucket.
+      s3EventAccessKeyID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+        description: Access key ID the S3 client signs requests with.
+      s3EventSecretAccessKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+        description: Secret access key paired with that key ID.
+      s3EventForcePathStyle:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+        description: >-
+          Whether the S3 client puts the bucket in the path rather than the
+          hostname, as the literal string the image parses. A mesh hostname
+          cannot carry a bucket label.
+      # Headless initialisation (web/src/initialize.ts, v4.79.0). On every
+      # start Langfuse upserts the organization and project by ID, creates the
+      # user only if no user has that email, makes the user an OWNER of the
+      # organization, and creates the API key only if no key has that public
+      # key. So these settle the first boot; afterwards, renaming in the UI
+      # sticks, and a changed password here does not reach an existing user.
+      initOrgID:
+        schema:
+          type: string
+        default: musher
+        target:
+          envVar: LANGFUSE_INIT_ORG_ID
+        description: ID of the organization created on first boot. Its presence turns initialisation on.
+      initOrgName:
+        schema:
+          type: string
+        default: Musher
+        target:
+          envVar: LANGFUSE_INIT_ORG_NAME
+        description: Name the organization is created with.
+      initProjectID:
+        schema:
+          type: string
+        default: default
+        target:
+          envVar: LANGFUSE_INIT_PROJECT_ID
+        description: ID of the project created on first boot inside that organization.
+      initProjectName:
+        schema:
+          type: string
+        default: Default project
+        target:
+          envVar: LANGFUSE_INIT_PROJECT_NAME
+        description: Name the project is created with.
+      # Langfuse takes any string as a key; its own keys look like `pk-lf-...`
+      # and `sk-lf-...`, but nothing checks the prefix (apiAuth.ts).
+      initProjectPublicKey:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_INIT_PROJECT_PUBLIC_KEY
+        description: >-
+          Public key of the project API key created on first boot. It
+          identifies the project and is not a secret.
+      initProjectSecretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LANGFUSE_INIT_PROJECT_SECRET_KEY
+        description: Secret key of that API key.
+      initUserEmail:
+        schema:
+          type: string
+        presentationHint: EMAIL
+        required: true
+        target:
+          envVar: LANGFUSE_INIT_USER_EMAIL
+        description: Email of the account created on first boot as the organization's owner.
+      initUserName:
+        schema:
+          type: string
+        default: Owner
+        target:
+          envVar: LANGFUSE_INIT_USER_NAME
+        description: Display name of that account.
+      initUserPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LANGFUSE_INIT_USER_PASSWORD
+        description: Password of that account.
+      # People who sign in for the first time, through the platform or with a
+      # new email and password, join this organization with this role
+      # (web/src/features/auth/lib/createProjectMembershipsOnSignup.ts).
+      # Without it they would land in an empty account and create their own.
+      defaultOrgID:
+        schema:
+          type: string
+        default: musher
+        target:
+          envVar: LANGFUSE_DEFAULT_ORG_ID
+        description: Organization new users join, the one created on first boot.
+      defaultOrgRole:
+        schema:
+          type: string
+          enum:
+            - OWNER
+            - ADMIN
+            - MEMBER
+            - VIEWER
+            - NONE
+        default: MEMBER
+        target:
+          envVar: LANGFUSE_DEFAULT_ORG_ROLE
+        description: Role new users get in that organization.
+      # Sign-in through the platform's OpenID Connect provider. The blueprint
+      # binds these from this node's own outputs. They carry no default: a
+      # literal here would let the item run where the platform registered no
+      # client. All four are required before Langfuse registers the provider
+      # (web/src/server/auth.ts).
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: AUTH_CUSTOM_ISSUER
+        description: >-
+          Issuer URL of the platform's OpenID Connect provider. Langfuse fetches
+          <issuer>/.well-known/openid-configuration.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: AUTH_CUSTOM_CLIENT_ID
+        description: Client identifier the platform registered for the web endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: AUTH_CUSTOM_CLIENT_SECRET
+        description: Client secret the platform registered for the web endpoint.
+      oidcProviderName:
+        schema:
+          type: string
+        default: Musher
+        target:
+          envVar: AUTH_CUSTOM_NAME
+        description: Name on the sign-in page's single sign-on button.
+      # The owner account is created with an email and password. Linking lets
+      # the same person also use the single sign-on button: NextAuth otherwise
+      # refuses a provider sign-in for an email that already has an account.
+      # The platform releases only verified emails.
+      oidcAllowAccountLinking:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: AUTH_CUSTOM_ALLOW_ACCOUNT_LINKING
+        description: >-
+          Whether a platform sign-in may attach to an existing account with
+          the same email, as the literal string the image parses.
+      # Langfuse's own AI features (Halo, its in-app assistant, and Ask AI) on
+      # the deployment's model. Provider `openai` with a base URL speaks Chat
+      # Completions to any compatible endpoint; the Responses API is used only
+      # for api.openai.com unless forced (langfuse.com/self-hosting/
+      # configuration/halo). It is set to "false" so a replacement connection
+      # pointing at api.openai.com behaves the same. The playground and
+      # LLM-as-a-judge evaluators use per-project LLM connections set up in
+      # the UI instead.
+      #
+      # Self-hosted, Halo stays hidden unless LANGFUSE_IN_APP_AGENT_ENABLED is
+      # "true" on web and on the worker that runs it
+      # (isInAppAgentInstanceEnabled, packages/shared/src/in-app-agent/server/
+      # modelProvider.ts, v4.79.0). Ask AI does not depend on it. Without a
+      # sandbox provider Halo has Langfuse's own tools only, through this
+      # instance's MCP server at <NEXTAUTH_URL>/api/public/mcp.
+      inAppAgentEnabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: LANGFUSE_IN_APP_AGENT_ENABLED
+        description: >-
+          Whether Halo, Langfuse's in-app assistant, is shown and accepts runs,
+          as the literal string the image parses.
+      llmProvider:
+        schema:
+          type: string
+        default: openai
+        target:
+          envVar: LANGFUSE_AI_PROVIDER
+        description: Provider type Langfuse's AI features call.
+      llmUseResponsesAPI:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: LANGFUSE_AI_USE_RESPONSES_API
+        description: >-
+          Whether the AI features use OpenAI's Responses API rather than Chat
+          Completions, as the literal string the image parses.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: LANGFUSE_AI_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible API, ending in the version segment
+          (for example /v1).
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LANGFUSE_AI_API_KEY
+        description: Bearer credential for the API above.
+      llmModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_AI_MODEL
+        description: Model Langfuse's AI features use.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https URL of the web endpoint, which SDKs use as their host.
+          The blueprint binds it back into this node's publicURL input.
+        from:
+          endpoint: primary
+          property: publicURL
+      # The client the platform registers for `primary`. Reading these means
+      # any blueprint deploying this component must select viewerIdentity
+      # OIDC there.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+        from:
+          endpoint: primary
+          property: oidcIssuerURL
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for the web endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for the web endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret

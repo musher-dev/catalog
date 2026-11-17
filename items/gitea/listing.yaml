@@ -1,0 +1,113 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: gitea
+spec:
+  itemType: BLUEPRINT
+  displayName: Gitea
+  summary: >-
+    Self-hosted Git forge with repositories, issues, pull requests, code
+    review and a package registry, behind your Musher sign-in. A private Git
+    remote for your team and your coding agents.
+  overview: |
+    ## What it is
+    Gitea is a lightweight, open-source Git forge. It hosts Git repositories
+    and adds issues, pull requests with code review, wikis, project boards,
+    releases, a package registry (container images, npm, PyPI, Maven and
+    more), webhooks and Gitea Actions, a CI system compatible with GitHub
+    Actions workflows. A REST API covers almost everything the web UI does,
+    so scripts and AI coding agents can create repositories, push branches
+    and open pull requests with a personal access token.
+
+    ## When to use
+    - You want a private Git remote that you control, for a team or for coding
+      agents that should not push to your main GitHub or GitLab organization.
+    - You want issues, pull requests and reviews next to the code, without a
+      per-seat SaaS plan.
+    - You want to mirror upstream repositories or host packages and container
+      images close to the rest of your Musher stack.
+
+    ## Signing in
+    An **admin** account is created for you when the deployment first
+    starts, with the email you deploy with. Open the deployment's URL, sign
+    in to Musher, then choose **Sign in with Musher** on Gitea's sign-in
+    page. Because the email matches, Gitea offers to link that sign-in to
+    the admin account: sign in once as `admin` with the **Admin password**
+    from the deployment's Installation tab. After that, **Sign in with
+    Musher** takes you straight in. Everyone else in your organization
+    chooses **Sign in with Musher** and gets a regular account named after
+    the part of their email before the @. If that name is taken, Gitea asks
+    them to pick another one rather than linking them to someone else's
+    account. The admin can promote others from Site Administration. Nobody
+    can sign up with a password.
+
+    ## Using Git and the API
+    The web UI sits behind Musher's sign-in, so Git and API clients pass
+    through differently:
+    - **Git over HTTPS**: create a personal access token in Gitea (Settings,
+      Applications) with repository access and send it as a bearer token,
+      for example `git -c http.extraHeader="Authorization: Bearer <token>"
+      clone <URL>`. To keep the header, set it per repository with
+      `git config http.extraHeader "Authorization: Bearer <token>"`. Plain
+      username and password prompts do not reach Gitea on repository URLs.
+    - **REST API** (`/api/v1`) and **package registries** (`/api/packages`,
+      and `/v2` for container images): call them directly with a token, as
+      `Authorization: token <token>` or `Bearer`, or with Basic auth.
+
+    ## Defaults
+    Two containers and a one-time setup job. The first container runs
+    `docker.gitea.com/gitea:28.3.0-rootless` on 1 vCPU and 2 GiB, with the web
+    UI, Git over HTTPS and the API on port 3000 behind the platform's HTTPS
+    edge and sign-in. Repositories, attachments, packages and Gitea's app.ini
+    live on a 20 GiB volume at `/var/lib/gitea`. The second container is a
+    private PostgreSQL 17 server (1 vCPU, 1 GiB) on a 10 GiB volume that only
+    Gitea can reach. The database password is generated, and you can reveal
+    it on the Installation tab. The setup job uses Gitea's own CLI to create
+    the admin account and register Musher as a sign-in source, then exits.
+
+    Every page and API read requires a signed-in user. Gitea's check for new
+    releases is turned off.
+
+    ## Limitations
+    - **No SSH.** The platform routes HTTP only to this deployment, so Git
+      over SSH is off and Gitea shows HTTPS clone URLs only.
+    - **No Git LFS.** LFS clients authenticate in a way the platform's
+      sign-in does not let through, so the LFS server is off.
+    - **Actions runners run elsewhere.** Gitea Actions is enabled, but jobs
+      need an `act_runner` with Docker, which this deployment does not have.
+      Register a runner on your own machine or cloud. Runners reach Gitea at
+      the deployment's URL under `/api`, but `actions/checkout` clones with
+      Basic auth, which the platform's sign-in does not let through, so a
+      workflow has to fetch the repository with a bearer header instead.
+    - **No email.** No mail server is configured, so there are no
+      notifications or password-reset emails.
+
+    ## Upgrades
+    Gitea migrates its database schema on start. Moving to a newer version
+    is one-way, so back up the database and the volume first.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher, then choose **Sign in
+       with Musher** on Gitea's sign-in page. The first time, link the
+       account by signing in as `admin` with the **Admin password** from the
+       deployment's Installation tab.
+    2. Create a repository, then create a personal access token under
+       Settings, Applications, with read and write access to repositories.
+    3. Clone over HTTPS with the token as a bearer header:
+       `git -c http.extraHeader="Authorization: Bearer <token>" clone <clone URL>`.
+       Give coding agents their own Gitea account and token in the same way.
+    4. Ask your teammates to choose **Sign in with Musher**. Each gets an
+       account on first sign-in.
+  category: DEVELOPER_TOOLS
+  lifecycleStage: BETA
+  tags:
+    - git
+    - code-hosting
+    - code-review
+    - issue-tracking
+    - package-registry
+    - self-hosted
+  homepageURL: https://about.gitea.com
+  sourceRepositoryURL: https://github.com/go-gitea/gitea
+  supportURL: https://docs.gitea.com
+  license: MIT
+  icon: media/icon.png

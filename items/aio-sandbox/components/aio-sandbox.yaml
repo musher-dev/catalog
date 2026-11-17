@@ -1,0 +1,313 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    AIO Sandbox, one container that gives AI agents a Chromium browser, a shell,
+    file and code-execution APIs and an MCP server behind one API key, with the
+    sandbox user's home directory kept on a volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.11.0 is the latest stable release (2026-06-23). Tags on ghcr
+      # carry no `v` prefix. `latest` and the floating `v1` tag move with every
+      # release, and the `1.0.0.<build>` tags are older pre-1.9 builds.
+      #
+      # The image is about 3.6 GB compressed (Ubuntu 22.04, Chromium
+      # 146.0.7680.31, noVNC, JupyterLab, code-server, Node.js and Python
+      # runtimes), so a first pull takes minutes. Its build source is not
+      # published: the facts below are read from the image's own files under
+      # /opt/gem (layer `COPY ./configs/gem/ /opt/gem/`, 1.11.0).
+      #
+      # No `command`: the ENTRYPOINT /opt/gem/run.sh must start as root. It runs
+      # gem_init.sh (the browser supervisor) and gem.sh, which creates the `gem`
+      # user (uid 1000) with passwordless sudo, chowns its home, renders nginx's
+      # configuration and execs supervisord. Every service except nginx then
+      # runs as `gem` (opt/gem/supervisord/*.conf, 1.11.0). It needs neither
+      # privileged mode nor a Docker socket.
+      image: ghcr.io/agent-infra/sandbox:1.11.0
+    endpoints:
+      primary:
+        # PUBLIC_PORT=8080 in the image. nginx is the only listener on it and
+        # routes /v1 (REST), /mcp, /vnc, /code-server, /jupyter and the
+        # rest to services bound to 127.0.0.1 (opt/gem/nginx/*.conf, 1.11.0).
+        # VNC and the shell's WebSocket ride the same port.
+        targetPort: 8080
+        protocol: HTTP
+        # With SANDBOX_API_KEY set, nginx sends every request through an
+        # auth_request to the API server, which accepts the key as
+        # `Authorization: Bearer`, `X-AIO-API-Key` or `?api_key=`
+        # (opt/gem/nginx-server-with-auth.conf, 1.11.0; README.md). The routes
+        # it leaves open are `GET /v1/ping` and static UI assets, narrowed by
+        # the `authHardeningHook` input below. So a node behind platform
+        # sign-in can let a bearer through and the sandbox still checks it.
+        exemptibleRequests:
+          bearerToken: true
+    health:
+      # Not /v1/ping. nginx answers `GET /v1/ping` itself with a literal
+      # `pong` (location = /v1/ping, opt/gem/nginx/nginx.gembrowser_compat.conf,
+      # 1.11.0), so it is up long before the API server behind it. GET
+      # /v1/sandbox is answered by the API server and passes the key check, so
+      # a 200 means the gateway, the key and the API all work.
+      #
+      # Readiness only, with no startup or liveness probe: supervisord restarts
+      # any service that dies inside the container, and a slow first boot
+      # should hold traffic back, not restart the container. Boot is the
+      # entrypoint's user, nginx and supervisord setup, then the API server's
+      # import, which upstream budgets 60 s for (WAIT_TIMEOUT=60 in the image).
+      readiness:
+        http:
+          endpoint: primary
+          path: /v1/sandbox
+          auth:
+            bearer:
+              token:
+                input: apiKey
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # The sandbox user's home, which is also WORKSPACE when that is unset
+      # (gem.sh, 1.11.0). It holds the agent's working files, the browser
+      # profile (~/.config/browser), its downloads (~/Downloads) and the
+      # JupyterLab and code-server state. gem.sh chowns the directory to
+      # `gem` at every start and writes the dotfiles it needs into it, so an
+      # empty, root-owned volume works.
+      home:
+        minSizeGiB: 10
+        mountPath: /home/gem
+  contract:
+    inputs:
+      # Without it nginx loads its no-auth configuration and every route,
+      # including a shell with passwordless sudo, is open to anyone who can
+      # reach the port (gem.sh, 1.11.0).
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SANDBOX_API_KEY
+        description: >-
+          Key every client must present, as `Authorization: Bearer <key>`,
+          `X-AIO-API-Key: <key>` or `?api_key=<key>` (the only form a VNC or
+          WebSocket URL can carry).
+      # Chromium runs as uid 1000 with its own namespace sandbox on by default
+      # (BROWSER_NO_SANDBOX is empty in the image). Under a default seccomp
+      # profile that sandbox cannot unshare its namespaces, and the zygote
+      # aborts with "Failed to move to new namespace ... Operation not
+      # permitted" (agent-infra/sandbox#147). Upstream runs the container with
+      # `seccomp=unconfined`, which a node here cannot ask for, and lists
+      # `--no-sandbox` as the alternative. gem.sh puts this value first in
+      # Chromium's extra arguments. The image's own arguments already include
+      # --disable-dev-shm-usage and --disable-gpu, so the small /dev/shm a
+      # container gets is not a problem.
+      browserNoSandbox:
+        schema:
+          type: string
+        default: --no-sandbox
+        target:
+          envVar: BROWSER_NO_SANDBOX
+        description: >-
+          Flag gem.sh prepends to Chromium's command line. `--no-sandbox` turns
+          off Chromium's own process sandbox, which cannot start without
+          unconfined seccomp; leave it empty only where the container runs with
+          seccomp unconfined.
+      # A shell string gem.sh runs as root before it renders nginx's
+      # configuration (RUN_HOOK_INIT, gem.sh, 1.11.0).
+      #
+      # Upstream's key check lets through, with no key, any GET whose raw
+      # request URI ends in a static-file extension. The map matches
+      # `$request_method:$request_uri`, query string included
+      # (opt/gem/nginx-server-with-auth.conf, 1.11.0). Without this hook:
+      # - `/v1/file/download?path=<file>.json` reads any file the API can,
+      #   and `/v1/browser/cookies?urls=x.json` returns the browser's cookies.
+      # - JupyterLab runs with no token behind the gateway
+      #   (opt/gem/jupyter-lab.sh), so `/jupyter/api/contents/<file>.json`
+      #   serves files, directly or through code-server's port proxy at
+      #   `/code-server/proxy/8888/...` (code-server runs with --auth=none).
+      # - `/ws/x.js` and `/websockify/x.js` reach websocat, which accepts a
+      #   WebSocket on any path and bridges it to Xvnc started with
+      #   `-SecurityTypes None` (opt/gem/nginx.vnc.conf,
+      #   supervisord/vnc.conf): the whole desktop, keyboard and mouse.
+      # - Any path no other location claims, sent with an
+      #   `x-aio-proxy-port: <port>` header, is proxied to that local port
+      #   (opt/gem/nginx/header_proxy.conf), so `GET /x.js` reaches Jupyter,
+      #   the VNC bridge or anything else listening on 127.0.0.1.
+      # - nginx resolves `..`, `%2e` and `//` after the map has matched the
+      #   raw URI, so `/vnc/%2e%2e/ws/x.js` lands on the VNC bridge.
+      #
+      # The hook rewrites the map before nginx reads it. The key gains the
+      # proxy-port header, and the exemption then needs that header absent,
+      # no `%`, `//` or `/.` anywhere in the path, no query string, and a
+      # path outside /v1, /ws, /websockify, /mcp, /cdp, the /proxy,
+      # /absproxy and /code-server/(abs)proxy port proxies, and Jupyter's
+      # /api, /files and /proxy. noVNC's, the terminal's, code-server's and
+      # JupyterLab's own scripts and styles still load without the key. If
+      # the file ever stops matching, the hook deletes the exemption line, so
+      # it fails closed: every request then needs the key.
+      authHardeningHook:
+        schema:
+          type: string
+        # yamllint disable rule:line-length
+        default: |-
+          f=/opt/gem/nginx-server-with-auth.conf
+          sed -i \
+            -e 's#^map "\$request_method:\$request_uri"#map "$request_method:$http_x_aio_proxy_port:$request_uri"#' \
+            -e 's#"GET:/v1/ping"#"GET::/v1/ping"#' \
+            -e 's#"~\*^GET:\.+\\.(#"~*^GET::(?!.*(?:%|//|/\\.))/(?!(?:v1|ws|websockify|mcp|cdp|absproxy|proxy|code-server/(?:abs)?proxy|jupyter/(?:api|files|proxy)))[^?]+\\.(#' \
+            "$f"
+          grep -qF 'map "$request_method:$http_x_aio_proxy_port:$request_uri"' "$f" &&
+            grep -qF '"GET::/v1/ping"' "$f" &&
+            grep -qF '"~*^GET::(?!.*(?:%|//|/\.))/' "$f" || {
+            sed -i '/"~\*^GET:/d' "$f"
+            echo "authHardeningHook: map not as expected; static-file exemption removed" >&2
+            exit 1
+          }
+        # yamllint enable rule:line-length
+        target:
+          envVar: RUN_HOOK_INIT
+        description: >-
+          Shell commands the entrypoint runs as root before services start. The
+          default limits the key check's static-file exemption to plain asset
+          paths, closing it to the API, Jupyter files, the VNC bridge and the
+          port proxies; keep it when adding your own commands.
+      # The image defaults to Asia/Singapore. Chromium is also started with
+      # --time-zone-for-testing set to this value (gem.sh, 1.11.0).
+      timezone:
+        schema:
+          type: string
+        default: UTC
+        target:
+          envVar: TZ
+        description: IANA time zone of the sandbox's shell, clock and browser.
+      # The image ships OpenTelemetry auto-instrumentation for the API server
+      # with the SDK on (OTEL_SDK_DISABLED=false, SRV_PYTHONPATH in the image).
+      telemetryDisabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OTEL_SDK_DISABLED
+        description: >-
+          Whether the API server's OpenTelemetry SDK is off, as the literal
+          string the image parses (`true` or `false`).
+      # Both run as `gem` on 127.0.0.1 and are reached through the gateway at
+      # /jupyter and /code-server/ (supervisord.jupyter.conf,
+      # supervisord.code_server.conf, 1.11.0). Turning them off saves memory
+      # on small nodes.
+      disableJupyter:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: DISABLE_JUPYTER
+        description: >-
+          Whether to skip starting JupyterLab, as the literal string the image
+          parses (`true` or `false`).
+      disableCodeServer:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: DISABLE_CODE_SERVER
+        description: >-
+          Whether to skip starting code-server, as the literal string the image
+          parses (`true` or `false`).
+      # Optional model access for coding agents run inside the sandbox. Every
+      # process the API starts inherits the container's environment, so these
+      # reach Claude Code (which 1.11.0 does not preinstall: its build step
+      # is empty unless INCLUDE_CLAUDE_CODE is set), the Anthropic SDKs and
+      # anything else that reads them. render-claude-config.sh writes them
+      # into Claude Code's settings when the `claude` binary is present.
+      anthropicBaseURL:
+        schema:
+          type: string
+        required: false
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: ANTHROPIC_BASE_URL
+        description: >-
+          Base URL of an Anthropic Messages API for coding agents in the
+          sandbox. Leave it unset for Anthropic's own address.
+      anthropicAPIKey:
+        schema:
+          type: string
+        required: false
+        sensitive: true
+        target:
+          envVar: ANTHROPIC_API_KEY
+        description: >-
+          Credential for that API. Any process in the sandbox can read it.
+      anthropicModel:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: ANTHROPIC_MODEL
+        description: Model coding agents in the sandbox ask the Anthropic API for.
+      # opencode is preinstalled (/usr/local/bin/opencode). When both the key
+      # and the model are set, render-opencode-config.sh writes
+      # ~/.config/opencode/config.json with one provider: the AI SDK's
+      # OpenAI-compatible client, or its Anthropic client if the base URL
+      # contains "anthropic". Unset, opencode keeps its bundled defaults.
+      # The provider id defaults to `ark` (Volcengine) upstream.
+      opencodeBaseURL:
+        schema:
+          type: string
+        required: false
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: OPENCODE_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API (ending in its
+          version segment, such as /v1) the bundled opencode agent calls.
+      opencodeAPIKey:
+        schema:
+          type: string
+        required: false
+        sensitive: true
+        target:
+          envVar: OPENCODE_API_KEY
+        description: >-
+          Credential for that API. It is written into the sandbox user's
+          opencode configuration, so any process in the sandbox can read it.
+      opencodeModel:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: OPENCODE_MODEL
+        description: Model the bundled opencode agent asks that API for.
+      opencodeProvider:
+        schema:
+          type: string
+        default: llm
+        target:
+          envVar: OPENCODE_PROVIDER
+        description: >-
+          Provider id opencode's configuration files the API under; the model
+          is selected as `<provider>/<model>`.
+    outputs:
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of the sandbox's gateway, resolvable only by
+          workloads in the same deployment. Clients send the API key with every
+          request.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"
+      mcpURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal URL of the sandbox's streamable-HTTP MCP server, for an
+          agent in the same deployment. It takes the API key as a bearer token.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}/mcp"

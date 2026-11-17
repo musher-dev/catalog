@@ -1,0 +1,297 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    AnythingLLM workspace for chatting with documents and running agents, with
+    a built-in local embedder and LanceDB vector store, on any
+    OpenAI-compatible language-model API.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 1.19.0 is the latest stable release (2026-10-26). The repo also
+      # publishes render-1.19.0 and railway-1.19.0 variants of the same build
+      # for those hosts, and `latest` is rebuilt from master between releases
+      # (its digest already differs from 1.19.0's). The image runs as the
+      # unprivileged `anythingllm` user, uid 1000 (docker/Dockerfile, v1.19.0).
+      image: mintplexlabs/anythingllm:1.19.0
+    # No command: the image's ENTRYPOINT is
+    # `/bin/bash /usr/local/bin/docker-entrypoint.sh`, which ignores any
+    # arguments. It runs `prisma generate` and `prisma migrate deploy` against
+    # the SQLite database, then starts the server on SERVER_PORT and the
+    # document collector on 127.0.0.1:8888 beside it
+    # (docker/docker-entrypoint.sh, v1.19.0).
+    endpoints:
+      primary:
+        # SERVER_PORT, 3001 by default (docker/.env.example, v1.19.0).
+        targetPort: 3001
+        protocol: HTTP
+        # One group of routes serves machines, and AnythingLLM judges every
+        # request to it itself, so a blueprint may let it past the platform's
+        # sign-in:
+        #
+        # - /api/v1: the developer API (workspaces, documents, chats, and an
+        #   OpenAI-compatible /api/v1/openai). Every route passes the
+        #   validApiKey middleware, which looks the bearer up among the API
+        #   keys an admin created in the database and answers 403 otherwise,
+        #   whatever the auth mode (endpoints/api/*/index.js and
+        #   utils/middleware/validApiKey.js, v1.19.0). The one exception,
+        #   GET /api/v1/system/env-dump, is unauthenticated upstream by
+        #   design: it takes no input, returns nothing, and only rewrites the
+        #   container's .env (SECURITY.md).
+        #
+        # Not /api/embed, although the chat-embed widget a website loads posts
+        # there. Exemptions are prefixes, and the admin's embed-management
+        # routes share that prefix: POST /api/embed/chats lists every embed
+        # chat, POST /api/embed/update/:embedId rewrites an embed (its
+        # workspace and allowlist included) and DELETE /api/embed/:embedId
+        # removes one (endpoints/embedManagement.js, mounted under /api in
+        # server/index.js, v1.19.0). They are guarded only by
+        # validatedRequest, which lets everything through in single-user mode
+        # with no password. So the widget works only for viewers signed in to
+        # the platform.
+        #
+        # Not `bearerToken`. The UI's own /api routes check no credential at
+        # all while AnythingLLM runs without its own password
+        # (utils/middleware/validatedRequest.js), so any bearer token would
+        # open the whole workspace to the internet.
+        exemptibleRequests:
+          paths:
+            - /api/v1
+    health:
+      # Every boot runs `prisma generate` before the server binds its port, and
+      # the first one also creates the database. Upstream's own Docker
+      # healthcheck allows a 60 s start period (docker/Dockerfile, v1.19.0).
+      # A budget of its own here, so a slow first boot is not reaped by the
+      # readiness gate: 30 + 60 x 10 = 630 s. Readiness is suspended until it
+      # passes.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/ping
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      readiness:
+        # The path upstream's healthcheck curls; it answers {"online":true}
+        # with no credential (docker/docker-healthcheck.sh,
+        # endpoints/system.js, v1.19.0).
+        http:
+          endpoint: primary
+          path: /api/ping
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      storage:
+        # Upstream recommends at least 10 GB of disk
+        # (docker/HOW_TO_USE_DOCKER.md, v1.19.0).
+        minSizeGiB: 10
+        # Everything AnythingLLM keeps: the SQLite database (prisma/schema.prisma
+        # hard-codes file:../storage/anythingllm.db, relative to
+        # /app/server/prisma), parsed documents, the LanceDB vectors, the
+        # native embedder's model cache and uploaded files. STORAGE_DIR below
+        # names the same directory.
+        mountPath: /app/server/storage
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and no deploy form gains a field.
+      storageDir:
+        schema:
+          type: string
+        default: /app/server/storage
+        target:
+          envVar: STORAGE_DIR
+        description: >-
+          Directory AnythingLLM keeps documents, vectors, models and uploads
+          in; the volume above.
+      serverPort:
+        schema:
+          type: string
+        default: '3001'
+        target:
+          envVar: SERVER_PORT
+        description: Port the server listens on, matching the endpoint above.
+      # SETTINGS ARE NOT SAVED ACROSS RESTARTS. AnythingLLM keeps its
+      # LLM, embedder and vector-database choices, and its single-user password,
+      # in process.env, and saves a change made in Settings by rewriting
+      # /app/server/.env (dumpENV, utils/helpers/updateENV.js, v1.19.0). That
+      # file lives in the image, outside STORAGE_DIR, and upstream's Docker
+      # guide bind-mounts it from the host. A component cannot mount a single
+      # file, and `command` cannot wrap this entrypoint, so on every start the
+      # inputs below are authoritative again. dotenv never overrides a
+      # variable that is already set.
+      llmProvider:
+        schema:
+          type: string
+        default: generic-openai
+        target:
+          envVar: LLM_PROVIDER
+        description: >-
+          AnythingLLM's language-model provider: its "Generic OpenAI" client for
+          any OpenAI-compatible API.
+      # The three inputs below carry one language-model connection. The
+      # blueprint wires all three to the outputs of the `llm` node, which takes
+      # the connection whole (components/llm.yaml).
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: GENERIC_OPEN_AI_BASE_PATH
+        # Handed to the OpenAI SDK as baseURL, which appends
+        # /chat/completions (AiProviders/genericOpenAi/index.js, v1.19.0).
+        description: Base URL of the OpenAI-compatible API AnythingLLM chats with.
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVar: GENERIC_OPEN_AI_API_KEY
+        description: Bearer credential for the API above.
+      llmModel:
+        schema:
+          type: string
+        target:
+          envVar: GENERIC_OPEN_AI_MODEL_PREF
+        description: Model AnythingLLM's workspaces and agents use by default.
+      # The Generic OpenAI provider cannot ask the API for a context window; it
+      # budgets every prompt from this number, 4096 when unset, and gives 70%
+      # to the user's prompt and retrieved document chunks, 15% each to history
+      # and the system prompt (genericOpenAi/index.js).
+      llmContextWindow:
+        schema:
+          type: string
+        default: '128000'
+        target:
+          envVar: GENERIC_OPEN_AI_MODEL_TOKEN_LIMIT
+        description: >-
+          Context window of the model, in tokens, that AnythingLLM sizes
+          prompts, history and retrieved chunks to.
+      # Upstream's default is 1024 (genericOpenAi/index.js), which cuts most
+      # long answers off.
+      llmMaxTokens:
+        schema:
+          type: string
+        default: '4096'
+        target:
+          envVar: GENERIC_OPEN_AI_MAX_TOKENS
+        description: Most tokens AnythingLLM asks the model for in one reply.
+      # The built-in embedder: all-MiniLM-L6-v2 on ONNX in the server process,
+      # downloaded once on first embed into STORAGE_DIR/models
+      # (EmbeddingEngines/native/index.js, v1.19.0). Nothing is sent to the
+      # language-model API, which may not offer embeddings at all.
+      embeddingEngine:
+        schema:
+          type: string
+        default: native
+        target:
+          envVar: EMBEDDING_ENGINE
+        description: Embedding engine AnythingLLM indexes documents with.
+      embeddingModel:
+        schema:
+          type: string
+        default: Xenova/all-MiniLM-L6-v2
+        target:
+          envVar: EMBEDDING_MODEL_PREF
+        description: Model the native embedder runs.
+      # LanceDB, embedded in the server process and stored under
+      # STORAGE_DIR/lancedb; upstream's default (utils/helpers/index.js).
+      vectorDB:
+        schema:
+          type: string
+        default: lancedb
+        target:
+          envVar: VECTOR_DB
+        description: Vector database AnythingLLM stores document embeddings in.
+      # PostHog product analytics, on unless this is exactly "true"
+      # (models/telemetry.js, v1.19.0).
+      disableTelemetry:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: DISABLE_TELEMETRY
+        description: >-
+          Whether anonymous usage telemetry is off, as the literal string the
+          image parses.
+      # The collector's Chromium scrapes web pages for the website connector
+      # and agent web browsing. Upstream's Docker guide grants SYS_ADMIN for
+      # Chromium's namespace sandbox; these flags are its documented
+      # alternative (docker/.env.example, v1.19.0), plus
+      # --disable-dev-shm-usage for a small /dev/shm. The collector splits
+      # the value on commas (collector/utils/runtimeSettings).
+      chromiumArgs:
+        schema:
+          type: string
+        default: --no-sandbox,--disable-setuid-sandbox,--disable-dev-shm-usage
+        target:
+          envVar: ANYTHINGLLM_CHROMIUM_ARGS
+        description: Comma-separated extra flags the collector launches Chromium with.
+      # Presence-checked: any value turns it on (utils/middleware/
+      # embedMiddleware.js). Defence in depth: should a blueprint ever expose the
+      # embed routes, an embed with no allowed domains answers no one.
+      embedRequireAllowlist:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: EMBED_REQUIRE_ALLOWLIST
+        description: >-
+          Whether a chat-embed widget with no allowed domains refuses every
+          request; any value turns this on.
+      # The key and salt AnythingLLM encrypts stored secrets and session-token
+      # payloads with. Unset, it generates a pair and saves it only to
+      # /app/server/.env (utils/EncryptionManager/index.js, v1.19.0), so every
+      # restart would make what it encrypted unreadable.
+      sigKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SIG_KEY
+        description: Passphrase AnythingLLM derives its data-encryption key from.
+      sigSalt:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SIG_SALT
+        description: Salt AnythingLLM derives its data-encryption key with.
+      # Signs session tokens. Multi-user mode cannot sign anyone in without it
+      # (makeJWT, utils/http/index.js). It does not turn on single-user
+      # password mode by itself: that needs AUTH_TOKEN as well, which this
+      # component never sets (utils/middleware/validatedRequest.js).
+      jwtSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: JWT_SECRET
+        description: Secret AnythingLLM signs its session tokens with.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public URL of the AnythingLLM web app and developer API.
+        from:
+          endpoint: primary
+          property: publicURL
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of AnythingLLM, resolvable only by workloads
+          in the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

@@ -1,0 +1,118 @@
+# The Valkey server Activepieces runs its BullMQ job queue, locks and caches
+# on. A copy of the `valkey` item's component (items/valkey/components/
+# valkey.yaml, revision 1): a repo-local componentRef cannot leave its item
+# directory, so a blueprint that needs one carries its own. Keep the two in
+# step.
+#
+# Valkey rather than Redis: upstream documents only a Redis-compatible server
+# (AP_REDIS_* in docs/install/reference/environment-variables.mdx, 0.93.0),
+# and BullMQ needs no eviction, which is Valkey's default (`maxmemory-policy
+# noeviction`). Valkey is BSD-3-Clause, where Redis 8 is offered under
+# AGPL-3.0, RSALv2 or SSPLv1.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Valkey in-memory data store behind a password, with append-only persistence
+    on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 9.1.3 is the latest stable release (2026-10-26). The `9.2` and
+      # `9.2-alpine` tags already exist but track the 9.2.0 release
+      # candidates, so a floating minor tag would pull a pre-release.
+      image: valkey/valkey:9.1.3-alpine
+    # `command` replaces the image's CMD and keeps its ENTRYPOINT,
+    # `tini -- docker-entrypoint.sh`, which is what Docker and Compose mean by
+    # the same word.
+    #
+    # The password reaches the workload the only way an input can, as an
+    # environment variable, and Valkey reads none. So a shell writes
+    # VALKEY_PASSWORD into the server's configuration, on stdin rather than in
+    # argv: argv is readable by anyone on the host through /proc, and would show
+    # the password in `ps`. The image's own VALKEY_EXTRA_FLAGS hook is argv
+    # too, so it is not used for the password.
+    #
+    # The shell then execs docker-entrypoint.sh again, now with `valkey-server`
+    # first. That is the branch which chowns the working directory /data and
+    # drops root to the `valkey` user (uid 999) through setpriv
+    # (9.1/alpine/docker-entrypoint.sh in valkey-io/valkey-container). Started
+    # as a bare `sh -c`, the entrypoint sees `sh` first and skips both.
+    #
+    # valkey-server reads its configuration from stdin when `-` is its first or
+    # last argument (src/server.c, 9.1.3), and the entrypoint appends
+    # VALKEY_EXTRA_FLAGS after the last one, so `-` comes first. An empty
+    # VALKEY_PASSWORD leaves `requirepass` with no value, which Valkey refuses
+    # at startup: the server never runs open.
+    #
+    # The image compiles protected-mode off (9.1/alpine/Dockerfile in
+    # valkey-io/valkey-container), so the password is the only check a client
+    # meets.
+    command:
+      - sh
+      - -c
+      - |
+        exec docker-entrypoint.sh valkey-server - --appendonly yes <<EOF
+        requirepass $VALKEY_PASSWORD
+        EOF
+    endpoints:
+      primary:
+        targetPort: 6379
+        protocol: TCP
+    # The image's WORKDIR, and Valkey's `dir` defaults to the working
+    # directory, so the RDB file and the `appendonlydir/` AOF directory land
+    # on this volume.
+    volumes:
+      data:
+        minSizeGiB: 5
+        mountPath: /data
+  contract:
+    inputs:
+      # Valkey splits a configuration line on whitespace and treats a quote as
+      # the start of a quoted word, so the alphabet is the one HEX, BASE64 and
+      # BASE64URL share, which needs neither.
+      valkeyPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: VALKEY_PASSWORD
+        description: >-
+          Password a client must present (AUTH) before Valkey serves it; copy it
+          from the deployment's Installation tab. At least 16 letters, digits or
+          `._~+/=-`, with no spaces or quotes.
+    # The same outputs, with the same names, as the `redis` item's component,
+    # so a blueprint can move a consumer from one to the other by changing the
+    # node's componentRef and its password binding.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the cache endpoint, resolvable only by
+          workloads in the same deployment. Wire it into a consuming
+          component's input to point that workload at this cache.
+        from:
+          endpoint: primary
+          property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the cache endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the cache endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

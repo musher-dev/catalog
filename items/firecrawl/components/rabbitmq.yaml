@@ -1,0 +1,90 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    RabbitMQ message broker with one password-protected user, carrying
+    Firecrawl's prefetch queue and the channels scrape results are returned on.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 4.4.0 is the latest stable release (2026-10-19). Upstream's
+      # compose still floats `rabbitmq:3-management` (docker-compose.yaml,
+      # firecrawl eaa56e8), a series out of community support. Firecrawl
+      # declares only exclusive classic queues and quorum queues
+      # (apps/api/src/services/worker/nuq.ts, services/extract-queue.ts), both
+      # supported in 4.x, and 4.4.0's breaking changes touch only AMQP 1.0
+      # header parsing, OAuth discovery and a management API route (release
+      # notes). Alpine and no management plugin: nothing here uses the UI.
+      image: rabbitmq:4.4.0-alpine
+    # No command. The CMD is `rabbitmq-server`; the entrypoint chowns
+    # /var/lib/rabbitmq and drops root to the `rabbitmq` user through su-exec
+    # (4.4/alpine/docker-entrypoint.sh in docker-library/rabbitmq).
+    #
+    # No volume, as in upstream's compose. The broker holds only in-flight
+    # hand-offs: the queue of record is the NuQ table in PostgreSQL, and
+    # Firecrawl declares its queues again on every connection. A restart
+    # drops only what is in flight; a job whose worker stalls is put back in
+    # the queue after a minute by the pg_cron lock reaper
+    # (nuq_queue_scrape_lock_reaper, apps/nuq-postgres/nuq.sql).
+    endpoints:
+      primary:
+        targetPort: 5672
+        protocol: TCP
+      # The image enables rabbitmq_prometheus by default, which serves
+      # /metrics on 15692 with no credentials (4.4/alpine/Dockerfile,
+      # docker-library/rabbitmq issue #419). It is the broker's only HTTP
+      # listener, so it is what the readiness probe reads. Private, like the
+      # broker.
+      metrics:
+        targetPort: 15692
+        protocol: HTTP
+    health:
+      # The plugin starts with the broker, after the AMQP listener, so a 200
+      # here means clients can connect.
+      readiness:
+        http:
+          endpoint: metrics
+          path: /metrics
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # The built-in `guest` user may connect only from localhost, so another
+      # node needs a user of its own. rabbitmq-server itself reads these two
+      # on first boot (rabbit_env.erl in rabbitmq/rabbitmq-server); the image
+      # does not list them among the variables it refuses as deprecated.
+      defaultUser:
+        schema:
+          type: string
+        default: firecrawl
+        target:
+          envVar: RABBITMQ_DEFAULT_USER
+        description: User the broker creates on first boot, with full rights on the default vhost.
+      # URL-unreserved characters only: Firecrawl takes the password inside an
+      # amqp:// URL with no percent-encoding (components/firecrawl.yaml).
+      defaultPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: RABBITMQ_DEFAULT_PASS
+        description: >-
+          Password of that user; copy it from the deployment's Installation
+          tab. At least 16 letters, digits or `._~-`.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the broker's AMQP listener, resolvable
+          only by workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateAddress

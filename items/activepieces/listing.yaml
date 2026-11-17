@@ -1,0 +1,112 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: activepieces
+spec:
+  itemType: BLUEPRINT
+  displayName: Activepieces
+  summary: >-
+    MIT-licensed, Zapier-style automation builder with hundreds of pieces, AI
+    agents and an MCP server, with a separate flow worker, PostgreSQL and
+    Valkey.
+  overview: |
+    ## What it is
+    Activepieces is an open-source automation builder. You chain triggers and
+    actions from its library of pieces (integrations for SaaS apps,
+    databases, AI providers and HTTP) on a visual canvas, drop into
+    TypeScript code steps where you need to, and publish the result as a
+    flow that runs on a schedule, on a webhook or on an app event. Its MCP
+    server lets AI agents call the same pieces as tools.
+
+    This item runs the MIT-licensed community edition.
+
+    ## When to use
+    - You want Zapier-style automations on infrastructure you control, with
+      connections and run data kept in your own database.
+    - You want AI agents to use your SaaS integrations as MCP tools.
+    - You want a permissively licensed workflow engine you can build a
+      product around.
+
+    ## Defaults
+    Four nodes, the shape of upstream's own Docker Compose setup:
+
+    - **app** runs `ghcr.io/activepieces/activepieces:0.93.0` as the API and
+      web UI on port 8080 (1 vCPU, 2 GiB), behind the platform's HTTPS edge
+      and sign-in.
+    - **worker** runs the same image as a flow worker (1 vCPU, 2 GiB): two
+      jobs at once, with a 5 GiB volume at `/usr/src/app/cache` for
+      installed pieces and compiled code steps. It reaches the app over the
+      private network and has no public endpoint.
+    - **db** is PostgreSQL 17 with pgvector (`pgvector/pgvector:0.8.7-pg17`,
+      1 vCPU, 1 GiB, 10 GiB volume), private.
+    - **queue** is Valkey 9 (`valkey/valkey:9.1.3-alpine`, 1 vCPU, 1 GiB,
+      5 GiB volume) behind a password, private. It holds the job queue.
+
+    Activepieces' first account owns the instance. The app creates it on its
+    first start for the person who installed the deployment, with their
+    verified email and the generated **Owner password**. Later users join by
+    invitation from Activepieces' settings, and must also be allowed into the
+    deployment on Musher.
+
+    Webhook URLs, OAuth redirect URLs and MCP URLs are built from this
+    deployment's own public https address. Files that steps produce are stored
+    in PostgreSQL. Flows, including code steps, run without a sandbox inside
+    the worker container, which is upstream's default. Product analytics are
+    off.
+
+    ## Access and security
+    The builder, its API and the hosted form and chat pages are behind the
+    platform's sign-in, and then Activepieces' own account sign-in.
+    These routes skip the platform's sign-in because the services that call
+    them never hold a viewer session:
+
+    - `/api/v1/webhooks` (webhook triggers)
+    - `/api/v1/app-events` (app-level webhooks such as Slack)
+    - `/api/v1/flow-runs` (resume and approval callbacks of paused runs)
+    - `/mcp` and the OAuth routes MCP clients register and get tokens from
+      (`/authorize`, `/token`, `/register`, `/revoke`, `/userinfo` and the
+      `/.well-known` discovery documents)
+
+    Each checks its own credential or needs an unguessable ID.
+
+    The **Encryption key** encrypts every saved connection. Keep a copy with
+    any database backup, because connections can't be read without it.
+
+    ## Limitations
+    - Hosted forms and chat pages are part of the web UI, so people outside
+      the deployment can't fill them in.
+    - Single sign-on, custom branding, audit logs and the other enterprise
+      features need an Activepieces licence and aren't included.
+    - Pieces install from the npm registry the first time a flow uses them,
+      so the worker needs outbound internet access.
+    - When an account is created, Activepieces tries to add its email
+      address to Activepieces' own mailing list. The newsletter box isn't
+      checked, but upstream sends the address anyway, and this item can't
+      turn that off.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher.
+    2. Sign in to Activepieces with your verified email and the **Owner
+       password** from the deployment's Installation tab.
+    3. Create a flow, pick a trigger such as **Webhook** or **Schedule**, add
+       steps, and publish it. Webhook URLs already use the deployment's own
+       address.
+    4. To use pieces from an AI agent, open the MCP settings in Activepieces
+       and copy the server URL into your MCP client. The client signs in
+       through the browser the first time.
+
+    Changing the Owner password parameter later doesn't change the account.
+    Change the password inside Activepieces.
+  category: AUTOMATION
+  lifecycleStage: BETA
+  tags:
+    - automation
+    - workflow
+    - integration
+    - no-code
+    - mcp
+    - ai-agents
+  homepageURL: https://www.activepieces.com
+  sourceRepositoryURL: https://github.com/activepieces/activepieces
+  supportURL: https://www.activepieces.com/docs
+  license: MIT AND LicenseRef-Activepieces-Enterprise
+  icon: media/icon.png

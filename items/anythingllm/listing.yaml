@@ -1,0 +1,112 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: anythingllm
+spec:
+  itemType: BLUEPRINT
+  displayName: AnythingLLM
+  summary: >-
+    Private workspace for chatting with your documents and running AI agents,
+    with built-in local embeddings and vector store, on your organization's
+    language model
+  overview: |
+    ## What it is
+    AnythingLLM is an all-in-one AI workspace from Mintplex Labs. You upload
+    documents or point it at websites, sort them into workspaces, and chat
+    with them: answers come with citations to the passages they drew on.
+    Workspaces can also run agents that browse the web, summarize documents
+    and call MCP tools. A developer API, an OpenAI-compatible chat endpoint
+    and an embeddable website chat widget come built in (see Limitations
+    for the widget).
+
+    Documents never leave the deployment to be indexed. AnythingLLM embeds
+    them with its built-in `all-MiniLM-L6-v2` model and stores the vectors in
+    an embedded LanceDB, so there is no separate vector database to run.
+
+    ## When to use
+    - You want a team to ask questions of a shared set of documents (PDFs,
+      Word files, web pages, transcripts) without sending them to a hosted
+      RAG service.
+    - You want document chat and simple agents on a model that has no
+      embeddings API, such as Claude.
+    - You want a chat backend for your own app, through AnythingLLM's
+      developer API, with the documents managed in a UI.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model name travel
+    together as a single connection. Anything speaking the OpenAI
+    chat-completions protocol with streaming and tool calls will do. Agents
+    use the model's native tool calling.
+
+    The **model context window** (128,000 tokens by default) is how much
+    AnythingLLM fits into one request, split between your question and the
+    document passages it found, chat history, and the system prompt. Lower it
+    for a model with a smaller window.
+
+    ## Defaults
+    A single container of `mintplexlabs/anythingllm:1.19.0`, with the web app
+    and API on port 3001 behind the platform's HTTPS edge and the platform's
+    sign-in, on 2 vCPU and 4 GiB. AnythingLLM itself runs in single-user mode
+    with no password of its own: everyone the platform lets in shares one
+    admin workspace.
+
+    A 10 GiB persistent volume at `/app/server/storage` holds the SQLite
+    database, parsed documents, LanceDB vectors, the embedding model (fetched
+    on the first upload) and uploaded files. An encryption key and salt and a
+    session-signing secret are generated at deployment. Telemetry is off.
+    Chromium for web scraping runs without its own sandbox, so the container
+    needs no extra privileges.
+
+    The developer API under `/api/v1` stays reachable without signing in to
+    the platform. AnythingLLM checks an API key you create in its settings on
+    every call.
+
+    ## Access and security
+    To give each person their own account and role, turn on multi-user mode
+    under **Settings → Security**. AnythingLLM then signs people in with its
+    own usernames and passwords, still behind the platform's sign-in. That
+    setting is kept in AnythingLLM's database. Don't set a single-user
+    password in AnythingLLM instead: it isn't kept across restarts (see
+    below).
+
+    ## Limitations
+    AnythingLLM saves the choices made under **Settings → AI Providers**
+    (language model, embedder, vector database) and a single-user password
+    to a file in the container rather than on the volume. After a restart,
+    the deployment's own values apply again: your organization's model
+    connection, the built-in embedder and LanceDB. Workspaces, documents,
+    chats, users and API keys are on the volume and are kept. A different
+    model per workspace, chosen in that workspace's settings, is kept too.
+
+    The chat-embed widget doesn't work on public websites. Its routes sit
+    behind the platform's sign-in, because they share a path with
+    AnythingLLM's embed-management routes, which need no credential in
+    single-user mode. Use the developer API to put chat on your own site.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. AnythingLLM may open
+       a short welcome wizard. Your language model is already selected, so
+       keep it and choose **Just me** with no password: the platform's
+       sign-in already protects the workspace.
+    2. Create a workspace, upload a few documents or paste a web address,
+       and move them into the workspace to embed them. The first upload also
+       downloads the embedding model, so it takes a little longer.
+    3. Ask a question in the workspace chat. Answers cite the passages they
+       used. Type `@agent` to have an agent browse or summarize instead.
+
+    For API access, create a key under **Settings → Tools → Developer API**
+    and call `/api/v1` with it as a bearer token.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - rag
+    - chat
+    - documents
+    - agents
+  homepageURL: https://anythingllm.com
+  sourceRepositoryURL: https://github.com/Mintplex-Labs/anything-llm
+  supportURL: https://docs.anythingllm.com
+  license: MIT
+  icon: media/icon.png

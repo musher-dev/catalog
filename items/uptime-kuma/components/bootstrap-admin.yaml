@@ -1,0 +1,162 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    One-shot job that creates Uptime Kuma's admin account over the private
+    network and, by default, turns Uptime Kuma's own login off so the
+    platform's sign-in is the only one.
+spec:
+  # WHY A JOB. A fresh Uptime Kuma has no account. Its dashboard opens on a
+  # "create your admin account" form, and the first visitor to submit it owns
+  # the instance. The form is a Socket.IO `setup` event that checks no
+  # credential and is refused once any user exists (server/server.js, 2.5.11).
+  # Uptime Kuma 2.x has no environment variable for the first account:
+  # UK_INITIAL_ADMIN_USERNAME and _PASSWORD arrive in 3.0.0
+  # (Environment-Variables wiki page).
+  #
+  # Behind the platform's sign-in only members of the organization can reach
+  # that form, so it is not open to the internet. This job still fills it in
+  # for the deployer, over the private network, so the dashboard opens ready to
+  # use, with the password on the Installation tab.
+  #
+  # It then turns on Uptime Kuma's "Trust Proxy", since every request comes
+  # through the platform's edge (Reverse-Proxy wiki page), and, unless
+  # disableAuth is 'false', its "Disable Auth" setting. With Disable Auth on,
+  # every browser is logged in as the admin automatically (`autoLogin`,
+  # server/server.js), which upstream offers for exactly this case: a
+  # front-end that authenticates users itself. The account and its password
+  # stay, so login can be switched back on under Settings > Security.
+  #
+  # A JOB without a schedule runs once per rollout: at deployment, on every
+  # update and on every redeploy (COMP-JOB-001). Every run after the first finds
+  # an account (`needSetup` is false) and exits without changing anything, so
+  # settings changed in Uptime Kuma are never overwritten and a rotated
+  # password parameter does not reach the existing account. A failed run is
+  # not retried until the next rollout; the setup form is then the fallback,
+  # behind the platform's sign-in.
+  type: JOB
+  workload:
+    source:
+      # PINNED. The same image the `web` node runs, so the node is already
+      # pulled and socket.io-client 4.8 (a runtime dependency in package.json,
+      # 2.5.11) is in /app/node_modules. The image's WORKDIR is /app, where
+      # `node -e` resolves require() from.
+      image: louislam/uptime-kuma:2.5.11
+    # Exec form, after the image's `dumb-init --` ENTRYPOINT. The script:
+    # 1. polls /api/entry-page on the private address until the main server
+    #    answers (the setup-database page answers it with type
+    #    "setup-database"; the web node's dbType input skips that page);
+    # 2. connects over Socket.IO with no Origin header, which the WebSocket
+    #    check allows (server/uptime-kuma-server.js);
+    # 3. asks `needSetup`, and exits 0 if an account already exists;
+    # 4. emits `setup`, `login`, then `getSettings` and `setSettings` with the
+    #    whole settings object changed in two keys. setSettings saves every key
+    #    it is given and re-applies the timezone, Chromium path and NSCD from
+    #    it, so a partial object would reset those (server/server.js,
+    #    server/settings.js). On a fresh install the unset Chromium path still
+    #    reads as changed (undefined against null), and Uptime Kuma logs
+    #    "Resetting Chrome", which does nothing yet. Turning Disable Auth on
+    #    asks for the current password, which is the one just set.
+    # Any refusal or timeout exits 1, which the platform records for the
+    # deployment. The password reaches the process through the environment,
+    # never argv.
+    command:
+      - node
+      - -e
+      - |-
+        const { io } = require("socket.io-client");
+        const base = "http://" + process.env.KUMA_ADDRESS;
+        const user = process.env.ADMIN_USERNAME;
+        const pass = process.env.ADMIN_PASSWORD;
+        const deadline = Date.now() + Number(process.env.READY_TIMEOUT_SECONDS) * 1000;
+        const say = (m) => console.log("bootstrap-admin: " + m);
+        const fail = (m) => { console.error("bootstrap-admin: " + m); process.exit(1); };
+        const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
+        (async () => {
+          for (;;) {
+            try {
+              const r = await fetch(base + "/api/entry-page", { signal: AbortSignal.timeout(5000) });
+              if (r.ok && (await r.json()).type !== "setup-database") break;
+            } catch (e) {}
+            if (Date.now() > deadline) {
+              fail(base + "/api/entry-page did not answer within " + process.env.READY_TIMEOUT_SECONDS + "s");
+            }
+            await sleep(3000);
+          }
+          const socket = io(base, { reconnection: false, timeout: 20000 });
+          await new Promise((ok, ko) => { socket.once("connect", ok); socket.once("connect_error", ko); });
+          const call = (ev, ...args) => new Promise((ok, ko) => {
+            const t = setTimeout(() => ko(new Error(ev + " got no answer in 30s")), 30000);
+            socket.emit(ev, ...args, (res) => { clearTimeout(t); ok(res); });
+          });
+          const must = async (ev, ...args) => {
+            const res = await call(ev, ...args);
+            if (!res || !res.ok) fail(ev + " refused: " + (res && res.msg));
+            return res;
+          };
+          if (!(await call("needSetup"))) {
+            say("Uptime Kuma already has an account; nothing to do");
+            process.exit(0);
+          }
+          await must("setup", user, pass);
+          say("created admin account " + user);
+          await must("login", { username: user, password: pass, token: "" });
+          const settings = (await must("getSettings")).data;
+          settings.trustProxy = true;
+          if (process.env.DISABLE_AUTH === "true") settings.disableAuth = true;
+          await must("setSettings", settings, pass);
+          say("trustProxy on, disableAuth " + (settings.disableAuth === true ? "on" : "off"));
+          socket.close();
+          process.exit(0);
+        })().catch((e) => fail(e && e.message ? e.message : String(e)));
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input. The blueprint binds the address and the password; the
+      # constants carry defaults.
+      kumaAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: KUMA_ADDRESS
+        description: Private host:port of Uptime Kuma, from the web node's `address` output.
+      adminUsername:
+        schema:
+          type: string
+        default: admin
+        target:
+          envVar: ADMIN_USERNAME
+        description: Username of the admin account the job creates.
+      # Uptime Kuma refuses a password check-password-strength rates "Too
+      # weak" (server/server.js, 2.5.11). A generated BASE64URL password is
+      # far above that.
+      adminPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: ADMIN_PASSWORD
+        description: Password the admin account is created with.
+      disableAuth:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: DISABLE_AUTH
+        description: >-
+          Whether to turn Uptime Kuma's own login off after creating the admin,
+          leaving the platform's sign-in as the only one, as the literal string
+          the job parses ('true' or 'false').
+      # A first deployment pulls a large image and creates the database
+      # before anything listens.
+      readyTimeoutSeconds:
+        schema:
+          type: integer
+        default: 900
+        target:
+          envVar: READY_TIMEOUT_SECONDS
+        description: How long the job waits for Uptime Kuma to answer before it fails.
+    outputs: {}

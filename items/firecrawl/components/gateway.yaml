@@ -1,0 +1,126 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Caddy reverse proxy that admits only requests carrying the deployment's
+    API key as a bearer token, in front of a private API that checks none.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2.11.9 is the latest stable Caddy release (2026-11-05).
+      image: caddy:2.11.9-alpine
+    # Why this node exists: a self-hosted Firecrawl checks no API key. Its
+    # key check lives in Firecrawl's cloud database, and with
+    # USE_DB_AUTHENTICATION=false every request is served, keyed or not
+    # (apps/api/src/controllers/auth.ts, firecrawl eaa56e8; SELF_HOST.md:
+    # "The default API is unauthenticated"). The platform's own sign-in does
+    # not fit an API either: its BEARER exemption lets any bearer token
+    # through unchecked and leaves the check to the app (blueprint v2
+    # BP-ACCESS-010). So Caddy compares the token itself.
+    #
+    # The image has no ENTRYPOINT, so `command` is the whole argv. A shell
+    # writes the Caddyfile, since a component cannot ship a file. The
+    # heredoc is quoted, so the shell expands nothing and the key never
+    # reaches argv or the file: Caddy replaces {$FIRECRAWL_API_KEY} and
+    # {$FIRECRAWL_UPSTREAM} from the environment when it parses the file,
+    # before tokenising it (caddyserver.com/docs/caddyfile/concepts,
+    # "Environment variables").
+    #
+    # - The header matcher compares the whole Authorization value, so only
+    #   `Bearer <key>` exactly passes, which is what every Firecrawl SDK,
+    #   the CLI and the MCP server send.
+    # - CORS preflights carry no Authorization header, so OPTIONS goes
+    #   through for Firecrawl's own cors() handler to answer; it runs no
+    #   handler beyond that.
+    # - Everything else gets a 401 in Firecrawl's own error shape.
+    # - `admin off` leaves no admin API listening; `auto_https off` because
+    #   the platform's edge terminates TLS. Caddy writes no access log
+    #   unless told to, so keys are never logged.
+    command:
+      - sh
+      - -c
+      - |
+        cat > /tmp/Caddyfile <<'EOF'
+        {
+          admin off
+          auto_https off
+          persist_config off
+        }
+
+        :8080 {
+          @preflight method OPTIONS
+          handle @preflight {
+            reverse_proxy {$FIRECRAWL_UPSTREAM}
+          }
+
+          @key header Authorization "Bearer {$FIRECRAWL_API_KEY}"
+          handle @key {
+            reverse_proxy {$FIRECRAWL_UPSTREAM}
+          }
+
+          handle {
+            header Content-Type application/json
+            header WWW-Authenticate Bearer
+            respond `{"success":false,"error":"Unauthorized: missing or invalid API key"}` 401
+          }
+        }
+        EOF
+        exec caddy run --config /tmp/Caddyfile --adapter caddyfile
+    endpoints:
+      primary:
+        targetPort: 8080
+        protocol: HTTP
+    health:
+      # Sent with the key, so the probe passes the gate and reaches
+      # Firecrawl's /health/readiness through the proxy: a 200 proves Caddy,
+      # the key check and the upstream together. Until Firecrawl answers,
+      # Caddy returns 502 and this node stays unready.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health/readiness
+          auth:
+            bearer:
+              token:
+                input: apiKey
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # The alphabet HEX, BASE64 and BASE64URL share. None of it is Caddyfile
+      # syntax, so no quote, brace, space or backtick can end the quoted token
+      # the key is substituted into.
+      apiKey:
+        schema:
+          type: string
+          minLength: 32
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: FIRECRAWL_API_KEY
+        description: >-
+          API key every client must send as `Authorization: Bearer <key>`; copy
+          it from the deployment's Installation tab.
+      upstream:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: FIRECRAWL_UPSTREAM
+        description: Mesh-internal `host:port` of the Firecrawl API the gateway forwards to.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https URL of the Firecrawl API, the value to give an SDK, the
+          CLI or the MCP server as its API URL.
+        from:
+          endpoint: primary
+          property: publicURL

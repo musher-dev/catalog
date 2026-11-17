@@ -1,0 +1,118 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: temporal
+  revision: 1
+  description: >-
+    Temporal server on its own PostgreSQL, with a one-shot job that sets up the
+    schema and the default namespace, and the Temporal Web UI behind the
+    platform's sign-in.
+# Upstream's PostgreSQL compose, node for node: postgresql, an admin-tools
+# schema container, temporal, an admin-tools namespace container and
+# temporal-ui (compose/docker-compose-postgres.yml, temporalio/samples-server).
+# The two admin-tools containers are one job here (components/schema-setup.yaml),
+# and upstream's dynamic config file is not mounted
+# (components/temporal-server.yaml).
+#
+# The gRPC frontend that SDK workers and clients connect to stays PRIVATE, as
+# does its HTTP API: Temporal has no authorizer configured, and a public
+# endpoint here could only carry HTTP. Only workloads inside this deployment
+# reach them. The UI is the one public endpoint.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, and the server opens at most 60 connections
+      # (components/temporal-server.yaml), so one trial deployment fits in
+      # 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only by `server`
+      # and `schema-setup` through the hostname and port it publishes.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        # A superuser, as in upstream's compose, so the setup job can create
+        # the second database. `temporal` itself is created here.
+        postgresUser:
+          value: temporal
+        postgresDb:
+          value: temporal
+    schema-setup:
+      componentRef: ./components/schema-setup.yaml
+      # temporal-sql-tool and the temporal CLI, mostly waiting.
+      compute:
+        profile: general.economy.nano
+      bindings:
+        sqlHost:
+          node: db
+          output: hostname
+        sqlPort:
+          node: db
+          output: port
+        sqlUser:
+          value: temporal
+        sqlPassword:
+          parameter: dbPassword
+        temporalAddress:
+          node: server
+          output: grpcAddress
+    server:
+      componentRef: ./components/temporal-server.yaml
+      # Frontend, history, matching and the internal worker in one process.
+      # Upstream's compose and Helm chart set no memory request or limit. A
+      # single-binary server with four history shards idles in a few hundred
+      # MiB, and history caches grow with the number of running workflows, so
+      # 2 GiB gives a trial deployment room.
+      compute:
+        profile: general.standard.nano
+      # No exposure: gRPC 7233 and HTTP 7243 stay PRIVATE.
+      bindings:
+        postgresHost:
+          node: db
+          output: hostname
+        postgresPort:
+          node: db
+          output: port
+        postgresUser:
+          value: temporal
+        postgresPassword:
+          parameter: dbPassword
+    ui:
+      componentRef: ./components/temporal-ui.yaml
+      # A small Go server proxying the browser's API calls to gRPC.
+      compute:
+        profile: general.economy.nano
+      # The platform signs the viewer in before forwarding. The UI has no
+      # accounts of its own, and the server no authorizer, so no identity is
+      # passed on: every member who can open the deployment can see and act
+      # on every workflow.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+      bindings:
+        temporalAddress:
+          node: server
+          output: grpcAddress
+        # The node's own public URL, as the one allowed origin. A node reading
+        # its own endpoint output is a discovery dependency and not a value
+        # cycle (BP-BIND-002).
+        corsOrigins:
+          node: ui
+          output: publicURL
+  parameters:
+    # HEX keeps the password free of characters a connection string would
+    # treat specially. Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 1

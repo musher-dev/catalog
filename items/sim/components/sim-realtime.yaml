@@ -1,0 +1,256 @@
+# Sim's realtime server: the Socket.IO endpoint the workflow editor holds open
+# for live collaborative editing, presence and execution events. It is
+# upstream's `realtime` service, and here it also applies the database
+# migrations upstream runs from its one-shot `migrations` service
+# (docker-compose.prod.yml, v0.9.56), before it starts serving.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Sim's Socket.IO realtime server for live workflow editing, which applies
+    Sim's database migrations before it starts.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.9.56, the same release as components/sim-app.yaml: app,
+      # realtime and the schema move together (docker-compose.prod.yml,
+      # v0.9.56). Alpine with Bun and busybox sh, USER nextjs (uid 1001),
+      # ENTRYPOINT /usr/local/bin/docker-entrypoint.sh (Bun's, which execs its
+      # arguments), CMD `bun apps/realtime/src/bootstrap.ts`, WORKDIR /app
+      # (docker/realtime.Dockerfile, v0.9.56; crane config).
+      image: ghcr.io/simstudioai/realtime:v0.9.56
+    # WHY THE MIGRATIONS RUN HERE. Upstream applies the schema with a
+    # one-shot container on ghcr.io/simstudioai/migrations, `bun run
+    # db:migrate` in /app/packages/db, which the app waits on with
+    # `service_completed_successfully` (docker-compose.prod.yml, v0.9.56).
+    # This platform has no such ordering, and in catalog run ihc050a6e it
+    # never ran a blueprint's unscheduled JOB node at all. This image carries
+    # the same @sim/db package, its migrations folder, scripts/migrate.ts and
+    # the script migrations, built from the same release (listed from the
+    # image's layers), and its server refuses to start against an
+    # unmigrated database: it runs one query against `workflow` first and
+    # exits on an undefined table or column (assertSchemaCompatibility,
+    # apps/realtime/src/database/preflight.ts, v0.9.56). So migrating here,
+    # before the server starts, gives the order upstream's compose has.
+    #
+    # The shell:
+    # 1. builds DATABASE_URL and REDIS_URL, which the server reads only as
+    #    URLs (apps/realtime/src/env.ts, v0.9.56). The passwords are HEX, so
+    #    they need no percent-encoding. It also drops a trailing slash from
+    #    ALLOWED_ORIGINS: Socket.IO compares a browser's Origin, which has
+    #    none, to each entry exactly;
+    # 2. runs scripts/migrate.ts from /app/packages/db, as `db:migrate` does
+    #    (packages/db/package.json, v0.9.56; its --env-file=.env names a
+    #    file no image has). It takes a PostgreSQL advisory lock, applies the
+    #    pending drizzle migrations, then the script migrations, and is safe
+    #    to repeat: a database at the current schema is left as it is. On a
+    #    connection error it retries itself for about a minute, and the loop
+    #    retries it until MIGRATE_TIMEOUT_SECONDS, which covers PostgreSQL's
+    #    own first boot. ENCRYPTION_KEY is the app's: with 64 hex characters,
+    #    the migration seals OAuth tokens stored before sealing existed, as
+    #    upstream's migrations service does;
+    # 3. execs the server without ENCRYPTION_KEY or the raw passwords, which
+    #    upstream's realtime service is not given.
+    #
+    # A failed migration leaves the server unstarted and the container
+    # exits, so the platform restarts it and the next start migrates again.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        export DATABASE_URL="postgresql://${SIM_PG_USER}:${SIM_PG_PASSWORD}@${SIM_PG_ADDRESS}/${SIM_PG_DATABASE}"
+        export REDIS_URL="redis://:${SIM_REDIS_PASSWORD}@${SIM_REDIS_ADDRESS}"
+        export ALLOWED_ORIGINS="${ALLOWED_ORIGINS%/}"
+        deadline=$(( $(date +%s) + MIGRATE_TIMEOUT_SECONDS ))
+        cd /app/packages/db
+        until bun ./scripts/migrate.ts; do
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "migrate: the schema could not be applied within ${MIGRATE_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          fi
+          echo "migrate: retrying in 10s" >&2
+          sleep 10
+        done
+        cd /app
+        exec env -u ENCRYPTION_KEY -u SIM_PG_PASSWORD -u SIM_REDIS_PASSWORD \
+          bun apps/realtime/src/bootstrap.ts
+    endpoints:
+      # PORT=3002 and HOSTNAME=0.0.0.0 are the image's own
+      # (docker/realtime.Dockerfile, v0.9.56). One port serves Socket.IO
+      # under /socket.io (polling and WebSocket upgrade), GET /health, and
+      # the POST /api/* notifications the app sends, which demand
+      # INTERNAL_API_SECRET (apps/realtime/src/routes/http.ts, v0.9.56).
+      primary:
+        targetPort: 3002
+        protocol: HTTP
+    health:
+      # Readiness is suspended until this passes. The first start applies
+      # every migration to an empty database after PostgreSQL's own first
+      # boot: 30 + 60 x 10 = 630 s, under MIGRATE_TIMEOUT_SECONDS. Upstream
+      # gives the server alone 30 x 5 s (helm/sim/values.yaml, v0.9.56).
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # Upstream's probe path (docker-compose.prod.yml, helm/sim/values.yaml,
+      # v0.9.56). It answers 200 with the active connection count, and 503
+      # if the room manager cannot count them.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # The realtime server reaches the app on this URL for file-document
+      # access checks and edits (apps/realtime/src/handlers/
+      # file-doc-app.ts, v0.9.56), so it is the app's private URL: the public
+      # one would meet the platform's sign-in. It is also the first allowed
+      # Socket.IO origin, which is why the public origin is added below.
+      appURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: NEXT_PUBLIC_APP_URL
+        description: Private URL of the Sim app, which the realtime server calls back.
+      betterAuthURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: BETTER_AUTH_URL
+        description: Public https URL of the Sim app, the address its Better Auth sessions are issued for.
+      # Socket.IO's CORS allowlist is NEXT_PUBLIC_APP_URL, two localhost
+      # origins and these (getAllowedOrigins, apps/realtime/src/config/
+      # socket.ts, v0.9.56). The editor's page is served from the app's
+      # public origin, so that origin goes here, as upstream's two-hostname
+      # layout does (apps/docs/content/docs/platform/self-hosting/
+      # networking.mdx, v0.9.56).
+      allowedOrigins:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: ALLOWED_ORIGINS
+        description: Comma-separated browser origins allowed to open a socket; the app's public origin.
+      # The socket handshake carries a one-time token the app issues to a
+      # signed-in user, which this server verifies with Better Auth against
+      # the shared database and this secret (apps/realtime/src/middleware/
+      # auth.ts, v0.9.56).
+      betterAuthSecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: BETTER_AUTH_SECRET
+        description: The app's Better Auth secret; the two must match.
+      internalAPISecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: INTERNAL_API_SECRET
+        description: Shared secret the app and this server authenticate each other's calls with; the two must match.
+      encryptionKey:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: ENCRYPTION_KEY
+        description: The app's encryption key, used only by the migrations, which seal stored OAuth tokens with it.
+      postgresAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_PG_ADDRESS
+        description: Mesh-internal `host:port` of the PostgreSQL server (with pgvector).
+      # A superuser, as in upstream's compose: the migrations create the
+      # extensions the schema uses.
+      postgresUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_PG_USER
+        description: Role the migrations and the server connect to PostgreSQL as.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SIM_PG_PASSWORD
+        description: Password of that role, placed unencoded in the database URL, so letters and digits only.
+      postgresDatabase:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_PG_DATABASE
+        description: Database Sim keeps its data in.
+      redisAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: SIM_REDIS_ADDRESS
+        description: Mesh-internal `host:port` of the Redis-compatible server, which carries the Socket.IO adapter.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: SIM_REDIS_PASSWORD
+        description: Password of the Redis-compatible server, placed unencoded in the Redis URL.
+      migrateTimeoutSeconds:
+        schema:
+          type: integer
+        default: 900
+        target:
+          envVar: MIGRATE_TIMEOUT_SECONDS
+        description: How long a start keeps retrying the migrations before it gives up and the container exits.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Public https URL of the realtime server, which the editor in the
+          browser connects its socket to.
+        from:
+          endpoint: primary
+          property: publicURL
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL of the realtime server inside the deployment's private
+          network, for the app's notifications; resolvable only by workloads in
+          the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

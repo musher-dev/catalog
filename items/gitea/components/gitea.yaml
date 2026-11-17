@@ -1,0 +1,408 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Gitea, a self-hosted Git forge with repositories, issues, pull requests,
+    a package registry and Actions, serving Git over HTTPS and keeping its
+    records in an external PostgreSQL.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 28.3.0 is the latest stable release (2026-11-01). Gitea moved
+      # from 1.x to calendar-style majors with 28.0.0 (2026-09-29). The
+      # registry tags carry no `v` prefix, and the `-rootless` suffix selects
+      # the rootless image. `latest-rootless` and `28-rootless` float.
+      #
+      # The rootless image is Alpine. It runs as USER 1000:1000 (`git`) under
+      # `ENTRYPOINT ["/usr/bin/dumb-init", "--",
+      # "/usr/local/bin/docker-entrypoint.sh"]` with no CMD. The entrypoint runs
+      # docker-setup.sh, then `gitea web` (Dockerfile.rootless;
+      # docker/rootless/usr/local/bin/docker-entrypoint.sh, v28.3.0).
+      # docker-setup.sh writes app.ini from a template the first time and,
+      # at every start, applies each `GITEA__<section>__<KEY>` variable to it
+      # with environment-to-ini. That is how every input below reaches Gitea.
+      # No `command`: the entrypoint already starts the web server.
+      image: docker.gitea.com/gitea:28.3.0-rootless
+    endpoints:
+      primary:
+        # HTTP_PORT's default in the rootless template
+        # (docker/rootless/etc/templates/app.ini, v28.3.0) and the image's
+        # EXPOSE. The image also exposes 2222 for its built-in SSH server. This
+        # component turns SSH off (`startSSHServer`, `disableSSH` below):
+        # the platform routes only HTTP for a browser-facing endpoint, so Git
+        # runs over HTTPS only.
+        targetPort: 3000
+        protocol: HTTP
+        # Gitea signs people in as an OpenID Connect client of the platform.
+        # Its redirect URI is `<ROOT_URL>user/oauth2/<source name>/callback`
+        # (services/auth/source/oauth2/providers.go, v28.3.0). The bootstrap
+        # job registers the source under the name `Musher`
+        # (components/bootstrap.yaml).
+        oidc:
+          redirectPaths:
+            - /user/oauth2/Musher/callback
+        # Machine traffic that never carries a platform session.
+        #
+        # `/api`: the REST API, the package registries (/api/packages) and
+        # the Actions runner protocol (/api/actions). Gitea authenticates
+        # these itself: with REQUIRE_SIGNIN_VIEW on, anonymous API reads are
+        # refused, and /api/internal answers only to Gitea's own internal
+        # token. API clients send a personal access token as `Authorization:
+        # token …` or `Bearer …`, or a username and password as Basic.
+        #
+        # `/v2`: the OCI container registry, which has to sit at the root
+        # (routers/init.go, v28.3.0). Package reads refuse an anonymous
+        # viewer while REQUIRE_SIGNIN_VIEW is on (services/context/package.go).
+        #
+        # `bearerToken`: Git's smart-HTTP routes live under
+        # `/<owner>/<repo>.git/…`, which no prefix can name. Those routes
+        # accept a personal access token as `Authorization: Bearer`
+        # (webAuth.AllowOAuth2 on addOwnerRepoGitHTTPRouters, routers/web/
+        # web.go; parseToken, services/auth/oauth2.go, v28.3.0), so a Git
+        # client that sends one passes the platform's sign-in and Gitea checks
+        # the token. On the other web routes Gitea ignores a bearer and treats
+        # the request as anonymous. With REQUIRE_SIGNIN_VIEW on, an anonymous
+        # viewer reaches only the sign-in pages and static assets.
+        exemptibleRequests:
+          paths:
+            - /api
+            - /v2
+          bearerToken: true
+    volumes:
+      # GITEA_WORK_DIR in the image: repositories (git/repositories), the
+      # `git` user's HOME (git), avatars, attachments, packages, sessions and
+      # Actions artifacts (docker/rootless/etc/templates/app.ini, v28.3.0).
+      # app.ini lives here too (the `appIni` input), so the secrets Gitea
+      # generates on first boot (INTERNAL_TOKEN, the OAuth2 provider's
+      # JWT_SECRET) survive restarts. Upstream's rootless compose mounts
+      # /etc/gitea as a second volume for the same reason. docker-setup.sh
+      # creates its directories as uid 1000 and cannot change ownership, so
+      # the volume must be writable by that uid. That relies on the platform
+      # mounting it with group or owner 1000, not on anything this document
+      # can state.
+      data:
+        mountPath: /var/lib/gitea
+        minSizeGiB: 10
+    health:
+      # /api/healthz answers 200 with `"status": "pass"` once the web server
+      # is up and the database and cache answer, and it sits outside
+      # authentication (routers/web/web.go; routers/web/healthcheck, v28.3.0;
+      # upstream's HEALTH-CHECK-ENDPOINT hint in Dockerfile.rootless). Before
+      # it listens, Gitea connects to PostgreSQL, retrying 10 times 3 s apart
+      # (DB_RETRIES, DB_RETRY_BACKOFF), then exits, and it runs its schema
+      # migrations on an empty database. A first boot may also wait for the
+      # `db` node to initialise and for a restart or two, so it gets a budget
+      # of its own: 30 + 10 x 60 = 630 s.
+      startup:
+        http:
+          endpoint: primary
+          path: /api/healthz
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      readiness:
+        http:
+          endpoint: primary
+          path: /api/healthz
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: primary
+          path: /api/healthz
+        initialDelaySeconds: 30
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # `GITEA__<SECTION>__<KEY>`: the contract allows only upper-case
+      # variable names, and Gitea lower-cases the section it decodes
+      # (decodeEnvSectionKey, modules/setting/config_env.go, v28.3.0). An
+      # empty section, `GITEA____KEY`, is app.ini's root.
+      #
+      # Read by docker-setup.sh, the `gitea` wrapper script and Gitea itself.
+      # On the volume rather than the image's /etc/gitea, which nothing
+      # persists. It is also Gitea's default custom config path
+      # (GITEA_CUSTOM/conf/app.ini), so `gitea admin …` run in the container
+      # finds it without `-c`.
+      appIni:
+        schema:
+          type: string
+        default: /var/lib/gitea/custom/conf/app.ini
+        target:
+          envVar: GITEA_APP_INI
+        description: Path of the app.ini file Gitea reads and writes, on the data volume.
+      appName:
+        schema:
+          type: string
+        default: Gitea
+        target:
+          envVar: GITEA____APP_NAME
+        description: Site title shown in the browser tab and page header.
+      # With INSTALL_LOCK set Gitea skips its web installer and runs straight
+      # from app.ini (modules/setting/security.go, v28.3.0).
+      installLock:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: GITEA__SECURITY__INSTALL_LOCK
+        description: Whether the web installer is locked, as the literal string Gitea parses.
+      # Encrypts stored secrets such as two-factor seeds and mirror
+      # credentials. With none, Gitea falls back to a fixed, publicly known
+      # default (loadSecurityFrom, modules/setting/security.go, v28.3.0).
+      # Never change it on a running deployment: what it encrypted becomes
+      # unreadable.
+      secretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: GITEA__SECURITY__SECRET_KEY
+        description: Key Gitea encrypts stored secrets with; fixed for the deployment's lifetime.
+      # Clone URLs, links in emails and the OpenID Connect redirect URI are
+      # built from it.
+      rootURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: GITEA__SERVER__ROOT_URL
+        description: Public URL Gitea is reached at, used for clone URLs, links and its OpenID Connect redirect URI.
+      httpPort:
+        schema:
+          type: string
+        default: '3000'
+        target:
+          envVar: GITEA__SERVER__HTTP_PORT
+        description: Port the Gitea web server listens on inside the container.
+      # The rootless template forces START_SSH_SERVER = true. Nothing can
+      # route SSH to this node, so both are turned off and the UI offers
+      # HTTPS clone URLs only.
+      startSSHServer:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GITEA__SERVER__START_SSH_SERVER
+        description: Whether Gitea runs its built-in SSH server, as the literal string Gitea parses.
+      disableSSH:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: GITEA__SERVER__DISABLE_SSH
+        description: Whether Git over SSH is disabled and SSH clone URLs are hidden, as the literal string Gitea parses.
+      # Git LFS authenticates with Basic or Gitea's own LFS tokens, not a
+      # personal access token as a bearer (AddOwnerRepoGitLFSRoutes,
+      # routers/web/web.go, v28.3.0), and the platform's sign-in lets only a
+      # bearer through on repository paths. LFS stays off rather than
+      # half-working.
+      lfsStartServer:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GITEA__SERVER__LFS_START_SERVER
+        description: Whether Gitea serves the Git LFS API, as the literal string Gitea parses.
+      dbType:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: GITEA__DATABASE__DB_TYPE
+        description: Database engine Gitea uses.
+      # HOST takes `host:port` (custom/conf/app.example.ini, v28.3.0).
+      dbHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA__DATABASE__HOST
+        description: Mesh-internal host:port of the PostgreSQL server.
+      dbName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA__DATABASE__NAME
+        description: Database Gitea keeps its records in.
+      dbUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: GITEA__DATABASE__USER
+        description: Role Gitea connects to PostgreSQL as.
+      dbPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: GITEA__DATABASE__PASSWD
+        description: Password of the role above.
+      dbSSLMode:
+        schema:
+          type: string
+        default: disable
+        target:
+          envVar: GITEA__DATABASE__SSL_MODE
+        description: SSL mode for the PostgreSQL connection, which stays on the private network.
+      # Nothing is readable without signing in, including the explore pages
+      # and the API (RequireSignInViewStrict, modules/setting/service.go,
+      # v28.3.0).
+      requireSigninView:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: GITEA__SERVICE__REQUIRE_SIGNIN_VIEW
+        description: Whether every page and API read requires a signed-in user, as the literal string Gitea parses.
+      # Accounts are created only through the platform's OpenID Connect
+      # provider or by an admin. DISABLE_REGISTRATION stays false: the
+      # self-service sign-up form is closed by
+      # ALLOW_ONLY_EXTERNAL_REGISTRATION (routers/web/auth/auth.go, v28.3.0).
+      disableRegistration:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GITEA__SERVICE__DISABLE_REGISTRATION
+        description: Whether all registration is disabled, as the literal string Gitea parses.
+      allowOnlyExternalRegistration:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: GITEA__SERVICE__ALLOW_ONLY_EXTERNAL_REGISTRATION
+        description: >-
+          Whether new accounts can only come from an external sign-in source,
+          as the literal string Gitea parses.
+      enableOpenIDSignin:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GITEA__OPENID__ENABLE_OPENID_SIGNIN
+        description: Whether legacy OpenID 2.0 sign-in is offered, as the literal string Gitea parses.
+      enableOpenIDSignup:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GITEA__OPENID__ENABLE_OPENID_SIGNUP
+        description: Whether legacy OpenID 2.0 sign-up is offered, as the literal string Gitea parses.
+      # The [oauth2_client] section governs every OAuth2 / OpenID Connect
+      # sign-in source (custom/conf/app.example.ini, v28.3.0). A person the
+      # platform signs in for the first time gets an account named after the
+      # part of their email before the @. When that name or email already
+      # belongs to an account, ACCOUNT_LINKING=login asks the person to sign
+      # in to that account once to link it, or to register under another
+      # name. `auto` would link silently, and it also matches on the username
+      # alone (createUserInContext, routers/web/auth/auth.go;
+      # oauth2IdentityMatchesUser, routers/web/auth/oauth.go, v28.3.0), so
+      # alice@a.example would take over alice@b.example's account and anyone
+      # whose email starts with admin@ would get the deployer's `admin`. The
+      # deployer links their sign-in to `admin` once with the generated
+      # Admin password (components/bootstrap.yaml).
+      oauth2AutoRegistration:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: GITEA__OAUTH2_CLIENT__ENABLE_AUTO_REGISTRATION
+        description: Whether a first platform sign-in creates a Gitea account, as the literal string Gitea parses.
+      oauth2Username:
+        schema:
+          type: string
+        default: email
+        target:
+          envVar: GITEA__OAUTH2_CLIENT__USERNAME
+        description: Which claim a new account's username comes from; `email` uses the part before the @.
+      oauth2AccountLinking:
+        schema:
+          type: string
+        default: login
+        target:
+          envVar: GITEA__OAUTH2_CLIENT__ACCOUNT_LINKING
+        description: >-
+          How a first sign-in whose username or email already has an account
+          is handled; `login` asks for that account's password once to link it.
+      # The openid scope is added implicitly. Read by the web process when it
+      # builds the provider (providers_openid.go, v28.3.0).
+      oauth2Scopes:
+        schema:
+          type: string
+        default: profile email
+        target:
+          envVar: GITEA__OAUTH2_CLIENT__OPENID_CONNECT_SCOPES
+        description: Scopes requested from the OpenID Connect provider besides openid, space-separated.
+      # The only call home: a daily check of dl.gitea.com for a newer
+      # release. `.` in a section name is written _0X2E_ for
+      # environment-to-ini (modules/setting/config_env.go, v28.3.0).
+      updateCheckerEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: GITEA__CRON_0X2E_UPDATE_CHECKER__ENABLED
+        description: Whether Gitea checks upstream for new releases, as the literal string Gitea parses.
+    outputs:
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Public https URL this deployment answers at, which Gitea uses as its root URL.
+        from:
+          endpoint: primary
+          property: publicURL
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the Gitea web server, reachable only by
+          workloads in the same deployment, which the bootstrap job polls.
+        from:
+          endpoint: primary
+          property: privateAddress
+      # The client the platform registers for `primary`. Reading these means
+      # any blueprint deploying this component must select viewerIdentity
+      # OIDC there. Gitea keeps a sign-in source in its database, not its
+      # configuration, so the blueprint hands these to the bootstrap job,
+      # which registers the source with Gitea's CLI.
+      oidcIssuerURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Issuer URL of the platform's OpenID Connect provider.
+        from:
+          endpoint: primary
+          property: oidcIssuerURL
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret

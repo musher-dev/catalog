@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: label-studio
-  revision: 10
+  revision: 11
   description: >-
     Label Studio behind the platform's sign-in, with its deployer as admin and
     its own public URL wired into Django's CSRF trust list.
@@ -10,8 +10,12 @@ spec:
   nodes:
     web:
       componentRef: ./components/label-studio.yaml
+      # The image serves Django's runserver as one process, with no worker pool
+      # (server.py, 1.23.2), and upstream's Helm chart requests 600Mi. Upstream's
+      # 8 GB guidance is for a production team; 2 GiB holds one user's projects.
+      # The component gives the first boot's migrations a 930 s startup budget.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 10

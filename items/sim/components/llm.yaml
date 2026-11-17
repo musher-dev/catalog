@@ -1,0 +1,74 @@
+# The language model Sim's Agent blocks run on, as a node this platform does
+# not run (component spec §5.6). A copy of the `llm-endpoint` item's building
+# block (items/llm-endpoint/components/endpoint.yaml, revision 6): a repo-local
+# componentRef cannot leave its item directory, so a blueprint that needs one
+# carries its own. Keep the two in step.
+#
+# The connection enters here and nowhere else (COMP-CONNECTION-002). The `app`
+# node declares ordinary string inputs and the blueprint wires them to the
+# outputs below, so the endpoint and the credential always come from one
+# acquired connection.
+#
+# Streaming and tool calls are both kept: an Agent block streams its answer
+# to the editor and calls the tools a workflow gives it through the
+# chat-completions `tools` field (providers/litellm/index.ts, v0.9.56).
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 6
+  description: >-
+    A language-model API addressed outside this deployment, taken whole as one
+    connection — endpoint, credential and model together.
+spec:
+  type: EXTERNAL
+  contract:
+    inputs:
+      llm:
+        description: >-
+          Language-model connection this node stands for. The platform acquires
+          the endpoint, the credential and the model together, once per
+          deployment, and replaces them as a whole.
+        connection:
+          # STREAMING and TOOL_CALLS. Declared by the node that supplies the
+          # model rather than by the workload that calls it: after ADR 0033 a
+          # worker sees three strings and cannot demand a protocol, so what the
+          # composition requires of a connection is stated here, where the
+          # blueprint author chooses it.
+          #
+          # Both are asked for because both consumers in this catalog need
+          # them, and a building block that under-declares would be accepted
+          # against an endpoint that then fails on an ordinary chat. An item
+          # needing less drops them from its own copy.
+          protocol: OPENAI_CHAT_COMPLETIONS
+          capabilities:
+            - STREAMING
+            - TOOL_CALLS
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Base URL a consuming workload sends chat-completion requests to, from
+          the connection this node was given.
+        from:
+          input: llm
+          member: baseURL
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: >-
+          Bearer credential a consuming workload presents to the API above,
+          from the same connection.
+        from:
+          input: llm
+          member: apiKey
+      model:
+        schema:
+          type: string
+        description: >-
+          Model the API answers with by default, from the same connection.
+        from:
+          input: llm
+          member: model

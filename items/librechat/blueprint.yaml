@@ -1,0 +1,222 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: librechat
+  revision: 1
+  description: >-
+    LibreChat behind the platform's sign-in, signing viewers in through its
+    OpenID Connect provider, with its data in FerretDB on PostgreSQL,
+    conversation search in Meilisearch, and the language model the deployer
+    selects.
+# Five nodes, one of which runs nothing. Producers first: map order is graph
+# order, and every wire arrives at `web`.
+#
+# LibreChat needs a MongoDB-compatible database. Upstream's compose files run
+# MongoDB, whose server is SSPL-licensed; this item runs FerretDB (Apache-2.0)
+# over PostgreSQL with the DocumentDB extension (MIT), the pair LibreChat's own
+# FerretDB test suite targets (packages/data-schemas/misc/ferretdb, v0.8.8). So
+# the database is two nodes: `docdb` stores, `mongo` speaks the wire protocol.
+#
+# Upstream's RAG API (file search over embeddings) is not included. It needs an
+# embeddings API, and the organization's default model connection serves chat
+# only. Chat, agents, MCP tools and search do not need it.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002).
+      bindings:
+        llm:
+          parameter: llm
+    docdb:
+      componentRef: ./components/documentdb.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized
+      # from the machine, and FerretDB opens 10 to 50 pooled connections
+      # (website/docs/configuration/flags.md, v2.7.0) against the default limit
+      # of 100. One team's chats fit in 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE, reachable only from this deployment.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: librechat
+    mongo:
+      componentRef: ./components/ferretdb.yaml
+      # A stateless Go proxy translating MongoDB commands into SQL.
+      compute:
+        profile: general.economy.nano
+      # No exposure: PRIVATE, like `docdb`, and it signs clients in with the
+      # PostgreSQL role below.
+      bindings:
+        pgHost:
+          node: docdb
+          output: host
+        pgPort:
+          node: docdb
+          output: port
+        pgUser:
+          value: librechat
+        pgPassword:
+          parameter: dbPassword
+    search:
+      componentRef: ./components/meilisearch.yaml
+      # Meilisearch reads the container's memory limit and CPU quota, and the
+      # component caps indexing at 512 MiB, so a team's message index fits in
+      # 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 8
+      # No exposure: PRIVATE. The canonical `meilisearch` item serves its API
+      # publicly; here only LibreChat reaches it.
+      bindings:
+        masterKey:
+          parameter: searchKey
+    web:
+      componentRef: ./components/librechat.yaml
+      # LibreChat is one Node.js process serving the API and the built web
+      # app. Upstream states no memory floor; its Helm chart sets no limits
+      # (helm/librechat/values.yaml, v0.8.8). 2 GiB holds the process, its
+      # in-memory session and cache stores, and file uploads being parsed.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        uploads:
+          sizeGiB: 5
+        images:
+          sizeGiB: 2
+      # Signed in, and then signed in again by LibreChat as an OpenID Connect
+      # client of the platform. The platform issues a code only to a viewer
+      # its access policy admits, and that viewer already holds a session,
+      # so this adds a redirect rather than a second password. LibreChat
+      # creates accounts with an email and a display name, so the node
+      # releases both claims. Only the Remote Agents API prefix may be
+      # exempted, for clients holding a LibreChat agent API key
+      # (components/librechat.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+      bindings:
+        # This node's own allocated address and OIDC client, from the outputs
+        # the component derives from its `primary` endpoint. A node reading
+        # its own endpoint outputs is a discovery dependency and not a value
+        # cycle (BP-BIND-002).
+        domainClient:
+          node: web
+          output: publicURL
+        domainServer:
+          node: web
+          output: publicURL
+        oidcIssuerURL:
+          node: web
+          output: oidcIssuerURL
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        openidSessionSecret:
+          parameter: sessionSecret
+        adminEmail:
+          parameter: adminEmail
+        # The database: FerretDB's address, and the PostgreSQL role `docdb`
+        # was initialised with, which FerretDB accepts as a MongoDB user. One
+        # generated password parameter feeds both ends, so they always agree.
+        mongoAddress:
+          node: mongo
+          output: address
+        mongoUser:
+          value: librechat
+        mongoPassword:
+          parameter: dbPassword
+        meiliHost:
+          node: search
+          output: url
+        meiliMasterKey:
+          parameter: searchKey
+        credsKey:
+          parameter: credsKey
+        credsIV:
+          parameter: credsIV
+        jwtSecret:
+          parameter: jwtSecret
+        jwtRefreshSecret:
+          parameter: jwtRefreshSecret
+        # The three members of the one connection the `llm` node holds.
+        openaiReverseProxy:
+          node: llm
+          output: baseURL
+        openaiApiKey:
+          node: llm
+          output: apiKey
+        openaiModels:
+          node: llm
+          output: model
+  parameters:
+    # A connection parameter: it names one atomic connection the organization
+    # has configured, and binds only to the `llm` node's connection input
+    # (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # The deployment's creator is LibreChat's admin: their verified email,
+    # captured once when the deployment is created (BP-PARAM-011).
+    adminEmail:
+      from: "${{ deployment.creator.email }}"
+    # HEX: the boot command puts the password into MONGO_URI unencoded, and
+    # hex needs no percent-encoding there. Disclosed for direct database
+    # access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 2
+    # Needed by nobody but LibreChat and Meilisearch, so not disclosed.
+    searchKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    # LibreChat's own secrets, sized as upstream generates them
+    # (`openssl rand -hex 32`, and `-hex 16` for the IV;
+    # helm/librechat/readme.md, v0.8.8). None is disclosed: losing the
+    # credential key or IV makes stored user credentials unreadable, and
+    # nothing outside LibreChat uses any of them.
+    credsKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    credsIV:
+      generator:
+        byteLength: 16
+        encoding: HEX
+    jwtSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    jwtRefreshSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    sessionSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX

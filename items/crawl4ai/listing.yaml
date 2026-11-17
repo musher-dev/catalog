@@ -1,0 +1,94 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: crawl4ai
+spec:
+  itemType: COMPONENT
+  displayName: Crawl4AI
+  summary: >-
+    Open-source web crawler for agents and RAG — turns pages into clean
+    Markdown and structured JSON with a built-in headless Chromium, over a REST
+    API and MCP
+  overview: |
+    ## What it is
+    Crawl4AI is an open-source crawler and scraper built for language-model
+    workloads. Its server loads pages in a headless Chromium, runs their
+    JavaScript, and returns clean Markdown, cleaned HTML, links, media and
+    metadata. It can also extract structured JSON with CSS or XPath schemas,
+    or with a language model. Agents reach it through a REST API or its
+    built-in MCP server.
+
+    ## When to use
+    - Your agents or RAG pipeline need web pages as clean Markdown rather
+      than raw HTML.
+    - You want one shared crawling service for several workloads, with the
+      browser kept out of your application containers.
+    - You want an MCP client, such as Claude Code or an agent in your stack,
+      to fetch, convert, screenshot or ask questions about pages.
+
+    ## What you'll be asked for
+    - An **API token**. Clients send it as `Authorization: Bearer <token>` on
+      every API and MCP request. It grants full access to the server.
+    - Optionally, a **model** for LLM extraction and questions about pages: a
+      LiteLLM provider/model string such as `openai/<model>`, the API's base
+      URL and a credential. Crawling and Markdown conversion work without
+      one.
+
+    ## Defaults
+    A single container runs `unclecode/crawl4ai:0.9.5` with headless
+    Chromium on port 11235. Nothing about the endpoint is public unless the
+    blueprint that uses this component exposes it. Your other workloads reach
+    it at its private address. The REST API serves `/crawl`, `/md`, `/html`,
+    `/screenshot`, `/pdf` and asynchronous jobs at `/crawl/job`. MCP clients
+    connect to `/mcp/sse` or `/mcp/ws`.
+
+    A Redis server inside the container holds job results for an hour. There
+    is no volume, so results, screenshots and PDFs are lost on restart.
+    Upstream asks for at least 4 GiB of memory, so run it on 2 vCPU and
+    4 GiB, or 4 vCPU and 8 GiB for many concurrent crawls.
+
+    ## Access and security
+    Every route except `/health`, the start page and the `/playground` and
+    `/dashboard` page shells needs the API token. Those pages hold no data
+    and ask for the token before they call the API.
+
+    By default, crawls can't reach private, loopback or link-local
+    addresses, including your other workloads. The **allowInternalURLs**
+    setting lifts that. Deep crawls that follow links are off unless
+    **allowDeepCrawl** is `true`. Request hooks and the `/execute_js` route
+    stay off, as upstream ships them, because upstream flags both as
+    security risks.
+
+    Chromium runs without its own sandbox, as upstream's image does, so the
+    container is the only boundary around pages it loads.
+
+    ## Limitations
+    - The model's base URL and key come from this component's settings. A
+      request can name another model from the same provider, but not
+      another endpoint.
+    - Some sites block or challenge requests from cloud IP addresses.
+    - Crawl4AI's licence is Apache-2.0 with an added attribution
+      requirement: products and sites that use it must credit the project.
+  gettingStarted: |
+    1. Reveal the **API token** on the deployment's Installation tab if you
+       need it again.
+    2. From another workload, send a crawl to the private address on port
+       11235, with the token as `Authorization: Bearer <token>`: `POST /md`
+       with `{"url": "https://example.com"}` returns the page as Markdown.
+       `POST /crawl` with `{"urls": [...]}` returns full results.
+    3. Point an MCP client at `/mcp/sse` with the same token to give an agent
+       crawl, Markdown, screenshot and PDF tools.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - web-crawler
+    - scraping
+    - markdown
+    - rag
+    - mcp
+    - headless-browser
+  homepageURL: https://docs.crawl4ai.com
+  sourceRepositoryURL: https://github.com/unclecode/crawl4ai
+  supportURL: https://docs.crawl4ai.com/core/self-hosting/
+  license: LicenseRef-Crawl4AI
+  icon: media/icon.png

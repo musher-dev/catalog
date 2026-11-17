@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     One-shot job that writes the deployment's language-model connection into
     Agent Canvas as its active LLM profile, through the agent server's own API.
@@ -12,9 +12,9 @@ spec:
   #   - The agent server's config has no LLM fields (Config,
   #     openhands-agent-server/openhands/agent_server/config.py), and
   #     `LLM.load_from_env` (openhands-sdk/openhands/sdk/llm/llm.py) is never
-  #     called by the server (software-agent-sdk v1.49.6). The LLM_MODEL /
+  #     called by the server (software-agent-sdk v1.60.1). The LLM_MODEL /
   #     LLM_API_KEY example in upstream's Helm README
-  #     (helm/agent-canvas/README.md, OpenHands v1.24.0) is therefore inert.
+  #     (helm/agent-canvas/README.md, OpenHands v1.37.0) is therefore inert.
   #   - The model lives in LLM profiles, JSON files under ~/.openhands written
   #     with the API key encrypted by OH_SECRET_KEY.
   #   - The image's entrypoint ignores its arguments
@@ -44,8 +44,8 @@ spec:
       # PINNED. The official curl image, alpine-based, so busybox sh, sed and
       # date are present. Its /entrypoint.sh runs `exec "$@"` when the first
       # argument is a command on PATH (etc/entrypoint.sh, curl/curl-container
-      # 8.22.0), so the `sh -c` below runs as written.
-      image: curlimages/curl:8.22.0
+      # 8.23.0), so the `sh -c` below runs as written.
+      image: curlimages/curl:8.23.0
     # PROFILE NAME `default`. It is the name the agent server's own seeding
     # gives the default agent profile's `llm_profile_ref` when no LLM profile
     # is active (SEED_PROFILE_NAME, `_seed_default_llm_profile`,

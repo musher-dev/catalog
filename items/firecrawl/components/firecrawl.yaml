@@ -1,0 +1,274 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Firecrawl API and its queue workers in one container, turning web pages into
+    markdown through a headless-browser service, with its job queue in
+    PostgreSQL, RabbitMQ and Redis.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2.11.737 is the newest release image (built 2026-11-13 from
+      # eaa56e8, the image's FIRECRAWL_BUILD_SHA). Upstream's last GitHub
+      # release is v2.11.0 (2026-06-19), but it publishes every build of main
+      # as `2.11.<n>` (deploy-image.yml); `latest` points at the same digest
+      # today and moves with every merge. The `-production` twin of each tag
+      # is the same build for upstream's cloud.
+      #
+      # ghcr.io/firecrawl, not ghcr.io/mendableai: the old organisation no
+      # longer serves anonymous pulls.
+      image: ghcr.io/firecrawl/firecrawl:2.11.737
+    # The image's CMD is `node dist/src/harness.js --start-docker`, behind the
+    # node image's docker-entrypoint.sh (apps/api/Dockerfile, eaa56e8). The
+    # harness is upstream's own production supervisor: it starts the API, the
+    # queue worker, the extract worker, NUQ_WORKER_COUNT NuQ scrape workers,
+    # the NuQ prefetch worker and the NuQ reconciler as child processes, and
+    # exits as soon as any of them does, so the platform restarts the lot
+    # (apps/api/src/harness.ts, eaa56e8). Upstream's compose runs exactly this
+    # one container as `api` (docker-compose.yaml, eaa56e8); the processes
+    # share nothing but the queues, but they are not split into nodes here
+    # because the harness is the only thing that wires their ports and pod
+    # names.
+    #
+    # A shell runs first only to assemble the two URLs Firecrawl reads whole.
+    # A component template reads only endpoint properties (COMP-PLACEHOLDER-001),
+    # so nothing in the documents can compose a URL that carries a password.
+    # The Postgres connection needs no such step: with POSTGRES_HOST anything
+    # but `localhost`, the harness builds NUQ_DATABASE_URL itself from the
+    # POSTGRES_* inputs, percent-encoding each part (setupNuqPostgres,
+    # apps/api/src/harness.ts, eaa56e8). It also skips starting containers of
+    # its own when NUQ_RABBITMQ_URL is set (setupNuqRabbitMQ).
+    #
+    # Both passwords go into the URLs as they are. The blueprint generates
+    # them as HEX, which needs no percent-encoding in a URL's userinfo.
+    #
+    # The shell first waits until PostgreSQL, Redis and RabbitMQ accept TCP
+    # connections, the job upstream's compose gives `depends_on: condition:
+    # service_healthy` (docker-compose.yaml, eaa56e8). Nodes start in no
+    # order here, and a harness started early exits at once, because its
+    # workers die on a refused connection. PostgreSQL's entrypoint runs
+    # nuq.sql on a socket-only server (listen_addresses ''), so the port
+    # opens only once the queue schema exists. The probe is a Node one-liner
+    # because the image ships no nc. In live run owf7i85ea, without the
+    # wait, the container exited nonzero 20 s in and the platform then held
+    # the node in SCHEDULING/BindingHost for 38 minutes without starting it
+    # again.
+    command:
+      - sh
+      - -c
+      - |
+        probe='const [h, p] = process.argv[1].split(":");
+        const s = require("net").connect(+p, h, () => process.exit(0));
+        s.on("error", () => process.exit(1));
+        setTimeout(() => process.exit(1), 3000);'
+        for addr in "${POSTGRES_HOST}:${POSTGRES_PORT}" "$REDIS_ADDRESS" "$RABBITMQ_ADDRESS"; do
+          until node -e "$probe" "$addr"; do
+            echo "waiting for $addr"
+            sleep 3
+          done
+        done
+        REDIS_URL="redis://:${REDIS_PASSWORD}@${REDIS_ADDRESS}"
+        NUQ_RABBITMQ_URL="amqp://${RABBITMQ_USERNAME}:${RABBITMQ_PASSWORD}@${RABBITMQ_ADDRESS}"
+        export REDIS_URL NUQ_RABBITMQ_URL
+        export REDIS_RATE_LIMIT_URL="$REDIS_URL"
+        exec node dist/src/harness.js --start-docker
+    endpoints:
+      primary:
+        # PORT, below. Upstream's compose maps it as INTERNAL_PORT 3002.
+        targetPort: 3002
+        protocol: HTTP
+    health:
+      # /health/readiness answers 200 from the API process as soon as it
+      # listens, with no dependency check (apps/api/src/controllers/health.ts,
+      # eaa56e8). The harness exits when any worker exits, so an API that
+      # answers belongs to a container whose workers are running too. Nothing
+      # migrates on boot here: the queue schema is created by the database
+      # image's own init script, so no startup probe is needed.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health/readiness
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      # Firecrawl's config defaults HOST to `localhost` (apps/api/src/config.ts,
+      # eaa56e8), which no other node could reach. Upstream's compose sets the
+      # same 0.0.0.0.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HOST
+        description: Address the Firecrawl API binds to.
+      port:
+        schema:
+          type: integer
+        default: 3002
+        target:
+          envVar: PORT
+        description: Port the Firecrawl API listens on.
+      # Upstream's compose sets ENV=local for self-hosting. It only changes the
+      # log format and the CPU count the API logs (apps/api/src/index.ts,
+      # apps/api/src/lib/logger.ts, eaa56e8).
+      env:
+        schema:
+          type: string
+        default: local
+        target:
+          envVar: ENV
+        description: Firecrawl's environment name; `local` is upstream's value for self-hosting.
+      # `false` is the only mode a self-hosted install can run. `true` looks up
+      # API keys, teams and credits in Firecrawl's Supabase project schema,
+      # which is not published for self-hosting (SELF_HOST.md, eaa56e8). With
+      # it false every request is served as one unlimited team, whatever key it
+      # carries (mockACUC, apps/api/src/controllers/auth.ts), which is why this
+      # node is PRIVATE and the `gateway` node checks the key.
+      useDBAuthentication:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: USE_DB_AUTHENTICATION
+        description: >-
+          Whether Firecrawl checks API keys against its own Supabase database,
+          as the literal string the image parses. Self-hosted installs run with
+          it off.
+      # Upstream's compose leaves this at the default of 5 NuQ scrape workers
+      # inside a container capped at 4 vCPU / 8 GB (docker-compose.yaml,
+      # eaa56e8). Two keep the harness's seven Node processes inside this
+      # node's 4 GiB; each worker still runs several scrapes at once.
+      nuqWorkerCount:
+        schema:
+          type: integer
+        default: 2
+        target:
+          envVar: NUQ_WORKER_COUNT
+        description: >-
+          Number of NuQ scrape-worker processes the harness starts. Each costs a
+          few hundred MiB of memory.
+      # The Postgres server the NuQ queue lives in, as the parts the harness
+      # assembles NUQ_DATABASE_URL from.
+      postgresHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: POSTGRES_HOST
+        description: >-
+          Mesh-internal hostname of the NuQ PostgreSQL server. Anything but
+          `localhost` tells the harness to use it rather than start a container.
+      postgresPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: POSTGRES_PORT
+        description: Port of that PostgreSQL server.
+      postgresUser:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: POSTGRES_USER
+        description: Role Firecrawl connects to PostgreSQL as.
+      # The schema the database's own password input declares: one generated
+      # parameter fills both, so both ends describe the same value.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: POSTGRES_PASSWORD
+        description: Password of the PostgreSQL role above.
+      # `postgres`, because the database image schedules its queue clean-up
+      # jobs with pg_cron, which upstream configures for the `postgres`
+      # database only (apps/nuq-postgres/Dockerfile, SELF_HOST.md, eaa56e8).
+      postgresDb:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: POSTGRES_DB
+        description: Database the NuQ queue schema lives in.
+      # Read by the shell above, not by Firecrawl.
+      redisAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: REDIS_ADDRESS
+        description: >-
+          Mesh-internal `host:port` of the Redis server Firecrawl keeps crawl
+          state, rate limits and its BullMQ queues in.
+      # The schema the cache's own password input declares, for the same
+      # reason as postgresPassword.
+      redisPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: REDIS_PASSWORD
+        description: Password Firecrawl presents to that Redis server.
+      # Read by the shell above, not by Firecrawl. RabbitMQ carries the NuQ
+      # prefetch buffer and the per-request channels a synchronous scrape
+      # waits for its result on (apps/api/src/services/worker/nuq.ts, eaa56e8),
+      # and the extract queue (services/extract-queue.ts). It is required:
+      # those code paths throw when NUQ_RABBITMQ_URL is unset.
+      rabbitmqAddress:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: RABBITMQ_ADDRESS
+        description: Mesh-internal `host:port` of the RabbitMQ broker's AMQP listener.
+      rabbitmqUsername:
+        schema:
+          type: string
+        default: firecrawl
+        target:
+          envVar: RABBITMQ_USERNAME
+        description: User Firecrawl signs in to RabbitMQ as.
+      # The schema the broker's own password input declares.
+      rabbitmqPassword:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: RABBITMQ_PASSWORD
+        description: Password of that RabbitMQ user.
+      # With this set, Playwright joins the engine list ahead of plain fetch
+      # (quality 20 against 5) and is the only engine that honours `waitFor`
+      # (apps/api/src/scraper/scrapeURL/engines/index.ts, eaa56e8).
+      playwrightURL:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: PLAYWRIGHT_MICROSERVICE_URL
+        description: >-
+          URL of the Playwright service's /scrape route, which renders pages in
+          headless Chromium.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the Firecrawl API, resolvable only by
+          workloads in the same deployment. It checks no API key, so expose it
+          only through a gateway that does.
+        from:
+          endpoint: primary
+          property: privateAddress

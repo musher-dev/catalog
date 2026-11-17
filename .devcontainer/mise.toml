@@ -28,6 +28,11 @@
 # lives on the codex-config volume. npm's package, because Node is already here
 # as a Feature.
 "npm:@openai/codex" = "0.143.0"
+# crane reads an image's tags, digest and config (user, exposed ports,
+# entrypoint, env) straight from the registry, with no Docker daemon. Authoring
+# an item pins an exact tag and cites the image's own defaults, and this
+# container has no Docker to pull with.
+"github:google/go-containerregistry" = "0.22.1"
 
 [settings]
 # pipx tools install through uv rather than a system pipx.

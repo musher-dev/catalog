@@ -1,0 +1,119 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: firecrawl
+spec:
+  itemType: BLUEPRINT
+  displayName: Firecrawl
+  summary: >-
+    Self-hosted Firecrawl: turn any web page into clean markdown for agents and
+    RAG through the scrape, crawl and map API, rendered in its own headless
+    Chromium and behind a generated API key.
+  overview: |
+    ## What it is
+    [Firecrawl](https://www.firecrawl.dev) is an open-source API that turns
+    websites into LLM-ready data. Give it a URL and it returns the page as
+    clean markdown, HTML, links or metadata; give it a site and it crawls the
+    pages under it. This item runs the whole self-hosted stack upstream ships
+    in its Docker Compose file, as six nodes in one deployment, and puts an
+    API-key check in front of it, because self-hosted Firecrawl has none of
+    its own.
+
+    ## When to use
+    - Your agents, RAG pipelines or MCP clients need web pages as markdown,
+      and you want the scraping to run on infrastructure you control rather
+      than on a per-page cloud plan.
+    - You already use a Firecrawl SDK, the Firecrawl CLI or the Firecrawl MCP
+      server and want to point it at your own endpoint.
+    - You need JavaScript-rendered pages, not just raw HTML: requests go
+      through headless Chromium first, with a plain HTTP fetch as the
+      fallback.
+
+    ## Defaults
+    - **`gateway`**: `caddy:2.11.9-alpine` on port 8080, the deployment's
+      public HTTPS endpoint. It forwards a request only when it carries
+      `Authorization: Bearer <API key>` and answers `401` to anything else.
+      1 vCPU / 1 GiB.
+    - **`api`**: `ghcr.io/firecrawl/firecrawl:2.11.737` on port 3002,
+      private. Upstream's harness runs the API, the queue worker, the extract
+      worker, two NuQ scrape workers, the NuQ prefetch worker and the NuQ
+      reconciler in this one container. 2 vCPU / 4 GiB.
+    - **`browser`**: Firecrawl's Playwright service
+      (`ghcr.io/firecrawl/playwright-service:sha-8b950c45c8ca`) on port 3000,
+      private, rendering up to four pages at once in headless Chromium. 1 vCPU
+      / 2 GiB.
+    - **`db`**: Firecrawl's NuQ PostgreSQL image
+      (`ghcr.io/firecrawl/nuq-postgres:sha-a7a63b4bfabf`, PostgreSQL 17 with
+      pg_cron), holding the job queue and crawl results on a 10 GiB volume.
+      1 vCPU / 1 GiB.
+    - **`queue`**: `rabbitmq:4.4.0-alpine`, private, behind a generated
+      password. 1 vCPU / 1 GiB, no volume.
+    - **`cache`**: `redis:8.10.3-alpine` with append-only persistence on a
+      5 GiB volume, behind a generated password. 1 vCPU / 1 GiB.
+
+    Every address and credential is wired between the nodes, so nothing is
+    typed at deploy. The API key and the three internal passwords are
+    generated; copy the API key from the deployment's Installation tab.
+
+    ## Access and security
+    Only the `gateway` node is public. The Firecrawl API behind it serves
+    every request it receives as one unlimited team, which is how upstream
+    runs self-hosted, so the gateway's key check is the only thing between it
+    and the internet. Treat the API key like a password: anyone holding it
+    can make this deployment fetch any public URL. The Playwright service
+    refuses to load private network addresses. The queue's admin UI is off.
+
+    ## Limitations
+    - **No LLM features.** `/extract`, JSON-format scrapes, summaries and
+      other AI-backed options need a model provider. Firecrawl calls OpenAI's
+      Responses API for them, which the platform's language-model connection
+      does not offer, so no model is wired in and those requests fail.
+    - **Search** (`/v1/search`, `/v2/search`) uses Firecrawl's built-in
+      fallback, with no search engine of its own configured, and is less
+      reliable than in Firecrawl's cloud.
+    - **No Fire-engine.** Firecrawl's cloud-only anti-bot engine is not part
+      of the open-source release, so sites that block headless browsers stay
+      blocked.
+    - **One key.** Self-hosted Firecrawl has no accounts, teams or credits,
+      so there is one API key for every client. Rotating it means
+      redeploying with a new value.
+
+    ## Upgrades
+    Upstream builds a new `2.11.<n>` image from every merge to its main
+    branch. Moving the `api` and `browser` images forward together is a
+    redeploy; the queue schema in `db` is created once, on first boot.
+  gettingStarted: |
+    1. Copy the **API key** from the deployment's Installation tab and set
+       it as `FIRECRAWL_API_KEY` in your shell.
+    2. Scrape a page to check the stack, with your deployment's URL in place
+       of `https://<your-deployment>`:
+
+       ```sh
+       curl -s https://<your-deployment>/v2/scrape \
+         -H "Authorization: Bearer $FIRECRAWL_API_KEY" \
+         -H 'Content-Type: application/json' \
+         -d '{"url": "https://example.com", "formats": ["markdown"]}'
+       ```
+
+    3. Point a Firecrawl SDK, the Firecrawl CLI or the Firecrawl MCP server at
+       the deployment: set the API URL to the deployment's URL
+       (`FIRECRAWL_API_URL` for the CLI and the MCP server) and the API key
+       to the key you copied.
+    4. Start crawls with `POST /v2/crawl` and read their pages back with
+       `GET /v2/crawl/<id>`. The first request after a deploy can take a few
+       seconds longer while the browser warms up.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - web-scraping
+    - crawler
+    - markdown
+    - rag
+    - agents
+    - playwright
+    - api
+  homepageURL: https://www.firecrawl.dev
+  sourceRepositoryURL: https://github.com/firecrawl/firecrawl
+  supportURL: https://docs.firecrawl.dev/contributing/self-host
+  license: AGPL-3.0-only
+  icon: media/icon.png

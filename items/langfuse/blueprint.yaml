@@ -1,0 +1,357 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: langfuse
+  revision: 1
+  description: >-
+    Langfuse web and worker on their own PostgreSQL, ClickHouse, Valkey and
+    SeaweedFS, with an owner account and project API key created for the
+    deployer, the UI behind the platform's sign-in and the public API open to
+    SDKs that hold a project key.
+# Producers first: map order is graph order, and every node a wire comes from
+# reads before the nodes it arrives at.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing
+      # (BP-NODE-002). It stands for the model API and publishes the three
+      # members of the one connection it is given.
+      bindings:
+        llm:
+          parameter: llm
+    db:
+      componentRef: ./components/postgres.yaml
+      # Upstream's minimum table gives PostgreSQL 2 CPU and 4 GiB
+      # (langfuse.com/self-hosting/configuration/scaling), sized for
+      # production. Since v3 PostgreSQL holds only users, projects, keys,
+      # prompts, datasets and settings; traces go to ClickHouse. Its defaults
+      # are fixed (128 MB shared_buffers), not sized from the machine, so one
+      # trial deployment fits in 1 GiB.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only inside this
+      # deployment through the address it publishes.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: langfuse
+        postgresDb:
+          value: langfuse
+    clickhouse:
+      componentRef: ./components/clickhouse.yaml
+      # Upstream's own Helm chart gives its bundled ClickHouse 1 CPU and 2 GiB
+      # requested with a 4 GiB limit ("Non-empty defaults avoid the
+      # operator's ~1Gi fallback that OOMs under load", values.yaml,
+      # langfuse-k8s chart 2.2.4), which standard.small matches. The scaling
+      # page's 2 CPU and 8 GiB is its production floor; move this node to
+      # general.standard.medium for sustained ingestion. ClickHouse caps
+      # itself at 90% of the container's memory
+      # (max_server_memory_usage_to_ram_ratio).
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 20
+      # No exposure: PRIVATE, like `db`.
+      bindings:
+        clickhousePassword:
+          parameter: clickhousePassword
+        clickhouseUser:
+          value: langfuse
+    cache:
+      componentRef: ./components/valkey.yaml
+      # Upstream's floor for Redis/Valkey is 1 CPU and 1.5 GiB (scaling page),
+      # which standard.nano's 2 GiB meets. It holds the ingestion and
+      # evaluation queues and short-lived caches.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      # No exposure: PRIVATE, and behind a password as well.
+      bindings:
+        valkeyPassword:
+          parameter: cachePassword
+    blob:
+      componentRef: ./components/seaweedfs.yaml
+      # Upstream gives a self-run SeaweedFS or MinIO 2 CPU and 4 GiB (scaling
+      # page), for production ingestion rates. Here it only holds one trial's
+      # event payloads, and the `seaweedfs` item runs the same all-in-one
+      # process on standard.nano.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: PRIVATE. Only `web` and `worker` read and write events.
+      # Media uploads from the browser would need this endpoint public, so
+      # they stay off (listing.yaml, Limitations).
+      bindings:
+        accessKeyID:
+          parameter: blobAccessKeyID
+        secretAccessKey:
+          parameter: blobSecretAccessKey
+        bucket:
+          value: langfuse
+    web:
+      componentRef: ./components/langfuse-web.yaml
+      # Upstream's floor for the web container is 2 CPU and 4 GiB (scaling
+      # page): standard.small.
+      compute:
+        profile: general.standard.small
+      # The UI is behind the platform's sign-in, and Langfuse then signs the
+      # same viewer in as an OpenID Connect client of the platform
+      # (BP-ACCESS-008), releasing the email and name its accounts need. The
+      # owner account it creates on first boot keeps an email and password as
+      # well.
+      #
+      # /api/public passes without a platform session: SDKs, OpenTelemetry
+      # exporters, LiteLLM callbacks and MCP clients call it with a project
+      # API key, and Langfuse authenticates every route there itself
+      # (components/langfuse-web.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+      bindings:
+        # This node's own allocated address and OIDC client. A node reading its
+        # own endpoint outputs is a discovery dependency and not a value cycle
+        # (BP-BIND-002).
+        publicURL:
+          node: web
+          output: publicURL
+        oidcIssuerURL:
+          node: web
+          output: oidcIssuerURL
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+        nextauthSecret:
+          parameter: nextauthSecret
+        salt:
+          parameter: salt
+        encryptionKey:
+          parameter: encryptionKey
+        # The role, database and generated password `db` is initialised with.
+        databaseHost:
+          node: db
+          output: address
+        databaseUsername:
+          value: langfuse
+        databasePassword:
+          parameter: dbPassword
+        databaseName:
+          value: langfuse
+        clickhouseURL:
+          node: clickhouse
+          output: httpURL
+        clickhouseMigrationURL:
+          node: clickhouse
+          output: nativeURL
+        clickhouseUser:
+          value: langfuse
+        clickhousePassword:
+          parameter: clickhousePassword
+        redisHost:
+          node: cache
+          output: hostname
+        redisPort:
+          node: cache
+          output: port
+        redisAuth:
+          parameter: cachePassword
+        # The bucket, address and key `blob` publishes.
+        s3EventBucket:
+          node: blob
+          output: bucket
+        s3EventRegion:
+          node: blob
+          output: region
+        s3EventEndpoint:
+          node: blob
+          output: endpointURL
+        s3EventAccessKeyID:
+          node: blob
+          output: accessKeyID
+        s3EventSecretAccessKey:
+          node: blob
+          output: secretAccessKey
+        # The first-boot organization, project, owner and API key.
+        initUserEmail:
+          parameter: ownerEmail
+        initUserPassword:
+          parameter: ownerPassword
+        initProjectPublicKey:
+          parameter: projectPublicKey
+        initProjectSecretKey:
+          parameter: projectSecretKey
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+    worker:
+      componentRef: ./components/langfuse-worker.yaml
+      # Upstream's floor for the worker is 2 CPU and 4 GiB (scaling page):
+      # standard.small.
+      compute:
+        profile: general.standard.small
+      # No exposure: a WORKER is never exposed.
+      bindings:
+        publicURL:
+          node: web
+          output: publicURL
+        salt:
+          parameter: salt
+        encryptionKey:
+          parameter: encryptionKey
+        databaseHost:
+          node: db
+          output: address
+        databaseUsername:
+          value: langfuse
+        databasePassword:
+          parameter: dbPassword
+        databaseName:
+          value: langfuse
+        clickhouseURL:
+          node: clickhouse
+          output: httpURL
+        clickhouseUser:
+          value: langfuse
+        clickhousePassword:
+          parameter: clickhousePassword
+        redisHost:
+          node: cache
+          output: hostname
+        redisPort:
+          node: cache
+          output: port
+        redisAuth:
+          parameter: cachePassword
+        s3EventBucket:
+          node: blob
+          output: bucket
+        s3EventRegion:
+          node: blob
+          output: region
+        s3EventEndpoint:
+          node: blob
+          output: endpointURL
+        s3EventAccessKeyID:
+          node: blob
+          output: accessKeyID
+        s3EventSecretAccessKey:
+          node: blob
+          output: secretAccessKey
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+  parameters:
+    # The model Langfuse's in-app AI features run on, defaulting to the
+    # organization's connection (BP-CONNECTION-001).
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # The deployment's creator owns the Langfuse organization: their verified
+    # email, captured once when the deployment is created (BP-PARAM-011).
+    ownerEmail:
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment. BASE64URL is safe to type
+    # and needs no escaping.
+    ownerPassword:
+      generator:
+        byteLength: 18
+        encoding: BASE64URL
+      ui:
+        label: Owner password
+        order: 2
+    # The project API key SDKs and exporters send traces with. The public
+    # key is not a secret; both are disclosed so they can be copied into an
+    # application or another node.
+    projectPublicKey:
+      generator:
+        byteLength: 16
+        encoding: HEX
+      ui:
+        label: Project public key
+        order: 3
+    projectSecretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+      ui:
+        label: Project secret key
+        order: 4
+    # Internal secrets nobody needs to see.
+    nextauthSecret:
+      generator:
+        byteLength: 32
+        encoding: BASE64URL
+    salt:
+      generator:
+        byteLength: 32
+        encoding: BASE64URL
+    # 32 bytes as HEX is the 64 hex characters ENCRYPTION_KEY must be.
+    encryptionKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    # HEX, not BASE64: the password is placed in the database URL unencoded,
+    # and hex needs no percent-encoding there. Disclosed for direct database
+    # access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 5
+    # HEX for the same reason: Langfuse's migration script puts it in a URL
+    # query string. Disclosed for direct SQL access to the trace data.
+    clickhousePassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: ClickHouse password
+        order: 6
+    # HEX, because Valkey reads the password as one word of its configuration.
+    cachePassword:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    blobAccessKeyID:
+      generator:
+        byteLength: 16
+        encoding: HEX
+    blobSecretAccessKey:
+      generator:
+        byteLength: 32
+        encoding: HEX

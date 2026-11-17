@@ -1,0 +1,112 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: graphiti
+spec:
+  itemType: BLUEPRINT
+  displayName: Graphiti
+  summary: >-
+    Zep's open-source temporal knowledge graph as agent memory — an MCP server
+    your agents add episodes to and search, with Neo4j, private embeddings and
+    your model connection
+  overview: |
+    ## What it is
+    Graphiti is Zep's open-source engine for agent memory. It turns what your
+    agents tell it, as text, messages or JSON "episodes", into a knowledge
+    graph of entities and the facts between them. Every fact records when it
+    became true and when it stopped being true, so the graph answers what is
+    known now without losing history. This blueprint runs Graphiti's MCP
+    server, so any MCP-capable agent can add memories and search them with
+    tools such as `add_memory`, `search_nodes`, `search_memory_facts` and
+    `get_episodes`.
+
+    ## When to use
+    - Your agents need long-term memory that tracks how facts change over
+      time, not only a pile of similar text chunks.
+    - You want one memory service that several agents or tools share,
+      reached over MCP from Claude Code, Cursor, VS Code or your own agent.
+    - You want the graph, the embeddings and the extraction to stay in your
+      own deployment, on your own model connection.
+
+    ## What you'll be asked for
+    - A **Language model** with an OpenAI-compatible chat-completions API,
+      defaulting to your organization's connection. Graphiti sends it
+      several prompts for every episode to extract entities and facts and
+      merge them with what the graph already holds, so each memory you add
+      uses model quota.
+
+    ## Defaults
+    Four running nodes and the model connection:
+
+    - **gateway**: Caddy (`caddy:2.11.9-alpine`) on port 8080, the only
+      public endpoint. It forwards a request only when it carries the
+      **MCP API key** as `Authorization: Bearer <key>`, and answers 401
+      otherwise. 1 vCPU, 1 GiB.
+    - **mcp**: Graphiti's MCP server
+      (`zepai/knowledge-graph-mcp:1.1.3-graphiti-0.31.2-standalone`) on
+      port 8000, private. It speaks MCP's streamable HTTP transport at
+      `/mcp`. 1 vCPU, 2 GiB.
+    - **graph-db**: Neo4j Community (`neo4j:2026.10.2-community`, GPL-3.0),
+      private, with a 1 GiB maximum heap and a 512 MiB page cache, and its
+      data on a 10 GiB volume at `/data`. 2 vCPU, 4 GiB.
+    - **embeddings**: Hugging Face Text Embeddings Inference
+      (`ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4`), private,
+      serving `BAAI/bge-small-en-v1.5` (384-dimensional vectors) with the
+      model cached on a 5 GiB volume. 1 vCPU, 2 GiB.
+
+    Graphiti sends its prompts to your model's chat-completions API and
+    asks for each answer in a JSON schema (`response_format: json_schema`).
+    Every memory goes into the graph group `main` unless a tool call names
+    another one. Telemetry from Graphiti and usage reporting from Neo4j are
+    off.
+
+    The first start pulls a large image (about 3.4 GB) and downloads the
+    embedding model, so allow several minutes before the deployment reports
+    ready.
+
+    ## Access and security
+    Graphiti's MCP server has no sign-in of its own, and whoever reaches it
+    can read, add to and clear every graph group. So only the gateway is
+    public, and it admits nothing without the key. Treat the key like a
+    password: anyone holding it has full access to the memory. The database
+    and the embeddings server are reachable only inside the deployment, each
+    with its own generated credential.
+
+    ## Limitations
+    - Adding a memory returns at once and is processed in the background;
+      it shows up in searches after the model calls finish, typically tens
+      of seconds. Episodes in one graph group are processed one at a time.
+    - The model API must honour `response_format: json_schema`. An
+      episode whose answers don't match the schema is dropped, and the
+      failure shows only in the `mcp` node's logs.
+    - The embedding model is English. Changing the model or the vector size
+      after memories are stored makes old and new vectors incomparable, so
+      clear the graph first.
+    - The `neo4j` password is set on the first start and kept in the data
+      volume.
+    - MCP sessions live in the server's memory, so a restart ends them and
+      clients reconnect.
+  gettingStarted: |
+    1. Reveal the **MCP API key** on the deployment's Installation tab.
+    2. Add the server to your MCP client as a streamable HTTP server at the
+       deployment's URL followed by `/mcp`, with the header
+       `Authorization: Bearer <key>`. In Claude Code, for example:
+       `claude mcp add --transport http graphiti https://<deployment-url>/mcp --header "Authorization: Bearer <key>"`.
+    3. Ask your agent to remember something, for example "Remember that our
+       staging database moved to Frankfurt in March". It calls `add_memory`.
+    4. After a minute, ask "Where is the staging database?". The agent calls
+       `search_memory_facts` and answers from the graph.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - agent-memory
+    - knowledge-graph
+    - mcp
+    - neo4j
+    - rag
+    - embeddings
+  homepageURL: https://www.getzep.com/
+  sourceRepositoryURL: https://github.com/getzep/graphiti
+  supportURL: https://help.getzep.com/graphiti/getting-started/mcp-server
+  license: Apache-2.0
+  icon: media/icon.png

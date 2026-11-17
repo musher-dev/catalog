@@ -1,0 +1,60 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: uptime-kuma
+  revision: 1
+  description: >-
+    Uptime Kuma behind the platform's sign-in, with its status pages, badges
+    and push URLs public, and an admin account created for the deployer.
+spec:
+  nodes:
+    web:
+      componentRef: ./components/uptime-kuma.yaml
+      # Upstream states no memory floor. One Node.js process with SQLite idles
+      # in a few hundred MB; 2 GiB leaves room for the Chromium that each Real
+      # Browser monitor starts, which a 1 GiB node would run out of.
+      compute:
+        profile: general.standard.nano
+      # Heartbeats for a few dozen monitors at the default 180-day retention
+      # stay well under 1 GiB; 5 GiB leaves room for Real Browser screenshots
+      # and SQLite's VACUUM, which needs a second copy of the database.
+      volumes:
+        data:
+          sizeGiB: 5
+      # The platform signs viewers in before the dashboard. Uptime Kuma has no
+      # OpenID Connect sign-in, so it reads no identity; the bootstrap job
+      # turns its own login off instead. Status pages, badges, push URLs and
+      # the static files a status page loads pass without a platform session,
+      # because they are made for the public and for scripts, and Uptime Kuma
+      # checks them itself (components/uptime-kuma.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - PATHS
+    bootstrap-admin:
+      componentRef: ./components/bootstrap-admin.yaml
+      # A short Node.js script that mostly waits.
+      compute:
+        profile: general.economy.nano
+      bindings:
+        # The web node's private address, so the job creates the account over
+        # the internal network rather than through the public edge.
+        kumaAddress:
+          node: web
+          output: address
+        adminPassword:
+          parameter: adminPassword
+  parameters:
+    # Disclosed to whoever manages the deployment, for when Uptime Kuma's own
+    # login is switched back on and for /metrics basic auth. 24 bytes in
+    # BASE64URL is 32 characters, with no character that needs escaping.
+    adminPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Admin password
+        order: 1

@@ -73,23 +73,23 @@ export const VENDOR_DIR = path.join(REPO_ROOT, 'vendor', 'specifications');
  */
 export const RELEASES: Record<ArchiveFamily, { version: string; archiveSha256: string; bundleSha256?: string }> = {
   core: {
-    version: '2.0.0',
-    archiveSha256: '45182a42a1d2b6bf490bc10e859fc85259885d243cda1c2b8b68c3f8cd7763dc',
+    version: '2.1.0',
+    archiveSha256: '418b2f7b080d1d18867122c19a83429ec570b4fe40e00cc9b81ca60cab60e992',
   },
   component: {
-    version: '2.0.0',
-    archiveSha256: 'f33eecab25d501ab6147b65e0db939336e3be03f05334f3b722cbfe2736af990',
-    bundleSha256: '3ffb508d81765bf2d9fdd168c16e2720912391ba4b6032d391088786bbeb8323',
+    version: '2.1.0',
+    archiveSha256: '8b5a09f7a3ffb0fa35efc5f5e63977af7847a3cc0b9f9ad4386d29db23fd3e6f',
+    bundleSha256: 'fda4f4c5eb251e37ef20e62061d99cc616de2c738f862f86f2e6bceffd4f338f',
   },
   blueprint: {
-    version: '2.0.0',
-    archiveSha256: '9c7397005128e7e04e923a402fbcc4b5ede3ca85c79cb1eaf5728321c851272f',
-    bundleSha256: '90af173a303790de9df1e08224c824dd912798e5644b98c30c31d7d22412c92f',
+    version: '2.1.0',
+    archiveSha256: '797dea00d418369d79a41ac8683df6f700db337f469e94d9e4f1c55663309779',
+    bundleSha256: '017169fbb20b8118f73b84ae729f16c326225c56974fbfb3153e2f9a643d3c92',
   },
   listing: {
-    version: '2.0.0',
-    archiveSha256: '5a2addae3eab202da5cb5efedadf8a1a78fb3b017278dff64a67c81bf43a5c94',
-    bundleSha256: '5b7b311eb2bf879b50a98fc171d0f22937a15cf592014d0ba6feb60f2272856a',
+    version: '2.1.0',
+    archiveSha256: '183840d14a668fb8ff0cd4cbf8f48dbaf4dc627436566be5786b25828d580267',
+    bundleSha256: '02a95af98fd7e307d59a74205b12dd6cce563f3345d68daf72661d4280520c68',
   },
 };
 
@@ -141,6 +141,31 @@ export function releasesRoot(): string {
 
 /** The directory one family's archive unpacks to, e.g. `component-v2`. */
 export const releaseDir = (family: ArchiveFamily): string => path.join(releasesRoot(), `${family}-${majorOf(family)}`);
+
+/** One record of component's protocol registry, reduced to the members the semantic phase reads. */
+export type ProtocolRecord = {
+  id: string;
+  members: { name: string; presence: 'required' | 'optional' | 'derived'; sensitive: boolean; default?: unknown }[];
+};
+
+/**
+ * Component spec §6.4: the protocol registry, one JSON file per protocol beside
+ * `categories.json`, is normative for each protocol's members. It is read from
+ * the pinned archive rather than copied, so adopting a release adopts its
+ * protocols. An empty registry would quietly make every member unknown, so it
+ * is refused.
+ */
+export function protocolRegistry(): ProtocolRecord[] {
+  const directory = path.join(releaseDir('component'), 'protocols');
+  const records = fs
+    .readdirSync(directory)
+    .filter((file) => file.endsWith('.json') && file !== 'categories.json')
+    .map((file) => JSON.parse(fs.readFileSync(path.join(directory, file), 'utf8')) as ProtocolRecord);
+  if (records.length === 0) {
+    throw new Error(`component/v${releaseOf('component')} carries no protocol records in protocols/`);
+  }
+  return records;
+}
 
 /** Every `$ref` in a published bundle resolves inside `$defs`; anything else is external. */
 export function externalRefs(node: unknown, found: string[] = []): string[] {

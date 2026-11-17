@@ -1,0 +1,73 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: searxng
+spec:
+  itemType: BLUEPRINT
+  displayName: SearXNG
+  summary: >-
+    Private metasearch engine for your team, behind Musher sign-in. It queries
+    Google, Bing, DuckDuckGo, Wikipedia and dozens more, with no tracking and
+    no ads.
+  overview: |
+    ## What it is
+    SearXNG is an open-source metasearch engine. It sends each query to many
+    search engines at once, among them Google, Bing, DuckDuckGo, Brave,
+    Wikipedia and Startpage. It merges and ranks what comes back, and serves
+    the results without ads, tracking cookies or a profile of the person
+    searching. The engines see this deployment's server, not your team's
+    browsers.
+
+    ## When to use
+    - You want a private search engine for your team, with no search history
+      kept by an ad network.
+    - You want one search box over general web, news, images, videos, science
+      and code engines, with per-user preferences stored in the browser.
+    - You want to make it the default search engine in your team's browsers.
+      SearXNG publishes an OpenSearch description, so browsers offer to add it.
+
+    ## Defaults
+    One node runs `searxng/searxng:2026.11.12-de722ab1b` on port 8080 behind
+    the platform's HTTPS edge, on 1 vCPU and 1 GiB. It keeps no volume:
+    settings come from the environment on every start, preferences live in
+    each browser's cookie, and SearXNG keeps no search history. The secret key
+    that signs image-proxy links is generated at deploy. Result images load
+    through the deployment (the image proxy), so the sites that host them
+    never see your team's browsers.
+
+    ## Access and security
+    The deployment's URL is behind Musher sign-in: only members of your
+    organization reach the search page. SearXNG has no accounts of its own,
+    so there is no second password. Because only signed-in members can reach
+    it, SearXNG's bot-protection limiter is off, and no Valkey server runs
+    beside it.
+
+    ## Limitations
+    - Results come back as HTML pages only. SearXNG enables its JSON, CSV and
+      RSS formats only through a settings file, and this deployment configures
+      SearXNG from environment variables alone. Agents and tools that call
+      `/search?format=json`, including Open WebUI's web search, get `403`.
+    - Some engines rate-limit or challenge requests from cloud IP addresses.
+      SearXNG suspends an engine for a while after errors and serves results
+      from the others. You can see each engine's status at `/stats`.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher.
+    2. Search. Use the category tabs for news, images, videos, science or IT
+       results, and **Preferences** to choose engines, language and safe
+       search. Preferences are kept in your browser.
+    3. To make it your browser's default search engine, add it from the
+       browser's search-engine settings while the page is open. SearXNG
+       publishes an OpenSearch description that browsers detect.
+  category: PRODUCTIVITY
+  lifecycleStage: BETA
+  tags:
+    - search
+    - metasearch
+    - privacy
+    - web-search
+    - search-engine
+  homepageURL: https://searxng.org
+  sourceRepositoryURL: https://github.com/searxng/searxng
+  supportURL: https://docs.searxng.org
+  license: AGPL-3.0-or-later
+  icon: media/icon.png

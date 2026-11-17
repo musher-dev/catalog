@@ -1,0 +1,179 @@
+# A copy of the `text-embeddings-inference` item's component
+# (items/text-embeddings-inference/components/text-embeddings-inference.yaml,
+# revision 1). A repo-local componentRef cannot leave its item directory, so a
+# blueprint that needs it carries its own. Keep the two in step.
+#
+# Here it is the embedder for Graphiti: Graphiti's embedder must be OpenAI,
+# Azure OpenAI, Gemini or Voyage (mcp_server/src/services/factories.py,
+# mcp-v1.1.3), and the default Claude connection serves no embeddings, so this
+# node answers Graphiti's OpenAI client at /v1/embeddings inside the
+# deployment.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Hugging Face Text Embeddings Inference on CPU, serving one embedding model
+    behind an API key with an OpenAI-compatible /v1/embeddings route, and
+    caching the model on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. cpu-1.9.4 is the latest stable release (v1.9.4, 2026-09-15).
+      # CPU tags carry a `cpu-` prefix and no `v`. `cpu-1.9` floats to the
+      # next patch, and the `cpu-sha-*` tags are main-branch builds. The
+      # `-grpc` variants serve gRPC instead of HTTP, which this component does
+      # not speak. The image is linux/amd64 only, on debian:bookworm-slim,
+      # and runs as root (Dockerfile, v1.9.4).
+      image: ghcr.io/huggingface/text-embeddings-inference:cpu-1.9.4
+    endpoints:
+      primary:
+        targetPort: 8080
+        protocol: HTTP
+    health:
+      # The router downloads the model, loads it and warms it up before it
+      # binds the port (router/src/lib.rs, v1.9.4), so the first boot spends
+      # most of its time fetching weights from the Hugging Face Hub. 30 + 60 x
+      # 10 = 630 s covers the default model (about 130 MB of ONNX weights)
+      # with a wide margin, and a model of a few GB on a reasonable link.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 60
+      # /health runs a health check through the backend and answers 503 when
+      # it fails. It sits on the public routes, outside the API key check,
+      # together with /, /ping and /metrics (router/src/http/server.rs,
+      # v1.9.4).
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # The image sets HUGGINGFACE_HUB_CACHE=/data, and upstream's every
+      # `docker run` mounts a volume there "to avoid downloading weights every
+      # run" (README.md, v1.9.4). The image runs as root, so the volume needs
+      # no particular owner.
+      data:
+        minSizeGiB: 5
+        mountPath: /data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field. Every
+      # router flag also reads the environment variable of the same name
+      # (`#[clap(long, env)]`, router/src/main.rs, v1.9.4).
+      modelID:
+        schema:
+          type: string
+        # MIT-licensed, 33M parameters, 384 dimensions, English, ships ONNX
+        # weights that the CPU image's ORT backend prefers
+        # (backends/src/lib.rs, v1.9.4). Small enough for a 2 GB node.
+        default: BAAI/bge-small-en-v1.5
+        target:
+          envVar: MODEL_ID
+        description: >-
+          Hugging Face Hub ID of the embedding model to serve, such as
+          BAAI/bge-small-en-v1.5. It must be an architecture TEI supports.
+      revision:
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: REVISION
+        description: >-
+          Commit, branch or tag of the model to download. Leave it unset for
+          the model's default branch.
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: API_KEY
+        description: >-
+          Bearer token every embedding, rerank and info request must send as
+          `Authorization: Bearer <key>`.
+      # Only for gated or private models. Without it the Hub is read
+      # anonymously, which is enough for the default model.
+      hfToken:
+        schema:
+          type: string
+        sensitive: true
+        required: false
+        target:
+          envVar: HF_TOKEN
+        description: >-
+          Hugging Face access token, needed only to download a gated or private
+          model.
+      # Upstream's default of 32 inputs per request. OpenAI client libraries
+      # that batch, such as LangChain's OpenAIEmbeddings, send far more by
+      # default, and TEI refuses such a request with 422 rather than splitting
+      # it (router/src/main.rs, v1.9.4).
+      maxClientBatchSize:
+        schema:
+          type: string
+        default: '32'
+        target:
+          envVar: MAX_CLIENT_BATCH_SIZE
+        description: >-
+          Most inputs one request may carry, as the literal string the image
+          parses. Larger requests are refused with 422.
+      # The router also reads HOSTNAME as its listen address
+      # (router/src/main.rs, v1.9.4). The runtime sets HOSTNAME to the pod's
+      # name, which the router logs as "Invalid hostname, defaulting to
+      # 0.0.0.0" and then binds 0.0.0.0, the address it needs (run gqs0ef138).
+      #
+      # The image sets PORT=80, which the platform refuses at admission
+      # (ERR_PRIVILEGED_PORT: its runtime cannot bind below 1024), so the
+      # router moves to 8080. The cache path restates the image's own value.
+      port:
+        schema:
+          type: string
+        default: '8080'
+        target:
+          envVar: PORT
+        description: Port the router listens on, the `primary` endpoint's target port.
+      hubCache:
+        schema:
+          type: string
+        default: /data
+        target:
+          envVar: HUGGINGFACE_HUB_CACHE
+        description: Directory model files are downloaded to and cached in, the volume's mount path.
+    outputs:
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal OpenAI-compatible base URL, ending in /v1, resolvable
+          only by workloads in the same deployment. Clients append
+          /embeddings.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}/v1"
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: The bearer token clients send, for a consumer's embeddings API key input.
+        from:
+          input: apiKey
+      model:
+        schema:
+          type: string
+        description: >-
+          Model ID to send as `model` in embedding requests. TEI serves one
+          model, and logs a warning for any other value without refusing it.
+        from:
+          input: modelID

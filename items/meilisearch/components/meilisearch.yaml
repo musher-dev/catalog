@@ -1,13 +1,13 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 8
+  revision: 10
   description: Meilisearch search engine serving its HTTP API from one data volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: getmeili/meilisearch:v1.54.3
+      image: getmeili/meilisearch:v1.56.2
     endpoints:
       primary:
         targetPort: 7700
@@ -51,7 +51,7 @@ spec:
       # IN-PLACE UPGRADES, the self-hosted path upstream documents
       # (documentation: resources/migration/updating.mdx). A database only
       # opens under the exact version that wrote it. check_version
-      # (crates/meilisearch/src/lib.rs, v1.54.3) refuses any major, minor or
+      # (crates/meilisearch/src/lib.rs, v1.56.2) refuses any major, minor or
       # patch mismatch unless this flag is set. Without it, every tag bump
       # leaves existing deployments unable to start.
       #
@@ -86,6 +86,19 @@ spec:
         description: >-
           Whether an existing database is upgraded in place on first start
           after a version change, as the literal string the image parses.
+      # Meilisearch gives indexing two thirds of the memory limit it detects
+      # (option.rs, v1.56.2), which leaves too little of the node's 1 GiB for
+      # search and LMDB's pages while a large import runs. 512 MiB, written in
+      # bytes because the value is parsed as a byte size.
+      maxIndexingMemory:
+        schema:
+          type: string
+        default: '536870912'
+        target:
+          envVar: MEILI_MAX_INDEXING_MEMORY
+        description: >-
+          Most memory indexing may use, in bytes, so a large import leaves room
+          for search beside it.
       masterKey:
         schema:
           type: string

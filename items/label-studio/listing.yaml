@@ -47,6 +47,14 @@ spec:
     S3-compatible storage, and URL imports must be reachable at public
     addresses, because requests to private or local network addresses are
     blocked.
+  gettingStarted: |
+    1. Allow a few minutes on first boot while the database migrations run.
+    2. Copy the **Admin password** from the deployment's Installation tab and
+       sign in with your Musher email.
+    3. Change the password in Label Studio's account settings. Editing the
+       parameter later does not update the account.
+    4. Create a project, set up its labeling template and import your data.
+    5. Invite annotators by link, since open sign-up is disabled.
   category: MODELS
   lifecycleStage: STABLE
   tags:

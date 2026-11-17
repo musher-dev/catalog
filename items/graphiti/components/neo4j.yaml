@@ -1,0 +1,161 @@
+# The graph database Graphiti keeps its knowledge graph in: entities, the facts
+# between them as edges, and the episodes they came from.
+#
+# Neo4j rather than FalkorDB, although the MCP server defaults to FalkorDB
+# (mcp_server/config/config.yaml, mcp-v1.1.3): Neo4j Community is GPL-3.0,
+# while FalkorDB is under the Server Side Public License. Upstream ships a
+# Neo4j compose file for exactly this pairing (docker-compose-neo4j.yml).
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Neo4j Community graph database on one persistent volume, reached over Bolt
+    by workloads in the same deployment and checked over its HTTP discovery
+    endpoint.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 2026.10.2-community is the latest stable Community release
+      # (calendar versioning since 2025.01). `community` and `latest` float to
+      # the next release, and the tags without a suffix are the same build.
+      # Upstream's compose still names neo4j:5.26.0 (docker-compose-neo4j.yml,
+      # mcp-v1.1.3), the previous long-term-support line; Graphiti's
+      # requirements list Neo4j 5.26 (README.md, v0.31.2).
+      image: neo4j:2026.10.2-community
+    # The image's ENTRYPOINT (tini, then /startup/docker-entrypoint.sh) stays,
+    # and this replaces its CMD of `neo4j`. A shell sets two kinds of
+    # variable that inputs cannot set directly:
+    #
+    # - NEO4J_AUTH must read `neo4j/<password>`, and an input cannot be
+    #   composed with a literal.
+    # - The entrypoint turns NEO4J_<setting> variables into neo4j.conf
+    #   settings, with `_` for `.` and `__` for `_`, and setting names are
+    #   lower case, as in NEO4J_server_memory_heap_max__size. An input's
+    #   envVar must be upper case, so the inputs land in DB_* variables and
+    #   the shell copies them across.
+    #
+    # The entrypoint then runs twice. Started as root with a command other
+    # than `neo4j`, it chowns /var/lib/neo4j and /data to the neo4j user and
+    # execs the command under `su-exec neo4j:neo4j`. That second run, as
+    # neo4j and with `neo4j` as its command, writes the settings into
+    # neo4j.conf, sets the initial password and starts the server
+    # (docker-entrypoint.sh, 2026.10.2). The DB_* variables are deliberately
+    # not NEO4J_-prefixed: the entrypoint would turn them into settings too,
+    # and strict validation refuses unknown ones.
+    command:
+      - sh
+      - -c
+      - |
+        export NEO4J_AUTH="neo4j/$DB_ADMIN_PASSWORD"
+        export NEO4J_server_memory_heap_initial__size="$DB_HEAP_INITIAL_SIZE"
+        export NEO4J_server_memory_heap_max__size="$DB_HEAP_MAX_SIZE"
+        export NEO4J_server_memory_pagecache_size="$DB_PAGECACHE_SIZE"
+        export NEO4J_dbms_usage__report_enabled="$DB_USAGE_REPORT_ENABLED"
+        exec /startup/docker-entrypoint.sh neo4j
+    endpoints:
+      # The HTTP API. Graphiti does not use it; only the probe below does.
+      http:
+        targetPort: 7474
+        protocol: HTTP
+      # Bolt, the protocol Graphiti's Neo4j driver speaks.
+      bolt:
+        targetPort: 7687
+        protocol: TCP
+    health:
+      # GET / is the discovery document and needs no credentials. Upstream's
+      # compose health check polls the same URL (docker-compose-neo4j.yml,
+      # mcp-v1.1.3). The HTTP connector opens once the server has started,
+      # which on a first boot includes creating the system and neo4j
+      # databases, so allow a start-up of up to 30 + 30 x 10 = 330 s.
+      startup:
+        http:
+          endpoint: http
+          path: /
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 30
+      readiness:
+        http:
+          endpoint: http
+          path: /
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # The image declares /data as a volume and keeps databases and the auth
+      # store there. The entrypoint chowns it to the neo4j user (uid 7474) on
+      # every start, so the volume needs no particular owner.
+      data:
+        minSizeGiB: 10
+        mountPath: /data
+  contract:
+    inputs:
+      adminPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: DB_ADMIN_PASSWORD
+        description: >-
+          Password of the `neo4j` admin user, set on the first start only. Neo4j
+          keeps it in the data volume, so changing it later does not change
+          the stored one.
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      #
+      # Upstream's Graphiti compose gives Neo4j a 512 MiB initial heap, a 1 GiB
+      # maximum and a 512 MiB page cache (docker-compose-neo4j.yml,
+      # mcp-v1.1.3). Set explicitly so the JVM does not size itself from the
+      # host rather than the node.
+      heapInitialSize:
+        schema:
+          type: string
+        default: 512m
+        target:
+          envVar: DB_HEAP_INITIAL_SIZE
+        description: Initial JVM heap, as the literal string Neo4j parses (server.memory.heap.initial_size).
+      heapMaxSize:
+        schema:
+          type: string
+        default: 1G
+        target:
+          envVar: DB_HEAP_MAX_SIZE
+        description: Maximum JVM heap, as the literal string Neo4j parses (server.memory.heap.max_size).
+      pageCacheSize:
+        schema:
+          type: string
+        default: 512m
+        target:
+          envVar: DB_PAGECACHE_SIZE
+        description: >-
+          Memory for caching the store files, as the literal string Neo4j
+          parses (server.memory.pagecache.size).
+      # Anonymous usage reporting to Neo4j, on unless turned off
+      # (conf/neo4j.conf, 2026.10.2).
+      usageReportEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: DB_USAGE_REPORT_ENABLED
+        description: >-
+          Whether Neo4j sends anonymous usage data, as the literal string Neo4j
+          parses (dbms.usage_report.enabled).
+    outputs:
+      boltURI:
+        schema:
+          type: string
+        presentationHint: CONNECTION_STRING
+        description: >-
+          Mesh-internal Bolt URI of the database, such as
+          `bolt://graph-db.internal:7687`, resolvable only by workloads in the
+          same deployment.
+        from:
+          template: "bolt://${{ self.endpoints.bolt.privateAddress }}"

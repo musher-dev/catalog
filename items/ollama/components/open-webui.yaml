@@ -1,0 +1,454 @@
+# Open WebUI on the deployment's own Ollama server. A copy of the
+# `open-webui` item's component (items/open-webui/components/open-webui.yaml,
+# revision 13): a repo-local componentRef cannot leave its item directory, so
+# a blueprint that needs one carries its own. Keep the two in step when
+# bumping the image or changing sign-in.
+#
+# Changes from the original, all for the Ollama node beside it:
+#
+# - The native Ollama client is on and pointed at the `ollama` node
+#   (OLLAMA_BASE_URL), and the OpenAI client is off. There is no language
+#   model connection, so no prompt leaves the deployment.
+# - A `command` that, before Open WebUI starts, waits for Ollama, pulls the
+#   chosen model if Ollama does not have it, and loads it with a one-token
+#   generation. Ollama cannot pull at start itself (components/ollama.yaml).
+# - Thinking off by default (DEFAULT_MODEL_PARAMS), for CPU response times.
+# - A startup budget that also covers Ollama's image pull and the model
+#   download.
+# - A `privateURL` output, for other nodes in a composition.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Open WebUI chat interface for an Ollama server, pulling and loading the
+    chosen model before it starts, and signing viewers in as an OpenID
+    Connect client of the platform.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.13.3 is the latest stable release (2026-11-08), the same
+      # tag the `open-webui` item runs. `main` and `latest` move with every
+      # merge or release.
+      image: ghcr.io/open-webui/open-webui:v0.13.3
+    # The image has no ENTRYPOINT and its CMD is `bash start.sh` (Dockerfile,
+    # v0.13.3), so this replaces the whole start command and ends by running
+    # that same script. The image ships curl and jq (Dockerfile), which this
+    # uses against Ollama's API (docs/api.md, ollama v0.40.16):
+    #
+    # 1. Wait for GET /api/version. The `ollama` node starts at the same time
+    #    and pulls a 3.4 GB image first, and the platform orders nothing.
+    # 2. POST /api/show for the model. 200 means it is already on Ollama's
+    #    volume, which is every boot after the first.
+    # 3. Otherwise POST /api/pull with stream false, which answers once the
+    #    download has finished, {"status":"success"}. A failure exits
+    #    non-zero, so the platform restarts the node and the deployment does
+    #    not report ready on a server with no model. Ollama keeps partial
+    #    downloads, so a retry resumes.
+    # 4. POST /api/generate for one token with think false. That loads the
+    #    model into memory now rather than in the first person's chat, and
+    #    fails the start if Ollama cannot run it, for example because the
+    #    chosen model does not fit the node's memory.
+    #
+    # The model name is checked against Ollama's name characters before it
+    # goes into JSON. A model deleted in Open WebUI is pulled again on the
+    # next restart while it is still the chosen model.
+    command:
+      - bash
+      - -c
+      - |
+        set -euo pipefail
+        base="${OLLAMA_BASE_URL%/}"
+        model="$INIT_MODEL"
+        log() { echo "ollama-init: $*"; }
+        case "$model" in
+          *[!A-Za-z0-9._:/-]* | "") log "model name '$model' is not a valid Ollama name" >&2; exit 1 ;;
+        esac
+        deadline=$(( $(date +%s) + INIT_TIMEOUT_SECONDS ))
+        until curl -fsS -o /dev/null --max-time 5 "$base/api/version"; do
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            log "$base did not answer within ${INIT_TIMEOUT_SECONDS}s" >&2; exit 1
+          fi
+          sleep 3
+        done
+        log "Ollama $(curl -fsS --max-time 5 "$base/api/version" | jq -r .version) is up"
+        if curl -fsS -o /dev/null --max-time 30 "$base/api/show" -d "{\"model\":\"$model\"}"; then
+          log "$model is already pulled"
+        else
+          log "pulling $model"
+          status=$(curl -sS --max-time "$INIT_TIMEOUT_SECONDS" "$base/api/pull" \
+            -d "{\"model\":\"$model\",\"stream\":false}" | jq -r '.status // .error // "no answer"') \
+            || status="request failed"
+          if [ "$status" != success ]; then log "pull of $model failed: $status" >&2; exit 1; fi
+          log "pulled $model"
+        fi
+        start=$(date +%s)
+        body="{\"model\":\"$model\",\"prompt\":\"Hi\",\"think\":false,\"stream\":false"
+        body="$body,\"options\":{\"num_predict\":1}}"
+        err=$(curl -sS --max-time 600 "$base/api/generate" -d "$body" \
+          | jq -r '.error // empty') || err="request failed"
+        if [ -n "$err" ]; then log "loading $model failed: $err" >&2; exit 1; fi
+        log "$model loaded in $(( $(date +%s) - start ))s; starting Open WebUI"
+        unset INIT_MODEL INIT_TIMEOUT_SECONDS
+        exec bash start.sh
+    endpoints:
+      primary:
+        targetPort: 8080
+        protocol: HTTP
+        # Open WebUI signs viewers in as an OpenID Connect client. These are the
+        # routes it receives the authorization response on for its `oidc`
+        # provider: /login/callback, plus the legacy /callback it still serves
+        # (main.py, v0.13.3). The platform registers publicURL followed by each.
+        oidc:
+          redirectPaths:
+            - /oauth/oidc/login/callback
+            - /oauth/oidc/callback
+        # The OpenAI- and Anthropic-compatible chat, model and embedding APIs,
+        # the OpenAI proxy, and incoming channel webhooks. API clients call
+        # these with an Open WebUI API key and no viewer session, and Open
+        # WebUI authenticates every one itself (utils/auth.py; channel
+        # webhooks carry their token in the path). A blueprint may let them
+        # past the platform's sign-in. The UI keeps working through them,
+        # because under OIDC it holds Open WebUI's own session.
+        #
+        # Not `bearerToken`. /api/v1/auths/signup checks no credential, and on a
+        # deployment first installed before this revision, sign-up stays as
+        # that install saved it (ui.enable_signup and ui.enable_login_form
+        # are captured at first boot, config.py). Any bearer token would
+        # then open self-registration to the internet.
+        exemptibleRequests:
+          paths:
+            - /api/chat/completions
+            - /api/v1/chat/completions
+            - /api/models
+            - /api/v1/models
+            - /api/embeddings
+            - /api/v1/embeddings
+            - /api/v1/messages
+            - /api/v1/channels/webhooks
+            - /openai
+    health:
+      # The first boot below runs on one vCPU, so it gets a budget of its own
+      # rather than resting on the readiness gate's retries. The original's
+      # 930 s covers Open WebUI alone; here the `command` first waits for the
+      # `ollama` node's image pull and for the model download (about 1.4 GB
+      # for the default), so 30 + 150 x 10 = 1530 s. Readiness and liveness
+      # are suspended until it passes. Later boots find the model on
+      # Ollama's volume and skip the download.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 150
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        # uvicorn binds the socket only after the FastAPI lifespan returns, so
+        # nothing answers on 8080 until the whole first boot has run: ~70
+        # alembic migrations, then a cold pull of the default embedding model
+        # (sentence-transformers/all-MiniLM-L6-v2) from HuggingFace, then
+        # loading it. The image bakes that model in at build time, but into
+        # /app/backend/data/cache (SENTENCE_TRANSFORMERS_HOME, Dockerfile at
+        # v0.13.3), which the data volume below mounts over. Every probe until
+        # then is connection-refused. The old 30s + 3-failure gate expired
+        # while the model was still loading and the agent reaped the container
+        # mid-boot (observed live). Same budget shape
+        # as label-studio and mlflow: the wait is carried by the initial delay,
+        # because retries are cheap but few. First boot only — the model cache
+        # and the DB both live in the data volume below.
+        initialDelaySeconds: 180
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 10
+    volumes:
+      data:
+        minSizeGiB: 8
+        mountPath: /app/backend/data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and no deploy form gains a field — but they
+      # are pins like any other, and a composition may override one.
+      #
+      # The OpenAI client is off: this deployment has no language-model
+      # connection, and the default would list models from api.openai.com
+      # with no key (config.py:309, v0.13.3). An admin can turn it on and add
+      # a provider under Admin Settings → Connections. Captured at first boot.
+      enableOpenAIAPI:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ENABLE_OPENAI_API
+        description: >-
+          Whether the OpenAI-compatible API client is enabled, as the literal
+          string the image parses.
+      # The native Ollama client: model list, chat, and the admin's model
+      # management (pull and delete under Admin Settings → Models), all
+      # through the Ollama API (routers/ollama.py, v0.13.3). Already True by
+      # default (config.py:229); pinned so the item does not depend on an
+      # upstream default it cannot see change.
+      enableOllamaAPI:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ENABLE_OLLAMA_API
+        description: >-
+          Whether the native Ollama client is enabled, as the literal string the
+          image parses.
+      # The `ollama` node's private URL, with no path. Open WebUI strips a
+      # trailing slash and appends /api/... itself (config.py:233-236,
+      # v0.13.3). Like the connection in the original, it is CAPTURED AT FIRST
+      # BOOT as `ollama.base_urls` (config.py:2968, seeded by
+      # seed_registered_defaults on every start), so later boots keep the
+      # saved copy. The `ollama` node's private address is stable for the life
+      # of the deployment, so that copy stays right. The `command` above reads
+      # this variable on every boot.
+      ollamaBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OLLAMA_BASE_URL
+        description: >-
+          Mesh-internal base URL of the Ollama server, with no path, saved at
+          first boot.
+      # Read only by the `command` above, which unsets it before Open WebUI
+      # starts. The same parameter feeds defaultModels below, so the model
+      # pulled is the model preselected.
+      initModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: INIT_MODEL
+        description: >-
+          Ollama model pulled and loaded before Open WebUI starts, such as
+          qwen3:1.7b.
+      initTimeoutSeconds:
+        schema:
+          type: integer
+        default: 1200
+        target:
+          envVar: INIT_TIMEOUT_SECONDS
+        description: >-
+          How long the start waits for Ollama to answer, and then for the model
+          download, before it fails and the node restarts.
+      # Captured at first boot (ui.default_models), like the original. Users
+      # can still pick any other model Ollama has pulled.
+      defaultModels:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DEFAULT_MODELS
+        description: Model preselected for new chats.
+      # Global default model parameters (models.default_params, merged under
+      # each model's own and each request's, main.py:1202, v0.13.3), captured
+      # at first boot. `think` goes to Ollama as its root `think` field
+      # (utils/payload.py, v0.13.3). Ollama turns thinking on for any model
+      # that supports it when a request leaves it unset (server/routes.go,
+      # ollama v0.40.16), and on a CPU a small model can reason for a minute
+      # before it answers. false is accepted by models that cannot think.
+      # Admins change it under Admin Settings → Models.
+      defaultModelParams:
+        schema:
+          type: string
+        default: '{"think": false}'
+        target:
+          envVar: DEFAULT_MODEL_PARAMS
+        description: >-
+          JSON object of default parameters for every model, saved at first
+          boot.
+      # PyTorch sizes its thread pool from the host's cores, not the node's
+      # vCPU quota, so the embedding model would run dozens of threads on one
+      # vCPU. One thread matches the profile the blueprint gives this node.
+      ompNumThreads:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: OMP_NUM_THREADS
+        description: Threads PyTorch and its math libraries use for the local embedding model.
+      webuiSecretKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: WEBUI_SECRET_KEY
+        description: Secret key used to sign session tokens
+      # Sign-in through the platform's OpenID Connect provider. Unlike the
+      # Ollama URL above, `oauth.*` settings are read from the environment on
+      # every start (ENABLE_OAUTH_PERSISTENT_CONFIG defaults to False,
+      # config.py, v0.13.3), so a rotated client secret takes effect on the
+      # next restart. Open WebUI keys accounts on the provider's `sub`.
+      oidcClientID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: OAUTH_CLIENT_ID
+        description: Client identifier the platform registered for this endpoint.
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: OAUTH_CLIENT_SECRET
+        description: Client secret the platform registered for this endpoint.
+      # A discovery document, not the bare issuer: Open WebUI hands this URL
+      # to Authlib as server_metadata_url (config.py, v0.13.3).
+      oidcDiscoveryURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OPENID_PROVIDER_URL
+        description: URL of the platform's OpenID Connect discovery document.
+      # Stated rather than derived. Open WebUI otherwise builds the URI with
+      # request.url_for, which depends on the scheme the proxy reports.
+      oidcRedirectURI:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: OPENID_REDIRECT_URI
+        description: Redirect URI Open WebUI sends with its authorization request.
+      oauthSignup:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ENABLE_OAUTH_SIGNUP
+        description: >-
+          Whether a first sign-in through the platform creates the account, as
+          the literal string the image parses.
+      # The platform's EMAIL claim is a verified address (blueprint
+      # BP-ACCESS-006), so merging on it is safe. Without it, an account
+      # registered with a password before this revision could never sign in
+      # again, because password sign-in is off below.
+      oauthMergeAccountsByEmail:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OAUTH_MERGE_ACCOUNTS_BY_EMAIL
+        description: >-
+          Whether a platform sign-in takes over the existing account with the
+          same verified email, as the literal string the image parses.
+      oauthProviderName:
+        schema:
+          type: string
+        default: Musher
+        target:
+          envVar: OAUTH_PROVIDER_NAME
+        description: Name the sign-in button gives the platform's provider.
+      # The platform's provider requires PKCE with S256 (BP-ACCESS-008).
+      oauthCodeChallengeMethod:
+        schema:
+          type: string
+        default: S256
+        target:
+          envVar: OAUTH_CODE_CHALLENGE_METHOD
+        description: PKCE method Open WebUI uses in its authorization request.
+      oauthAutoRedirect:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OAUTH_AUTO_REDIRECT
+        description: >-
+          Whether the sign-in page goes straight to the platform's provider, as
+          the literal string the image parses.
+      # Read from the environment on every start; refuses password sign-in
+      # (routers/auths.py, v0.13.3).
+      passwordAuth:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ENABLE_PASSWORD_AUTH
+        description: >-
+          Whether accounts may sign in with a password, as the literal string
+          the image parses.
+      # Captured at first boot, so it reaches only a new deployment. With it
+      # off, the first admin is the first person to sign in through the
+      # platform rather than whoever registers first.
+      loginForm:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: ENABLE_LOGIN_FORM
+        description: >-
+          Whether the email and password form is shown on a new deployment, as
+          the literal string the image parses.
+      # Captured at first boot, like the login form, so it reaches only a new
+      # deployment; an admin toggles it under Settings afterwards. The
+      # exempt API paths are useful only to a client holding an API key.
+      apiKeys:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: ENABLE_API_KEYS
+        description: >-
+          Whether users may create API keys on a new deployment, as the literal
+          string the image parses.
+    outputs:
+      # The client the platform registers for `primary` (component §5.2,
+      # COMP-EP-012/014). Reading it means any blueprint deploying this
+      # component must select viewerIdentity OIDC there. The blueprint binds
+      # each output back into the input of the same name.
+      oidcClientID:
+        schema:
+          type: string
+        description: Client identifier the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        schema:
+          type: string
+        sensitive: true
+        description: Client secret the platform registered for this endpoint.
+        from:
+          endpoint: primary
+          property: oidcClientSecret
+      oidcDiscoveryURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Discovery document of the platform's OpenID Connect provider.
+        from:
+          template: "${{ self.endpoints.primary.oidcIssuerURL }}/.well-known/openid-configuration"
+      oidcRedirectURI:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: Redirect URI the platform registered for this endpoint.
+        from:
+          template: "${{ self.endpoints.primary.publicURL }}/oauth/oidc/login/callback"
+      # This deployment's addition: the private base URL, for other nodes in a
+      # composition, such as an agent calling Open WebUI's API with a key.
+      privateURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of Open WebUI, resolvable only by workloads in
+          the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

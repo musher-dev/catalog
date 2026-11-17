@@ -1,0 +1,128 @@
+# The Meilisearch server LibreChat indexes conversations and messages in, for
+# the search box in its sidebar. A copy of the `meilisearch` item's component
+# (items/meilisearch/components/meilisearch.yaml, revision 10): a repo-local
+# componentRef cannot leave its item directory, so a blueprint that needs one
+# carries its own. Keep the two in step.
+#
+# One addition: the `url` output at the end, so the blueprint can hand
+# LibreChat the server's private address (MEILI_HOST). The canonical item
+# serves Meilisearch publicly and has no consumer to wire.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 10
+  description: Meilisearch search engine serving its HTTP API from one data volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      image: getmeili/meilisearch:v1.56.2
+    endpoints:
+      primary:
+        targetPort: 7700
+        protocol: HTTP
+    health:
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      data:
+        minSizeGiB: 8
+        mountPath: /meili_data
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field.
+      env:
+        schema:
+          type: string
+        default: production
+        target:
+          envVar: MEILI_ENV
+        description: >-
+          Which operating mode Meilisearch runs in; production requires a
+          master key and serves no web interface.
+      noAnalytics:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: MEILI_NO_ANALYTICS
+        description: >-
+          Whether anonymous usage analytics are off, as the literal string the
+          image parses.
+      # IN-PLACE UPGRADES, the self-hosted path upstream documents
+      # (documentation: resources/migration/updating.mdx). A database only
+      # opens under the exact version that wrote it. check_version
+      # (crates/meilisearch/src/lib.rs, v1.56.2) refuses any major, minor or
+      # patch mismatch unless this flag is set. Without it, every tag bump
+      # leaves existing deployments unable to start.
+      #
+      # It is set permanently rather than for one release, because it does
+      # nothing unless there is something to upgrade. It is skipped for an
+      # empty data dir and when the VERSION file already matches the binary.
+      # So it takes effect only on the first start after the image tag above
+      # changes.
+      #
+      # What it costs, both upstream's words:
+      #   - one-way. The VERSION file is rewritten and a later downgrade is
+      #     refused (DowngradeNotSupported).
+      #   - "not atomic". A partial failure can corrupt the database, which
+      #     is why upstream takes a snapshot first. This deployment exposes
+      #     no --import-snapshot or --import-dump, so a backup could not be
+      #     restored here anyway. The listing tells users to keep the index
+      #     rebuildable from its source data instead.
+      #
+      # It does not stretch the readiness budget. At startup only the
+      # task-queue migrations run. The index upgrade itself is enqueued as an
+      # UpgradeDatabase task and processed after the server is listening
+      # (crates/index-scheduler/src/upgrade/mod.rs).
+      #
+      # Stable since v1.51, which renamed it from
+      # MEILI_EXPERIMENTAL_DUMPLESS_UPGRADE (option.rs).
+      upgradeDB:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: MEILI_UPGRADE_DB
+        description: >-
+          Whether an existing database is upgraded in place on first start
+          after a version change, as the literal string the image parses.
+      # Meilisearch gives indexing two thirds of the memory limit it detects
+      # (option.rs, v1.56.2), which leaves too little of the node's 1 GiB for
+      # search and LMDB's pages while a large import runs. 512 MiB, written in
+      # bytes because the value is parsed as a byte size.
+      maxIndexingMemory:
+        schema:
+          type: string
+        default: '536870912'
+        target:
+          envVar: MEILI_MAX_INDEXING_MEMORY
+        description: >-
+          Most memory indexing may use, in bytes, so a large import leaves room
+          for search beside it.
+      masterKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: MEILI_MASTER_KEY
+        description: Bearer token for admin and indexing API access
+    outputs:
+      url:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of the Meilisearch API, resolvable only by
+          workloads in the same deployment.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"

@@ -1,0 +1,145 @@
+# The Activepieces flow runner, as upstream's own compose runs its `worker`
+# service: the same image with AP_CONTAINER_TYPE=WORKER. It holds no database
+# or Redis credential. It reaches the app at $AP_FRONTEND_URL/api over HTTP
+# and socket.io, takes jobs from it, runs flows, polling triggers, piece
+# property lookups and MCP actions in forked Node.js engine processes, and
+# reports back the same way (docs/install/configure-operate/
+# separate-workers.mdx and server/worker/src/lib/config/configs.ts, 0.93.0).
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Activepieces community edition worker: runs flows, triggers and piece
+    actions for an Activepieces app it reaches over the private network.
+spec:
+  # Not request-driven: the worker dials the app, and nothing calls the worker
+  # except the platform's readiness probe.
+  type: WORKER
+  workload:
+    source:
+      # PINNED. The same image and tag as the app (components/
+      # activepieces-app.yaml); the worker withholds work while its release is
+      # incompatible with the app's (server/worker/src/lib/utils/
+      # version-checker.ts, 0.93.0), so the two move together.
+      image: ghcr.io/activepieces/activepieces:0.93.0
+    # No `command`: the image's ENTRYPOINT picks the worker from
+    # AP_CONTAINER_TYPE, and first derives AP_WORKER_TOKEN, a JWT of type
+    # WORKER, from AP_JWT_SECRET (docker-entrypoint.sh, 0.93.0). That is the
+    # token `npx @activepieces/cli workers token` would print, so no token
+    # has to be generated outside the deployment.
+    endpoints:
+      # A WORKER-mode process serves GET /worker/health on AP_PORT once its
+      # socket to the app is connected and it has fetched its settings; it
+      # answers 503 if a poll loop stalls, and closes the port while
+      # disconnected (startHealthServer, server/worker/src/lib/worker.ts,
+      # 0.93.0). It serves nothing else.
+      health:
+        targetPort: 8080
+        protocol: HTTP
+    health:
+      # Nothing answers until the app does, and the app's first boot runs its
+      # migrations: the same 30 + 60 x 10 = 630 s budget as the app's
+      # (components/activepieces-app.yaml), plus the worker's own start.
+      # 30 + 90 x 10 = 930 s.
+      startup:
+        http:
+          endpoint: health
+          path: /worker/health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
+      readiness:
+        http:
+          endpoint: health
+          path: /worker/health
+        initialDelaySeconds: 30
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # The worker's piece and code cache: npm installs of every piece a flow
+      # uses and each compiled code step. AP_CACHE_BASE_PATH defaults to
+      # `cache`, relative to the image's WORKDIR /usr/src/app
+      # (server/worker/src/lib/config/configs.ts, 0.93.0), the directory
+      # upstream's compose mounts. Kept on a volume so a restart does not
+      # reinstall every piece before the first run.
+      cache:
+        minSizeGiB: 5
+        mountPath: /usr/src/app/cache
+  contract:
+    inputs:
+      containerType:
+        schema:
+          type: string
+        default: WORKER
+        target:
+          envVar: AP_CONTAINER_TYPE
+        description: Which Activepieces process this container runs; WORKER runs flows only.
+      port:
+        schema:
+          type: string
+        default: '8080'
+        target:
+          envVar: AP_PORT
+        description: >-
+          Port the worker's health server listens on, as the literal string
+          the image parses. Must match the endpoint's targetPort.
+      environment:
+        schema:
+          type: string
+        default: prod
+        target:
+          envVar: AP_ENVIRONMENT
+        description: Activepieces runtime environment.
+      # Set here as well as on the app: a worker's own AP_EXECUTION_MODE
+      # overrides the one it is sent (fetchAndStoreSettings, server/worker/
+      # src/lib/worker.ts, 0.93.0).
+      executionMode:
+        schema:
+          type: string
+        default: UNSANDBOXED
+        target:
+          envVar: AP_EXECUTION_MODE
+        description: >-
+          How flows run: UNSANDBOXED, upstream's default, which needs no extra
+          privileges.
+      # Upstream sizes a worker at about 1 GB per concurrent job ("0.5 vCPU /
+      # 1 GB, concurrency 1", docs/install/configure-operate/
+      # production-setup.mdx, 0.93.0). The builder's property dropdowns and
+      # step tests are worker jobs too, so one slot would queue them behind a
+      # running flow; two fit the 2 GiB node the blueprint gives it.
+      concurrency:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: AP_WORKER_CONCURRENCY
+        description: >-
+          Jobs this worker runs at once, as the literal string the image
+          parses. Allow about 1 GB of memory for each.
+      appURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: AP_FRONTEND_URL
+        description: >-
+          Base URL the worker reaches the app at, with /api appended. The
+          app's private URL, so worker traffic never meets the platform's
+          sign-in. Public webhook URLs come from the app's own setting, which
+          the worker is sent.
+      jwtSecret:
+        schema:
+          type: string
+          minLength: 32
+        sensitive: true
+        required: true
+        target:
+          envVar: AP_JWT_SECRET
+        description: >-
+          The app's JWT secret, which the image's entrypoint signs this
+          worker's token with.
+    outputs: {}

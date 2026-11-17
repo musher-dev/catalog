@@ -1,0 +1,311 @@
+# Langfuse's worker container: it consumes the queues the web container fills
+# in Valkey, reads each ingested event back from the S3 bucket and writes it to
+# ClickHouse, and runs evaluations, exports, deletions and Halo's
+# background jobs. Nothing calls it from outside: its HTTP port serves only
+# health routes.
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Langfuse background worker that turns ingested events into ClickHouse rows
+    and runs evaluations and other queued jobs.
+spec:
+  type: WORKER
+  workload:
+    source:
+      # PINNED to the same release as the web container
+      # (components/langfuse-web.yaml). Keep the two in step: they share the
+      # queue payloads and the database schema, and only the web container
+      # migrates it.
+      #
+      # The image runs as uid 1001 with ENTRYPOINT `dumb-init --
+      # ./worker/entrypoint.sh` and CMD `node worker/dist/index.js`
+      # (worker/Dockerfile, v4.79.0). No `command`: the entrypoint composes
+      # DATABASE_URL from the DATABASE_* inputs and execs the CMD. It runs no
+      # migrations.
+      image: langfuse/langfuse-worker:4.79.0
+    endpoints:
+      # Health routes only (worker/src/api/index.ts), on the image's PORT.
+      health:
+        targetPort: 3030
+        protocol: HTTP
+    health:
+      # The routes upstream's Helm chart probes (templates/worker/deployment.yaml,
+      # langfuse-k8s chart 2.2.4). /api/ready fails once the worker has
+      # received SIGTERM; /api/health only once the process is broken. The
+      # worker listens after it has connected to Valkey and started its queue
+      # consumers, and it exits and restarts while a database is unreachable.
+      readiness:
+        http:
+          endpoint: health
+          path: /api/ready
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 30
+      liveness:
+        http:
+          endpoint: health
+          path: /api/health
+        initialDelaySeconds: 120
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. The descriptions match the web
+      # container's inputs of the same names.
+      #
+      # Upstream's Helm chart sets HOSTNAME to 0.0.0.0 for the worker too
+      # (templates/worker/deployment.yaml).
+      hostname:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HOSTNAME
+        description: Address the worker's health server listens on inside the container.
+      port:
+        schema:
+          type: string
+        default: '3030'
+        target:
+          envVar: PORT
+        description: Port the health server listens on, the `health` endpoint's target port.
+      telemetryEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: TELEMETRY_ENABLED
+        description: >-
+          Whether Langfuse sends anonymous usage statistics to its developers,
+          as the literal string the image parses. Off.
+      # Upstream's compose gives the worker the same NEXTAUTH_URL as the web
+      # container: it builds links into the UI from it (docker-compose.yml).
+      publicURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: NEXTAUTH_URL
+        description: Public https URL of the deployment's web endpoint.
+      salt:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: SALT
+        description: Salt Langfuse hashes API secret keys with; the web container's value.
+      encryptionKey:
+        schema:
+          type: string
+          pattern: ^[0-9A-Fa-f]{64}$
+        sensitive: true
+        required: true
+        target:
+          envVar: ENCRYPTION_KEY
+        description: >-
+          256-bit key, as 64 hex characters, that decrypts the LLM provider keys
+          evaluations use; the web container's value.
+      databaseHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_HOST
+        description: Mesh-internal `host:port` of the PostgreSQL server.
+      databaseUsername:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_USERNAME
+        description: Role Langfuse connects to PostgreSQL as.
+      databasePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: DATABASE_PASSWORD
+        description: Password of that role. It must need no percent-encoding in a URL.
+      databaseName:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: DATABASE_NAME
+        description: Database Langfuse keeps its transactional data in.
+      clickhouseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: CLICKHOUSE_URL
+        description: URL of ClickHouse's HTTP interface, which inserts and queries use.
+      clickhouseUser:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: CLICKHOUSE_USER
+        description: ClickHouse user Langfuse connects as.
+      clickhousePassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: CLICKHOUSE_PASSWORD
+        description: Password of that user.
+      clickhouseClusterEnabled:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: CLICKHOUSE_CLUSTER_ENABLED
+        description: >-
+          Whether ClickHouse is a replicated cluster, as the literal string the
+          image parses. A single node here.
+      redisHost:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: REDIS_HOST
+        description: Mesh-internal hostname of the Valkey server the queues live in.
+      redisPort:
+        schema:
+          type: integer
+        required: true
+        target:
+          envVar: REDIS_PORT
+        description: Port of that Valkey server.
+      redisAuth:
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        sensitive: true
+        required: true
+        target:
+          envVar: REDIS_AUTH
+        description: Password Langfuse authenticates to Valkey with.
+      s3EventBucket:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_BUCKET
+        description: Bucket the web container writes ingested events to.
+      s3EventPrefix:
+        schema:
+          type: string
+        default: events/
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_PREFIX
+        description: Key prefix events are written under; the web container's value.
+      s3EventRegion:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_REGION
+        description: Region the S3 client signs requests for.
+      s3EventEndpoint:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_ENDPOINT
+        description: URL of the S3 service, without the bucket.
+      s3EventAccessKeyID:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_ACCESS_KEY_ID
+        description: Access key ID the S3 client signs requests with.
+      s3EventSecretAccessKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_SECRET_ACCESS_KEY
+        description: Secret access key paired with that key ID.
+      s3EventForcePathStyle:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: LANGFUSE_S3_EVENT_UPLOAD_FORCE_PATH_STYLE
+        description: >-
+          Whether the S3 client puts the bucket in the path, as the literal
+          string the image parses.
+      # The AI features run partly in the worker (Halo's runs), so it takes
+      # the same model settings as the web container (docker-compose.yml:
+      # "These apply to AI features that run in both web and worker").
+      #
+      # Only a worker with LANGFUSE_IN_APP_AGENT_ENABLED "true" consumes
+      # Halo's run queue (web/src/features/in-app-agent/README.md, v4.79.0).
+      # Keep it equal to the web container's value.
+      inAppAgentEnabled:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: LANGFUSE_IN_APP_AGENT_ENABLED
+        description: >-
+          Whether this worker executes Halo runs, as the literal string the
+          image parses; the web container's value.
+      llmProvider:
+        schema:
+          type: string
+        default: openai
+        target:
+          envVar: LANGFUSE_AI_PROVIDER
+        description: Provider type Langfuse's AI features call.
+      llmUseResponsesAPI:
+        schema:
+          type: string
+        default: 'false'
+        target:
+          envVar: LANGFUSE_AI_USE_RESPONSES_API
+        description: >-
+          Whether the AI features use OpenAI's Responses API rather than Chat
+          Completions, as the literal string the image parses.
+      llmBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        required: true
+        target:
+          envVar: LANGFUSE_AI_BASE_URL
+        description: >-
+          Base URL of the OpenAI-compatible API, ending in the version segment
+          (for example /v1).
+      llmAPIKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LANGFUSE_AI_API_KEY
+        description: Bearer credential for the API above.
+      llmModel:
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: LANGFUSE_AI_MODEL
+        description: Model Langfuse's AI features use.
+    outputs: {}

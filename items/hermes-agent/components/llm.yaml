@@ -4,16 +4,17 @@
 # blueprint that needs one carries its own.
 #
 # The connection enters here and nowhere else (COMP-CONNECTION-002). The `web`
-# node declares three ordinary string inputs and the blueprint wires them to the
-# three outputs below, so the endpoint, the credential and the model always come
-# from one acquired connection rather than three independently supplied values.
+# and `memory` nodes each declare three ordinary string inputs and the blueprint
+# wires them to the three outputs below, so the endpoint, the credential and the
+# model always come from one acquired connection rather than three independently
+# supplied values.
 #
 # Nothing resolves the address, connects to it, or checks that anything answers
 # there (component spec §11).
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: The language-model API the Hermes agent sends model requests to, taken whole as one connection.
 spec:
   type: EXTERNAL
@@ -25,7 +26,7 @@ spec:
           model, acquired together.
         connection:
           # Streaming and tool calls, both unconditionally. Read from the
-          # source at v2026.9.24, not observed against a running deployment.
+          # source at v0.23.0, not observed against a running deployment.
           # Hermes is an agent loop: the chat-completions transport attaches
           # the agent's tool definitions to the request (`api_kwargs["tools"]`
           # in agent/transports/chat_completions.py), and the agent core

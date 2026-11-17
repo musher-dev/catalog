@@ -1,0 +1,82 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: pgvector
+spec:
+  itemType: COMPONENT
+  displayName: PostgreSQL with pgvector
+  summary: >-
+    PostgreSQL 17 with the pgvector extension enabled — store embeddings beside
+    your relational data and run exact or approximate nearest-neighbour search
+    in SQL
+  overview: |
+    ## What it is
+    pgvector is the open-source PostgreSQL extension for vector similarity
+    search. It adds a `vector` column type, distance operators (L2, inner
+    product, cosine and more) and HNSW and IVFFlat indexes, so embeddings live
+    in ordinary tables next to the rows they describe. This component is a
+    complete PostgreSQL 17 server with the extension installed and enabled.
+
+    ## When to use
+    - You're running an agent framework, RAG app or memory service that asks
+      for "Postgres with pgvector" as its vector store.
+    - You want vector search with joins, transactions and backups you already
+      know, instead of operating a separate vector database.
+    - You need a general-purpose PostgreSQL that can also hold embeddings
+      later, without migrating to a different server.
+
+    ## Defaults
+    Single-container deployment of `pgvector/pgvector:0.8.7-pg17` (PostgreSQL
+    17.12) listening on the standard port 5432 as a private TCP endpoint —
+    reachable by your other workloads, not exposed to the public internet. The
+    superuser password is set when you deploy, and you can reveal it on the
+    deployment's Installation tab later. The user defaults to `postgres` and the
+    database name to `app`, and the `vector` extension is created in that
+    database on first boot. All three values are applied only on first boot,
+    when the data directory is empty. Changing them afterwards does not change
+    the database, so use `ALTER ROLE` or `CREATE DATABASE` instead. A 10 GiB
+    persistent volume mounted at `/var/lib/postgresql/data` keeps the data
+    directory across restarts.
+
+    The deployment reports ready only once the server accepts TCP connections.
+    A small supervisor in the container answers the platform's HTTP readiness
+    check on a second private port, 8080, by running `pg_isready`; it serves
+    nothing else. When the server first comes up, the runtime log records the
+    `vector` extension version found in the application database.
+
+    ## Limitations
+    - Other databases you create later don't have the extension until you run
+      `CREATE EXTENSION vector;` in them. The user is a superuser, so it can.
+    - The container's shared memory (`/dev/shm`) stays at the runtime default.
+      pgvector's parallel HNSW index builds use it, so if you raise
+      `maintenance_work_mem` for a large build, also run
+      `SET max_parallel_maintenance_workers = 0;` in that session, or the build
+      can fail with a shared-memory error.
+    - Server settings such as `shared_buffers` keep PostgreSQL's defaults.
+      Change them with `ALTER SYSTEM` and a restart.
+  gettingStarted: |
+    1. Reveal the password on the deployment's Installation tab.
+    2. Connect from another of your workloads on port 5432, with the user and
+       database name you deployed with. The endpoint is private, so the public
+       internet can't reach it.
+    3. Create a table with a vector column, for example
+       `CREATE TABLE items (id bigserial PRIMARY KEY, embedding vector(3));`,
+       and query it by distance:
+       `SELECT * FROM items ORDER BY embedding <-> '[3,1,2]' LIMIT 5;`.
+
+    To add roles or databases later, use `ALTER ROLE` or `CREATE DATABASE`.
+    Editing the deployment's values does not change an existing database.
+  category: DATABASES
+  lifecycleStage: BETA
+  tags:
+    - database
+    - postgres
+    - pgvector
+    - vector-search
+    - embeddings
+    - rag
+  homepageURL: https://github.com/pgvector/pgvector
+  sourceRepositoryURL: https://github.com/pgvector/pgvector
+  supportURL: https://github.com/pgvector/pgvector#getting-started
+  license: PostgreSQL
+  icon: media/icon.png

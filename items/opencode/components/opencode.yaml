@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     OpenCode coding agent's server and web UI behind HTTP basic auth, on an
     OpenAI-compatible model, with config, sessions and a workspace home on three
@@ -10,12 +10,22 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 1.18.34 is the latest release (2026-09-30). The tag on ghcr
-      # carries no `v` prefix: packages/opencode/script/publish.ts pushes
-      # `ghcr.io/anomalyco/opencode:${version}` and `:${channel}`, and
-      # `v1.18.34` does not resolve on the registry while `1.18.34` does.
+      # PINNED. 1.19.5 (2026-10-28) is upstream's current stable release: the
+      # GitHub latest release, npm's `latest` dist-tag and ghcr's `latest` image
+      # all point at it. OpenCode 2 (2.2.6 is the newest) is published but on
+      # none of those channels yet, so it is not adopted. Moving to it is more
+      # than a tag: its first boot rewrites an existing deployment's database
+      # in place, dropping and rebuilding V1 tables
+      # (packages/core/src/database/migration at v2.2.6), upstream documents no
+      # downgrade, and 2.x removes OPENCODE_SERVER_USERNAME (migrate-v1.mdx at
+      # v2.2.6) and /global/health, both of which this file uses.
       #
-      # The image (packages/opencode/Dockerfile, v1.18.34) is Alpine with
+      # The tag on ghcr carries no `v` prefix:
+      # packages/opencode/script/publish.ts pushes
+      # `ghcr.io/anomalyco/opencode:${version}` and `:${channel}`, and
+      # `v1.19.5` does not resolve on the registry while `1.19.5` does.
+      #
+      # The image (packages/opencode/Dockerfile, v1.19.5) is Alpine with
       # libgcc, libstdc++, ripgrep and the compiled `opencode` binary. Its
       # config sets ENTRYPOINT ["opencode"], no CMD, WorkingDir `/` and no
       # USER, so it runs as root. It ships no git, bash, node or python.
@@ -25,7 +35,7 @@ spec:
       # for the routes it exempts, and ConfigVariable.substitute
       # (packages/opencode/src/config/variable.ts), which the model config
       # below depends on.
-      image: ghcr.io/anomalyco/opencode:1.18.34
+      image: ghcr.io/anomalyco/opencode:1.19.5
     # `command` replaces the image's CMD and keeps its ENTRYPOINT, so these are
     # arguments to `opencode`.
     #
@@ -63,7 +73,7 @@ spec:
     # pointed at the `workspace` volume (see the `home` input), and projects
     # opened or cloned under `~` persist.
     #
-    # ACCESS. The blueprint exposes `primary` with `access: AUTHENTICATED`, so
+    # ACCESS. The blueprint exposes `primary` with `access: RESTRICTED`, so
     # the platform signs the viewer in before forwarding. OpenCode then
     # applies its own HTTP basic auth (packages/opencode/src/server/auth.ts).
     # With OPENCODE_SERVER_PASSWORD set, every route checks
@@ -239,10 +249,12 @@ spec:
       #     (provider.ts, `opencode` loader). Disabling it keeps prompts and
       #     code on the connection the deployer chose. Providers a user adds
       #     in the UI still load.
-      #   - `share: "disabled"`. The default, "manual", lets anyone publish a
-      #     session transcript to OpenCode's public share service.
-      #   - `autoupdate: false`. The image is pinned. A self-update would
-      #     not survive a restart anyway.
+      #   - `share: "disabled"`. Upstream discontinued session sharing in 1.19.1,
+      #     so the share routes now only fail (packages/opencode/src/share/session.ts).
+      #     The key stays in the schema, and keeping it here states the intent.
+      #   - `autoupdate: false`. Since 1.19.0 OpenCode never installs an update
+      #     by itself. This turns off the version check and its notice, because
+      #     the image is pinned.
       configContent:
         schema:
           type: string

@@ -1,0 +1,121 @@
+# The PostgreSQL server Firecrawl's NuQ job queue lives in. Built on the
+# `postgres` item's component (items/postgres/components/postgres.yaml,
+# revision 8): the same data volume, PGDATA subdirectory and first-boot
+# inputs. Keep the two in step. It differs in three ways:
+#
+# - The image is upstream's own nuq-postgres, not the official one. It is
+#   postgres:17 with pg_cron preloaded and the queue schema, its indexes and
+#   its clean-up jobs in /docker-entrypoint-initdb.d/010-nuq.sql
+#   (apps/nuq-postgres/Dockerfile, firecrawl). Nothing else creates that
+#   schema, and a component cannot ship the SQL file.
+# - It has a `command`, to bound the write-ahead log (below).
+# - It publishes `hostname` and `port` beside `address`. Firecrawl takes the
+#   host and the port separately (components/firecrawl.yaml).
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    PostgreSQL 17 with pg_cron and Firecrawl's NuQ queue schema, on a single
+    persistent data volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. Upstream publishes this image only as `latest` and as
+      # `sha-<12-char commit>` (deploy-nuq-postgres.yml). sha-a7a63b4bfabf
+      # (2026-10-19) is the newest build and the digest `latest` points at
+      # today; apps/nuq-postgres last changed on 2026-09-16.
+      image: ghcr.io/firecrawl/nuq-postgres:sha-a7a63b4bfabf
+    # The CMD is `postgres`, so the image's docker-entrypoint.sh still
+    # initialises an empty PGDATA and drops to the postgres user; only server
+    # options are added.
+    #
+    # nuq.sql runs ALTER SYSTEM SET max_wal_size = '16GB' and min_wal_size =
+    # '4GB', tuned for upstream's cloud queue (apps/nuq-postgres/nuq.sql).
+    # Under load the write-ahead log alone could then outgrow this node's
+    # 10 GiB volume. A command-line option outranks postgresql.auto.conf, so
+    # these two keep it near 1 GiB without editing the image's script.
+    command:
+      - postgres
+      - -c
+      - max_wal_size=1GB
+      - -c
+      - min_wal_size=80MB
+    endpoints:
+      primary:
+        targetPort: 5432
+        protocol: TCP
+    volumes:
+      data:
+        minSizeGiB: 10
+        mountPath: /var/lib/postgresql/data
+  contract:
+    inputs:
+      # As in the `postgres` item: a subdirectory of the mount, because initdb
+      # refuses a directory it does not own and the volume root may carry
+      # lost+found. Read on every boot.
+      pgdata:
+        schema:
+          type: string
+        default: /var/lib/postgresql/data/pgdata
+        target:
+          envVar: PGDATA
+        description: Directory PostgreSQL keeps its data files in.
+      # The three inputs below are read by the image's docker-entrypoint.sh
+      # only while it initialises an EMPTY data directory.
+      postgresPassword:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: POSTGRES_PASSWORD
+        description: >-
+          Password the database superuser is created with on first boot; copy
+          it from the deployment's Installation tab.
+      postgresUser:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: POSTGRES_USER
+        description: Role the database is initialised with and Firecrawl connects as.
+      # Not the `postgres` item's `app`: the image sets cron.database_name =
+      # 'postgres' in its initdb template, and CREATE EXTENSION pg_cron in
+      # nuq.sql fails in any other database (apps/nuq-postgres/Dockerfile).
+      postgresDb:
+        schema:
+          type: string
+        default: postgres
+        target:
+          envVar: POSTGRES_DB
+        description: >-
+          Database created on first boot, which nuq.sql fills with the queue
+          schema. It must stay `postgres` for pg_cron.
+    outputs:
+      address:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal `host:port` of the database endpoint, resolvable only
+          by workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the database endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

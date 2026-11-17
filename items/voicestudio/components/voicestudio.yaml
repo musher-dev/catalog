@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     VoiceStudio voice cloning, speech synthesis, transcription and dubbing
     server with its web UI, OpenAI-compatible audio API and MCP server, with
@@ -10,23 +10,25 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. 0.5.6 is the latest stable release (2026-09-23). The tag
+      # PINNED. 0.5.7 is the latest stable release (2026-10-26). The tag
       # carries no `v` prefix; `latest` and `main` are rolling previews built
-      # from every push to main, and `stable` moves on every release.
+      # from every push to main, `stable` moves on every release, and `beta`
+      # on every prerelease.
       #
       # ghcr.io/debpalash/voicestudio is the canonical name since the
       # repository's rename from OmniVoice-Studio. ghcr.io/debpalash/
       # omnivoice-studio and palashdeb/omnivoice-studio on Docker Hub carry
       # the same digest under the old name (.github/workflows/docker.yml).
       #
-      # This is the CUDA build (pytorch 2.8.0, CUDA 12.8, about 5.7 GB
+      # This is the CUDA build (pytorch 2.8.0, CUDA 12.8, about 5.8 GB
       # compressed), linux/amd64 only. With no GPU attached, torch finds no
-      # device and every engine renders on the CPU. The `-rocm` tags are the
-      # AMD build and are of no use here.
-      image: ghcr.io/debpalash/voicestudio:0.5.6
-    # No `command`: the image's ENTRYPOINT is the whole server command
-    # (`python3 -m uvicorn backend.main:app --host 0.0.0.0 --port 3900`) with
-    # no CMD, so anything set here would be appended to uvicorn's arguments.
+      # device and every engine renders on the CPU. The `-rocm` and
+      # `-cuda-arm64` tags are the AMD and ARM builds and are of no use here.
+      image: ghcr.io/debpalash/voicestudio:0.5.7
+    # No `command`: the image's ENTRYPOINT (`python3
+    # backend/docker_entrypoint.py`) execs `uvicorn backend.main:app` on
+    # OMNIVOICE_BIND_HOST and port 3900, with no CMD, so anything set here
+    # would be appended to uvicorn's arguments.
     endpoints:
       primary:
         targetPort: 3900
@@ -39,14 +41,14 @@ spec:
         # `Authorization: Bearer`.
         #
         # With OMNIVOICE_API_KEY set, `BearerKeyMiddleware` (backend/main.py,
-        # v0.5.6) answers 401 on HTTP, and closes WebSockets with 1008, to
+        # v0.5.7) answers 401 on HTTP, and closes WebSockets with 1008, to
         # every non-loopback request that does not present the key, a trusted
         # network or an admin session. It wraps the whole app, the MCP routes
         # included, which are registered on the same router
         # (backend/mcp_server.py). It passes only the static SPA shell (`/`,
-        # `/index.html`, `/favicon*`, `/assets/*`) and `/health`, none of
-        # which return data, and `/api/auth/session`, whose route itself
-        # validates the key it is given.
+        # `/index.html`, `/early-error-capture.js`, `/favicon*`, `/assets/*`)
+        # and `/health`, none of which return data, and `/api/auth/session`,
+        # whose route itself validates the key it is given.
         #
         # "Loopback" is the TCP peer (core/auth.py `_client_host`). Forwarded
         # headers can rewrite it only when the peer is uvicorn's default
@@ -59,9 +61,9 @@ spec:
       readiness:
         # /health answers 503 {"status": "starting"} until the backend's
         # deferred startup completes, and 200 only after that (backend/
-        # main.py, v0.5.6). Until then the startup gate answers 503 on every
+        # main.py, v0.5.7). Until then the startup gate answers 503 on every
         # work route. The image's own HEALTHCHECK gives it a 120 s start
-        # period. Here a cold node also pulls a 5.7 GB image first, so allow
+        # period. Here a cold node also pulls a 5.8 GB image first, so allow
         # about six minutes after the delay.
         http:
           endpoint: primary
@@ -155,7 +157,11 @@ spec:
       # The MCP SDK's DNS-rebinding guard accepts only localhost Host headers
       # by default, and this extends it (backend/mcp_server.py). Behind the
       # platform's edge, the Host header is the public hostname, and its
-      # https origin is added as well.
+      # https origin is added as well. The backend's browser guard, new in
+      # 0.5.7, reads this list too, so the same hostname counts as an allowed
+      # host and a trusted browser origin (backend/core/browser_guard.py).
+      # OMNIVOICE_ALLOWED_HOSTS is not needed here: with an API key set, the
+      # key gate answers anonymous requests, not the host check.
       mcpAllowedHosts:
         schema:
           type: string

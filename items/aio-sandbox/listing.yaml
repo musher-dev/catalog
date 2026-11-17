@@ -1,0 +1,100 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: aio-sandbox
+spec:
+  itemType: COMPONENT
+  displayName: AIO Sandbox
+  summary: >-
+    An all-in-one computer for AI agents: Chromium, a shell, files, Jupyter,
+    code-server and an MCP server in one container, behind one API key
+  overview: |
+    ## What it is
+    AIO Sandbox, from the agent-infra project, packs everything an AI agent
+    needs to act on a computer into one container. A Chromium browser it can
+    drive over CDP or REST, a shell, a file API, Python and Node.js code
+    execution, JupyterLab and code-server all sit behind a single gateway on
+    port 8080. An MCP server at `/mcp` bundles the browser, shell and file
+    tools for any MCP client. A VNC view lets a person watch the desktop and
+    take over.
+
+    ## When to use
+    - Your agent needs to browse, fill in forms or take screenshots in a real
+      browser, not just fetch pages.
+    - You want somewhere isolated to run the code, shell commands and file
+      edits an agent produces, away from your other workloads.
+    - You want one MCP endpoint that gives an agent browser, shell and file
+      tools together.
+    - You want to watch an agent's browser live, or step in, over VNC.
+
+    ## What you'll be asked for
+    - An **API key** that every client presents. Without one, upstream leaves
+      every route open, including a shell with root through `sudo`, so this
+      component requires it.
+
+    ## Defaults
+    The component runs `ghcr.io/agent-infra/sandbox:1.11.0` on port 8080. The
+    blueprint that uses it chooses whether that port is public. Clients send
+    the key as `Authorization: Bearer <key>` or `X-AIO-API-Key: <key>`, or as
+    `?api_key=<key>` on VNC and WebSocket URLs.
+
+    A 10 GiB volume at `/home/gem` holds the sandbox user's home: the agent's
+    working files, the browser profile and its downloads. Everything else in
+    the container is rebuilt on each restart, including software an agent
+    installs outside that directory.
+
+    Upstream's Kubernetes example limits it to 1 vCPU and 2 GiB, and its
+    Compose file to 4 vCPUs and 8 GiB. Give it at least 2 vCPUs and 4 GiB with
+    every service on. To save memory, turn off JupyterLab and code-server.
+
+    The time zone is UTC and the API server's OpenTelemetry SDK is off.
+    Coding agents in the sandbox can get a model by setting the optional
+    Anthropic or opencode base URL, key and model inputs. opencode is
+    preinstalled. Claude Code is not, but picks those values up once
+    installed.
+
+    ## Access and security
+    - The container starts as root and runs its services as the `gem` user,
+      who has passwordless `sudo`. Treat anything with the key as having
+      root in the container.
+    - Chromium runs with `--no-sandbox`. Its own process sandbox needs
+      unconfined seccomp, which upstream asks Docker for and a Musher node
+      doesn't grant. A browser exploit therefore lands directly in the
+      container, which is the isolation boundary.
+    - Upstream's key check lets any request whose URL ends like a static file
+      through without the key. That rule also opened file downloads, browser
+      cookies, JupyterLab's files and the VNC desktop. A startup hook narrows
+      it to plain UI assets, and if it can't apply the change it removes the
+      exemption, so every request needs the key. Setting your own
+      `RUN_HOOK_INIT` replaces that hook.
+    - Model credentials you set are visible to every process in the sandbox.
+
+    ## Limitations
+    - The image is about 3.6 GB, so the first start on a node waits minutes
+      for the download.
+    - Upstream publishes this image without its build source.
+  gettingStarted: |
+    1. Reveal the **API key** on the deployment's Installation tab.
+    2. Check the sandbox: `GET /v1/sandbox` with
+       `Authorization: Bearer <key>` returns its environment, and
+       `POST /v1/shell/exec` with `{"command": "uname -a"}` runs a command.
+       The API reference is at `/v1/docs`.
+    3. Point an MCP client at `/mcp` (streamable HTTP) with the same bearer
+       token, or connect a CDP client such as Playwright or browser-use to
+       the `cdp_url` that `GET /v1/browser/info` returns.
+    4. To watch the browser, open
+       `/vnc/index.html?autoconnect=true&api_key=<key>`.
+  category: AGENTS
+  lifecycleStage: BETA
+  tags:
+    - sandbox
+    - browser
+    - agents
+    - mcp
+    - code-execution
+    - vnc
+  homepageURL: https://sandbox.agent-infra.com
+  sourceRepositoryURL: https://github.com/agent-infra/sandbox
+  supportURL: https://sandbox.agent-infra.com/guide/start/introduction
+  license: Apache-2.0
+  icon: media/icon.png

@@ -1,0 +1,170 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Ollama model server on CPU, serving the models it has pulled through its
+    own API and OpenAI- and Anthropic-compatible APIs on a private endpoint,
+    and keeping the models on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. 0.40.16 is the latest stable release (2026-11-09). Ollama tags
+      # images without the `v` of its git tags, publishes `-rcN` and `-rocm`
+      # variants beside each release, and moves `latest` with every release.
+      # The image is Ubuntu 24.04, multi-arch (amd64, arm64), runs as root,
+      # and its ENTRYPOINT is /bin/ollama with CMD `serve` (crane config
+      # ollama/ollama:0.40.16). It carries the CUDA libraries as well, about
+      # 3.4 GB compressed, and falls back to CPU when there is no GPU.
+      image: ollama/ollama:0.40.16
+    # No `command`. The image's CMD `serve` is the server, and every setting
+    # below is an environment variable (envconfig/config.go, v0.40.16).
+    #
+    # Ollama has no setting that pulls a model at start, and `command` cannot
+    # wrap /bin/ollama in a shell because it keeps the ENTRYPOINT. So this
+    # component starts empty, and whatever composes it pulls models over the
+    # API (POST /api/pull). The `ollama` blueprint does that from its web
+    # node before Open WebUI starts.
+    endpoints:
+      primary:
+        # OLLAMA_HOST=0.0.0.0:11434 in the image (crane config, and
+        # docs/docker.mdx, v0.40.16).
+        targetPort: 11434
+        protocol: HTTP
+    health:
+      # GET / answers 200 "Ollama is running" as soon as the server listens
+      # (server/routes.go, v0.40.16). Model loading happens per request, not
+      # at start, so the server is ready in seconds. No liveness probe: a CPU
+      # node busy generating can answer slowly, and a restart would only drop
+      # the loaded model.
+      readiness:
+        http:
+          endpoint: primary
+          path: /
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # Pulled models and the server's identity key. The image runs as root and
+      # keeps both under /root/.ollama (`models` is $HOME/.ollama/models,
+      # envconfig/config.go, v0.40.16); upstream's Docker guide mounts a volume
+      # at exactly this path (docs/docker.mdx). Small models are 0.5 to 3 GB
+      # each, so the floor holds a few.
+      data:
+        minSizeGiB: 10
+        mountPath: /root/.ollama
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field. The
+      # image already sets OLLAMA_HOST; restating it keeps the port the
+      # endpoint targets visible here.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0:11434
+        target:
+          envVar: OLLAMA_HOST
+        description: Address and port Ollama listens on inside the container.
+      # Ollama has no API key of its own (OLLAMA_AUTH signs requests to
+      # ollama.com, not requests to this server), so the endpoint must stay
+      # private. Turning cloud features off keeps every prompt on this node:
+      # with it, cloud models and Ollama's web search answer an error
+      # instead of forwarding to ollama.com (envconfig/config.go, v0.40.16).
+      noCloud:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: OLLAMA_NO_CLOUD
+        description: >-
+          Whether Ollama's cloud models and web search are disabled, as the
+          literal string the image parses.
+      # Without it Ollama picks 4,096 tokens on a machine with no GPU
+      # (docs/faq.mdx, v0.40.16). 8,192 tokens leave room for a document or a
+      # longer chat. For Qwen3 1.7B the KV cache for that is about 0.9 GB at
+      # f16 (28 layers x 8 KV heads x 128 x 2 x 2 bytes per token), and memory
+      # scales with OLLAMA_NUM_PARALLEL x this (docs/faq.mdx).
+      contextLength:
+        schema:
+          type: string
+        default: '8192'
+        target:
+          envVar: OLLAMA_CONTEXT_LENGTH
+        description: >-
+          Context window in tokens for requests that do not set one, as the
+          literal string the image parses. Memory grows with it.
+      # Upstream's default, restated: one request at a time per model. On a
+      # couple of vCPUs, parallel requests would only share the same cores.
+      numParallel:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: OLLAMA_NUM_PARALLEL
+        description: >-
+          Requests one loaded model serves at the same time, as the literal
+          string the image parses.
+      # Left at 0, Ollama allows three loaded models on CPU. On a small node a
+      # second model loaded beside the first can exhaust memory, so one model
+      # is resident at a time and switching models unloads the other.
+      maxLoadedModels:
+        schema:
+          type: string
+        default: '1'
+        target:
+          envVar: OLLAMA_MAX_LOADED_MODELS
+        description: >-
+          Models kept in memory at once, as the literal string the image
+          parses.
+      # Upstream unloads a model after 5 minutes idle. Reloading from disk on a
+      # CPU node costs several seconds at the start of the next chat, so an
+      # hour keeps a conversation with pauses responsive.
+      keepAlive:
+        schema:
+          type: string
+        default: 1h
+        target:
+          envVar: OLLAMA_KEEP_ALIVE
+        description: >-
+          How long an idle model stays loaded, as a Go duration such as 5m or
+          1h, or -1 to keep it loaded.
+      # Ollama passes `-t` to its llama-server runner only when a request or
+      # model sets num_thread (llm/llama_server.go, v0.40.16), and otherwise
+      # llama.cpp counts the host's cores, not the container's CPU quota. The
+      # runner inherits Ollama's environment (SetupLlamaServerCommandEnv,
+      # same file), and llama.cpp reads LLAMA_ARG_THREADS when no `-t` is
+      # given (common/arg.cpp). So this sets the default for every model.
+      threads:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: LLAMA_ARG_THREADS
+        description: >-
+          CPU threads used for generation, as the literal string the image
+          parses. Set it to the node's vCPU count.
+    outputs:
+      url:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal base URL of Ollama's own API, with no path, resolvable
+          only by workloads in the same deployment. Ollama clients such as
+          Open WebUI take this.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}"
+      openaiBaseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal OpenAI-compatible base URL, ending in /v1. Clients
+          append /chat/completions and send any API key, which Ollama ignores.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}/v1"

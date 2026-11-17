@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 8
+  revision: 9
   description: Flowise low-code LLM flow builder, storing flows and credentials on one volume.
 spec:
   type: SERVICE
@@ -56,7 +56,12 @@ spec:
     volumes:
       data:
         minSizeGiB: 5
-        mountPath: /root/.flowise
+        # The image runs as `node` from 3.1.4, which cannot enter /root, and
+        # upstream's docker-compose.yml moved the data here in the same release.
+        # The volume must be writable by uid 1000. That relies on the platform
+        # mounting it with group or owner 1000, not on anything this document
+        # can state.
+        mountPath: /home/node/.flowise
   contract:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
@@ -69,28 +74,28 @@ spec:
       databasePath:
         schema:
           type: string
-        default: /root/.flowise
+        default: /home/node/.flowise
         target:
           envVar: DATABASE_PATH
         description: Directory Flowise keeps its SQLite database in.
       secretKeyPath:
         schema:
           type: string
-        default: /root/.flowise
+        default: /home/node/.flowise
         target:
           envVar: SECRETKEY_PATH
         description: Directory Flowise keeps its credential encryption key in.
       blobStoragePath:
         schema:
           type: string
-        default: /root/.flowise/storage
+        default: /home/node/.flowise/storage
         target:
           envVar: BLOB_STORAGE_PATH
         description: Directory Flowise stores uploaded files in.
       logPath:
         schema:
           type: string
-        default: /root/.flowise/logs
+        default: /home/node/.flowise/logs
         target:
           envVar: LOG_PATH
         description: Directory Flowise writes its logs to.

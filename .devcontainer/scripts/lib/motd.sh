@@ -88,7 +88,7 @@ _motd_spec_source() {
   echo ""
   echo "  ${_BOLD}Validating against${_RESET}"
   echo "  ${_DIM}${sep}${_RESET}"
-  echo "  musher-dev/specifications core, component, blueprint, listing v2.0.0"
+  echo "  musher-dev/specifications core, component, blueprint, listing v2.1.0"
   echo "  ${_DIM}vendored release archives, digest-checked; no network, no fallback${_RESET}"
 }
 

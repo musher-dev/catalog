@@ -1,0 +1,131 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: langfuse
+spec:
+  itemType: BLUEPRINT
+  displayName: Langfuse
+  summary: >-
+    Open-source LLM observability: traces, prompt management, evaluations and
+    datasets for your agents and LLM apps, with ClickHouse, Valkey and S3
+    storage in the same deployment
+  overview: |
+    ## What it is
+    Langfuse is an open-source LLM engineering platform. Your applications and
+    agents send it traces through its SDKs (Python, JavaScript), through
+    OpenTelemetry, or through integrations such as LiteLLM, LangChain, the
+    OpenAI SDK and Vercel AI SDK. You then inspect each call with its inputs,
+    outputs, latency, token usage and cost. Langfuse also manages and
+    versions prompts, runs evaluations (LLM-as-a-judge, human annotation and
+    scores from your own code), and keeps datasets for experiments. It has a
+    playground and an MCP server for agents.
+
+    ## When to use
+    - You run agents or LLM features and need to see what each request did,
+      what it cost and where it failed.
+    - You want prompts versioned and deployed outside your code, with the
+      traces that used each version.
+    - You want to score outputs systematically, with a model as judge, with
+      people, or from your test suite, and keep that data in your own
+      infrastructure.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. It powers only Langfuse's own AI features: Halo, the
+    in-app assistant (in beta upstream), which answers questions about your
+    traces, prompts and datasets, and Ask AI in the search bar. Tracing,
+    prompts and evaluations work without it. The playground and
+    LLM-as-a-judge evaluators use their own model connections, which you add
+    per project in Langfuse's settings.
+
+    ## Signing in
+    The UI is behind Musher's sign-in, so only people your organization
+    allows can reach it. When the deployment first starts, Langfuse creates
+    an organization named **Musher**, a project named **Default project**,
+    and an owner account with the email you deploy with. Sign in with
+    **Musher** on Langfuse's sign-in page, or with your email and the
+    **Owner password** from the deployment's Installation tab. Anyone else
+    your organization allows can sign in with Musher too. They join the
+    Musher organization as members, and you can change their roles in
+    Langfuse.
+
+    ## Sending traces
+    The project's API key is created with it, so nothing needs to be set up
+    by hand. Copy the **Project public key** and **Project secret key** from
+    the deployment's Installation tab and set them in your application as
+    `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`, with the deployment's
+    URL as `LANGFUSE_HOST` (or `LANGFUSE_BASE_URL`). Requests under
+    `/api/public` (ingestion, OpenTelemetry at `/api/public/otel`, prompts,
+    scores and MCP) pass through Musher's sign-in, and Langfuse checks the
+    API key on each one. The keys are plain hex strings rather than
+    Langfuse's usual `pk-lf-` and `sk-lf-` form, which no SDK checks.
+
+    ## Defaults
+    Six containers. Only `web` has a public address.
+
+    - `web` runs `langfuse/langfuse:4.79.0` on port 3000, the UI and public
+      API, with 2 vCPU and 4 GiB. It applies the database migrations when it
+      starts.
+    - `worker` runs `langfuse/langfuse-worker:4.79.0`, with 2 vCPU and 4 GiB.
+      It writes ingested events into ClickHouse and runs evaluations and
+      exports.
+    - `clickhouse` runs `clickhouse/clickhouse-server:26.3.62.3`, a single
+      node holding traces, observations and scores on a 20 GiB volume, with
+      2 vCPU and 4 GiB, the size Langfuse's Helm chart gives it by default.
+      Its own logs go to the console instead of disk, and the system tables
+      Langfuse doesn't use (trace, text, metric and span logs) are turned
+      off so they can't fill the volume.
+    - `db` is PostgreSQL 17 with users, projects, keys, prompts and
+      settings on a 10 GiB volume, with 1 vCPU and 1 GiB.
+    - `cache` is Valkey 9.1, holding the ingestion and evaluation queues on
+      a 5 GiB volume, with 1 vCPU and 2 GiB.
+    - `blob` is SeaweedFS, the S3-compatible store every ingested event is
+      written to before the worker processes it, on a 10 GiB volume, with
+      1 vCPU and 2 GiB.
+
+    All passwords and keys are generated. The database and ClickHouse
+    passwords can be revealed on the Installation tab. Usage telemetry to
+    Langfuse is turned off. Halo is turned on, with Langfuse's own tools
+    only: the code-execution sandbox upstream offers runs on AWS and is not
+    set up.
+
+    ## Limitations
+    - Media attachments (images, audio and files in traces) and batch
+      exports to S3 are off. Both need the browser to reach the S3 store
+      directly, and here it is private.
+    - ClickHouse is one node without replicas, as in upstream's Docker
+      Compose setup. Back up its volume if the traces matter.
+    - Langfuse Enterprise features (SCIM, audit logs, project-level roles,
+      data retention policies) need a licence key from Langfuse and are not
+      enabled.
+    - The organization, project, owner and API key are created on the first
+      start. Later changes made in Langfuse are kept, and the owner's
+      password from the Installation tab no longer applies once it has been
+      changed in Langfuse.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher, then choose
+       **Musher** on Langfuse's sign-in page. You can also sign in with your
+       email and the **Owner password** from the deployment's Installation
+       tab.
+    2. Copy the **Project public key** and **Project secret key** from the
+       Installation tab and set them in your application as
+       `LANGFUSE_PUBLIC_KEY` and `LANGFUSE_SECRET_KEY`, with the deployment's
+       URL as `LANGFUSE_HOST`.
+    3. Run your application, then open **Tracing** in the **Default
+       project** to see its traces arrive.
+    4. To use the playground or LLM-as-a-judge evaluators, add a model under
+       **Project settings > LLM Connections**.
+  category: OBSERVABILITY
+  lifecycleStage: BETA
+  tags:
+    - llm-observability
+    - tracing
+    - prompt-management
+    - evaluation
+    - opentelemetry
+    - ai-agents
+  homepageURL: https://langfuse.com
+  sourceRepositoryURL: https://github.com/langfuse/langfuse
+  supportURL: https://langfuse.com/self-hosting
+  license: MIT AND LicenseRef-Langfuse-Enterprise
+  icon: media/icon.png

@@ -1,0 +1,151 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: gitea
+  revision: 1
+  description: >-
+    Gitea Git forge behind the platform's sign-in, on its own PostgreSQL, with
+    an admin account for the deployer, members signing in through the
+    platform's OpenID Connect provider, and Git, API and registry clients
+    passing with Gitea tokens.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/postgres.yaml
+      # PostgreSQL's defaults are fixed (128 MB shared_buffers), not sized from
+      # the machine, and Gitea's pool stays small for a team-sized forge, so
+      # 1 GiB is enough.
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      # No exposure: the database stays PRIVATE, reachable only by `web` and
+      # `bootstrap` through the address it publishes.
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        postgresUser:
+          value: gitea
+        postgresDb:
+          value: gitea
+    web:
+      componentRef: ./components/gitea.yaml
+      # Upstream: "2 CPU cores and 1GB RAM is typically sufficient for small
+      # teams/projects" (docs.gitea.com, Introduction). standard.nano gives
+      # 2 GiB, headroom for `git gc` and large pushes, which spike memory, on
+      # one vCPU. Move to standard.small for busier teams or big repositories.
+      compute:
+        profile: general.standard.nano
+      volumes:
+        data:
+          sizeGiB: 20
+      # The platform signs viewers in, and Gitea signs them in again as an
+      # OpenID Connect client of the platform, with no second password. Gitea
+      # needs an email to create an account and takes the full name from
+      # `name`, so the node releases both claims. /api and /v2 pass without a
+      # platform session for API, package and container-registry clients, and
+      # a request carrying a bearer token passes for Git over HTTPS. Gitea
+      # authenticates all of them itself (components/gitea.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+          accessExemptions:
+            - PATHS
+            - BEARER
+      bindings:
+        # This node's own allocated address. A node reading its own endpoint
+        # outputs is a discovery dependency and not a value cycle
+        # (BP-BIND-002): it exists before anything runs.
+        rootURL:
+          node: web
+          output: publicURL
+        secretKey:
+          parameter: secretKey
+        dbHost:
+          node: db
+          output: address
+        dbName:
+          value: gitea
+        dbUser:
+          value: gitea
+        dbPassword:
+          parameter: dbPassword
+    bootstrap:
+      componentRef: ./components/bootstrap.yaml
+      # A shell loop and two short CLI runs.
+      compute:
+        profile: general.economy.nano
+      bindings:
+        # The web node's private address, so the job waits for Gitea over the
+        # internal network.
+        giteaAddress:
+          node: web
+          output: address
+        # The same database and key as `web`: the CLI writes the rows the web
+        # process reads.
+        secretKey:
+          parameter: secretKey
+        dbHost:
+          node: db
+          output: address
+        dbName:
+          value: gitea
+        dbUser:
+          value: gitea
+        dbPassword:
+          parameter: dbPassword
+        adminEmail:
+          parameter: adminEmail
+        adminPassword:
+          parameter: adminPassword
+        # The OIDC client the platform registered for `web`'s endpoint,
+        # which Gitea keeps as a sign-in source in its database.
+        oidcIssuerURL:
+          node: web
+          output: oidcIssuerURL
+        oidcClientID:
+          node: web
+          output: oidcClientID
+        oidcClientSecret:
+          node: web
+          output: oidcClientSecret
+  parameters:
+    # The deployment's creator owns it: their verified email, captured once
+    # when the deployment is created (BP-PARAM-011). Gitea matches their
+    # platform sign-in to the admin account by this email and links the two
+    # once they enter the admin password.
+    adminEmail:
+      from: "${{ deployment.creator.email }}"
+    # Disclosed to whoever manages the deployment. The deployer enters it once
+    # to link their platform sign-in to `admin`; it also serves the API with
+    # Basic auth (to mint a first token from a script).
+    # 24 bytes in BASE64URL is 32 characters, above Gitea's 8-character
+    # minimum, and needs no quoting in a shell or a URL.
+    adminPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Admin password
+        order: 1
+    # Never shown: nobody needs it outside Gitea, and changing it would make
+    # what it encrypted unreadable.
+    secretKey:
+      generator:
+        byteLength: 32
+        encoding: HEX
+    # HEX keeps the password free of characters a connection string would
+    # treat specially. Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 2

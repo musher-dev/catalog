@@ -1,0 +1,226 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    llama.cpp's llama-server on CPU, serving one GGUF model downloaded from
+    Hugging Face at first boot through an OpenAI-compatible /v1 API behind an
+    API key, and caching the model on one volume.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. server-b12110 is the CPU server image built from the v0.9.0
+      # release commit, cd959bae (2026-11-04, the latest stable release; the
+      # image's org.opencontainers.image.revision label names that commit).
+      # llama.cpp tags every merge `bNNNNN` as a pre-release and publishes
+      # images only for some of them. The `server-v*` image tags stop at
+      # v0.5.0, so there is no `server-v0.9.0`; `server` moves with every
+      # published build. The image is multi-arch (amd64, arm64), runs as root,
+      # and its ENTRYPOINT is /app/llama-server (.devops/cpu.Dockerfile,
+      # v0.9.0). It is built with GGML_CPU_ALL_VARIANTS, so it picks the best
+      # CPU kernels for the host at start.
+      image: ghcr.io/ggml-org/llama.cpp:server-b12110
+    # No `command`. Every llama-server flag this component sets has an
+    # environment variable of its own (`set_env`, common/arg.cpp, v0.9.0), so
+    # nothing goes on the command line.
+    endpoints:
+      primary:
+        # LLAMA_ARG_PORT=8080 in the image (.devops/cpu.Dockerfile, v0.9.0).
+        targetPort: 8080
+        protocol: HTTP
+    health:
+      # With a Hugging Face repo set, llama-server downloads the model before
+      # it opens its port, then answers /health with 503 "Loading model" until
+      # the weights are loaded (tools/server/server.cpp and server-http.cpp,
+      # v0.9.0). The first boot therefore spends most of its time fetching the
+      # GGUF file: about 1.2 GB for the default model. 30 + 90 x 10 = 930 s
+      # covers that with a wide margin, and a model of a few GB on a
+      # reasonable link. Later starts read the file from the volume.
+      startup:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
+      # /health and /v1/health are the only API routes outside the API key
+      # check (server-http.cpp, v0.9.0), and the image's own HEALTHCHECK
+      # curls /health. No liveness probe: a CPU node busy generating can
+      # answer slowly, and a restart would only throw away the loaded model.
+      readiness:
+        http:
+          endpoint: primary
+          path: /health
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+    volumes:
+      # LLAMA_CACHE below points llama.cpp's model cache here (common/common.cpp
+      # and common/hf-cache.cpp, v0.9.0), so the model is downloaded once and
+      # later starts reuse it. Upstream's Docker guide mounts a volume for
+      # models the same way (docs/docker.md, v0.9.0). The image runs as root,
+      # so the volume needs no particular owner. A model you switch away from
+      # stays in the cache, which is why the floor leaves room for several.
+      models:
+        minSizeGiB: 10
+        mountPath: /models
+  contract:
+    inputs:
+      # ADR 0033: every value that reaches this workload enters through an
+      # input, including the constants below. They carry defaults, so no
+      # blueprint has to wire them and the deploy form gains no field. The
+      # image already sets host and port; restating them keeps the port the
+      # endpoint targets visible here.
+      host:
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: LLAMA_ARG_HOST
+        description: Address llama-server listens on inside the container.
+      port:
+        schema:
+          type: string
+        default: '8080'
+        target:
+          envVar: LLAMA_ARG_PORT
+        description: Port llama-server listens on, the `primary` endpoint's target port.
+      # `-hf <user>/<model>[:quant]` (common/arg.cpp, v0.9.0). Without a quant
+      # it takes Q4_K_M, or the first file in the repo when there is none.
+      # Qwen3 1.7B: Apache-2.0, 1.2 GB at Q4_K_M, a chat template with tool
+      # calling, and small enough to answer at a usable speed on two vCPUs.
+      hfRepo:
+        schema:
+          type: string
+        default: ggml-org/Qwen3-1.7B-GGUF:Q4_K_M
+        target:
+          envVar: LLAMA_ARG_HF_REPO
+        description: >-
+          Hugging Face repository of the GGUF model to serve, as
+          `<user>/<model>[:quant]`, such as ggml-org/Qwen3-1.7B-GGUF:Q4_K_M.
+          Without a quant, Q4_K_M is used when the repo has it.
+      # Inputs are required unless they say otherwise; this one is optional.
+      hfToken:
+        schema:
+          type: string
+        sensitive: true
+        required: false
+        target:
+          envVar: HF_TOKEN
+        description: >-
+          Hugging Face access token, needed only to download a gated or private
+          model.
+      # The model `id` /v1/models reports and every response carries. Without
+      # an alias it is derived from the repo or file name
+      # (tools/server/server-context.cpp, v0.9.0). A single-model server
+      # answers whatever `model` a request names.
+      modelAlias:
+        schema:
+          type: string
+        default: qwen3-1.7b
+        target:
+          envVar: LLAMA_ARG_ALIAS
+        description: >-
+          Model name the API reports and hands consumers as `model`. Change it
+          together with the repository.
+      # Comma-separated keys are allowed. Clients send one as
+      # `Authorization: Bearer <key>`, or as `X-Api-Key` (server-http.cpp,
+      # v0.9.0). Without a key every route would be open, so it is required.
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        required: true
+        target:
+          envVar: LLAMA_API_KEY
+        description: >-
+          Key every API request except /health must send, as
+          `Authorization: Bearer <key>` or `X-Api-Key: <key>`.
+      cacheDir:
+        schema:
+          type: string
+        default: /models
+        target:
+          envVar: LLAMA_CACHE
+        description: Directory downloaded models are cached in, the volume's mount path.
+      # Left at 0, llama-server sizes the context from the model (40,960
+      # tokens for Qwen3 1.7B), and the KV cache for that alone needs about
+      # 4.5 GB at f16. 8192 tokens keep it near 0.9 GB. The server's automatic
+      # four slots share this one context (tools/server/server.cpp, v0.9.0).
+      ctxSize:
+        schema:
+          type: string
+        default: '8192'
+        target:
+          envVar: LLAMA_ARG_CTX_SIZE
+        description: >-
+          Context window in tokens, shared by concurrent requests, as the
+          literal string the image parses. The KV cache grows with it.
+      # Left unset, llama-server counts the host's physical cores from
+      # /sys/devices/system/cpu, not the container's CPU limit
+      # (common/common.cpp, v0.9.0). On a shared host that oversubscribes the
+      # node and slows generation, so set it to the node's vCPU count.
+      threads:
+        schema:
+          type: string
+        default: '2'
+        target:
+          envVar: LLAMA_ARG_THREADS
+        description: >-
+          CPU threads used for generation, as the literal string the image
+          parses. Set it to the node's vCPU count.
+      # on, off or auto (detect from the chat template). Thinking models such
+      # as Qwen3 otherwise spend hundreds of tokens reasoning before every
+      # answer, which on a CPU means a long wait for a short reply. A request
+      # can still turn it on with `chat_template_kwargs`.
+      reasoning:
+        schema:
+          type: string
+        default: 'off'
+        target:
+          envVar: LLAMA_ARG_REASONING
+        description: >-
+          Whether thinking models reason before answering: on, off or auto, as
+          the literal string the image parses.
+      # Upstream's default, restated. The page's assets load without the key,
+      # and the UI asks for the key before it can chat.
+      webUI:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: LLAMA_ARG_UI
+        description: >-
+          Whether llama-server serves its built-in chat page at `/`, as the
+          literal string the image parses.
+    outputs:
+      # The same three values the llm-endpoint component publishes, so a
+      # blueprint can wire a consumer to this node where it would wire it to
+      # an `llm` node.
+      baseURL:
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        description: >-
+          Mesh-internal OpenAI-compatible base URL, ending in /v1, resolvable
+          only by workloads in the same deployment. Clients append
+          /chat/completions.
+        from:
+          template: "http://${{ self.endpoints.primary.privateAddress }}/v1"
+      apiKey:
+        schema:
+          type: string
+        sensitive: true
+        description: The key clients send, for a consumer's model API key input.
+        from:
+          input: apiKey
+      model:
+        schema:
+          type: string
+        description: Model name to send as `model`, the alias the API reports.
+        from:
+          input: modelAlias

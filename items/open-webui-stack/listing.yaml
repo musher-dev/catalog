@@ -1,0 +1,111 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: open-webui-stack
+spec:
+  itemType: BLUEPRINT
+  displayName: Open WebUI (full stack)
+  summary: >-
+    Open WebUI for your team on its own PostgreSQL with pgvector and Valkey:
+    chats, accounts and document embeddings in a real database, behind Musher
+    sign-in, wired to your language model.
+  overview: |
+    ## What it is
+    Open WebUI is a self-hosted web interface for chatting with LLMs through
+    any OpenAI-compatible API. It adds multi-user accounts with role-based
+    access, RAG over uploaded documents, and a library of reusable prompts
+    and model presets.
+
+    This is the production layout upstream describes for growing past a
+    single container. Accounts, chats and settings live in PostgreSQL rather
+    than a SQLite file. Document embeddings live in the same database through
+    pgvector rather than in embedded Chroma files. Websocket sessions, the
+    model list, running tasks and sign-out token revocation go through
+    Valkey, a Redis-compatible store, rather than process memory.
+
+    ## When to use
+    - You're giving a team a shared chat interface and want its data in a
+      database you can query, back up and restore on its own.
+    - You want RAG over your own documents with the embeddings in PostgreSQL,
+      beside the rest of the app's data.
+    - You want signing out to revoke the session token, which Open WebUI
+      does only when Redis is configured.
+    - For a single user or a quick trial, the lighter **Open WebUI** item
+      runs everything in one container.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection. The address, the credential and the model name travel
+    together as a single connection. Anything speaking the OpenAI
+    chat-completions protocol with streaming and tool calls will do, as long
+    as it also lists its models at `/models`. Embeddings for RAG are computed
+    inside Open WebUI, so the connection needs no embeddings API.
+
+    Open WebUI saves that connection into its own settings the first time it
+    starts, and uses the saved copy from then on. Changing your
+    organization's default model or rotating its credential later does not
+    reach an existing deployment. To switch providers, deploy again or edit
+    the connection under **Admin Settings → Connections**.
+
+    ## Defaults
+    Three nodes run, and a fourth stands for the language model:
+
+    - **web**: `ghcr.io/open-webui/open-webui:v0.13.3` on port 8080 behind
+      the platform's HTTPS edge and sign-in, on 1 vCPU and 2 GiB. An 8 GiB
+      volume at `/app/backend/data` keeps uploaded files and the local
+      embedding model (`all-MiniLM-L6-v2`).
+    - **db**: `pgvector/pgvector:0.8.7-pg17` (PostgreSQL 17 with the vector
+      extension), private, on 1 vCPU and 1 GiB with a 10 GiB volume. Open
+      WebUI keeps its accounts, chats and settings here, and its document
+      chunks in a `document_chunk` table with a 1536-dimension vector
+      column.
+    - **cache**: `valkey/valkey:9.1.3-alpine`, private and password
+      protected, on 1 vCPU and 1 GiB with a 5 GiB append-only volume.
+
+    Open WebUI signs people in through the platform's OpenID Connect
+    provider, so there is no second password: each person's account carries
+    their verified email and name, and the first person to sign in becomes
+    the admin. Password sign-in is off. The chat-completion, model and
+    embedding APIs stay reachable without the platform's sign-in, for
+    clients using an Open WebUI API key. API keys are on for admins, and
+    other users need the permission granted. The native Ollama integration
+    is off; point the connection at an Ollama server's `/v1` URL instead.
+
+    The session-token signing key, the database password and the Valkey
+    password are generated at deploy. The web node reports ready only while
+    it can reach both the database and Valkey.
+
+    ## Limitations
+    - Web search is not set up. SearXNG, the usual self-hosted engine for
+      Open WebUI, has to be given a settings file to answer in JSON, and this
+      platform can't ship one yet. An admin can turn on a hosted search
+      provider under **Admin Settings → Web Search**.
+    - Open WebUI tests against Redis. Valkey speaks the same protocol, and
+      upstream documents it as a community-supported setup.
+    - Open WebUI does not move data between databases. Chats in the
+      single-container **Open WebUI** item don't carry over to this one.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. Do this first if you
+       want to be the admin: the first person to sign in becomes it.
+    2. Start a chat. Your language model is already connected.
+    3. To chat with your documents, add them under **Workspace →
+       Knowledge** and attach the collection to a chat with `#`.
+    4. Ask your team to sign in the same way, and manage their access from
+       the admin settings.
+
+    To switch providers later, edit the connection under **Admin Settings →
+    Connections**. API clients use an Open WebUI API key.
+  category: MODELS
+  lifecycleStage: BETA
+  tags:
+    - ai
+    - llm
+    - chat
+    - rag
+    - pgvector
+    - openai-compatible
+  homepageURL: https://openwebui.com
+  sourceRepositoryURL: https://github.com/open-webui/open-webui
+  supportURL: https://docs.openwebui.com
+  license: LicenseRef-Open-WebUI
+  icon: media/icon.png
