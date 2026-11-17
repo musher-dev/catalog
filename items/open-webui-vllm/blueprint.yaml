@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: open-webui-vllm
-  revision: 2
+  revision: 3
   description: >-
     Open WebUI behind the platform's sign-in, chatting with an open model that
     vLLM serves on a GPU node of the same deployment, over its private network.
@@ -42,8 +42,12 @@ spec:
           parameter: llmAPIKey
     web:
       componentRef: ./components/open-webui.yaml
+      # Open WebUI loads PyTorch and the all-MiniLM-L6-v2 embedding model into
+      # its one worker at startup and idles near 1 GB; 2 GiB holds that and a
+      # document upload. The component pins one PyTorch thread and gives the
+      # first boot a 930 s startup budget for one vCPU.
       compute:
-        profile: general.standard.small
+        profile: general.standard.nano
       volumes:
         data:
           sizeGiB: 8

@@ -6,7 +6,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     vLLM serving Qwen3-4B-Instruct-2507 on one NVIDIA GPU through an
     OpenAI-compatible API with streaming and tool calls, publishing its private
@@ -46,7 +46,7 @@ spec:
     # --enable-auto-tool-choice is what makes vLLM parse a tool call out of a
     # request whose tool_choice is "auto", which is what any request carrying
     # tools defaults to (entrypoints/openai/chat_completion/protocol.py,
-    # parser/abstract_parser.py). Open WebUI v0.11.4 sends its built-in tools
+    # parser/abstract_parser.py). Open WebUI v0.13.3 sends its built-in tools
     # with every chat unless an admin sets a model's function calling to
     # legacy (the open-webui item's components/llm.yaml), so without the flag a
     # tool call would reach it as raw markup in the reply.

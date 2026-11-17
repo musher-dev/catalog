@@ -53,13 +53,14 @@ spec:
     tool calls, so Open WebUI's built-in tools and any you add work with it.
     Its API is private to the deployment and requires the generated key.
 
-    `web` runs `ghcr.io/open-webui/open-webui:v0.11.4` as the Open WebUI
+    `web` runs `ghcr.io/open-webui/open-webui:v0.13.3` as the Open WebUI
     listing does: the web UI on port 8080 behind the platform's HTTPS edge and
     sign-in, with Open WebUI signing people in through the platform's OpenID
     Connect provider, so there is no second password and the first person to
     sign in becomes the admin. The chat-completion, model and embedding APIs
     stay reachable without signing in, for clients holding an Open WebUI API
-    key. An 8 GiB volume at `/app/backend/data` keeps accounts, chats and
+    key; API keys are on for admins, and other users need the permission
+    granted. An 8 GiB volume at `/app/backend/data` keeps accounts, chats and
     uploaded documents across restarts.
 
     Open WebUI saves the model's address, key and name the first time it
@@ -68,6 +69,16 @@ spec:
 
     vLLM's usage statistics are switched off. Qwen3-4B-Instruct-2507 is
     licensed Apache-2.0, as vLLM is; Open WebUI keeps its own license.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in through the platform. Do this first
+       if you want to be the admin: the first person to sign in becomes it.
+    2. Start a chat. The model is already connected, but on a first start it
+       answers only once vLLM has loaded it, which can take 20 minutes or more.
+    3. Ask your team to sign in the same way, and manage their access from the
+       admin settings.
+
+    If you rotate the vLLM API key, enter the new one under **Admin Settings →
+    Connections** too. API clients use an Open WebUI API key.
   category: MODELS
   lifecycleStage: BETA
   tags:
