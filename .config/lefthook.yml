@@ -3,7 +3,7 @@
 # first match — which is why it is the one config here not passed by path, and
 # why a stray lefthook.yml at the repo root would silently shadow it.
 #
-# Keep min_version in step with .devcontainer/mise.toml.
+# Keep min_version in step with .config/mise/config.toml.
 min_version: 2.1.10
 
 # Without doublestar, `**/*.md` matches only files in a subdirectory, so the

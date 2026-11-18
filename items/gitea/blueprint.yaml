@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: gitea
-  revision: 1
+  revision: 2
   description: >-
     Gitea Git forge behind the platform's sign-in, on its own PostgreSQL, with
     an admin account for the deployer, members signing in through the
@@ -21,7 +21,7 @@ spec:
         data:
           sizeGiB: 10
       # No exposure: the database stays PRIVATE, reachable only by `web` and
-      # `bootstrap` through the address it publishes.
+      # `bootstrap-owner` through the address it publishes.
       bindings:
         postgresPassword:
           parameter: dbPassword
@@ -76,8 +76,8 @@ spec:
           value: gitea
         dbPassword:
           parameter: dbPassword
-    bootstrap:
-      componentRef: ./components/bootstrap.yaml
+    bootstrap-owner:
+      componentRef: ./components/bootstrap-owner.yaml
       # A shell loop and two short CLI runs.
       compute:
         profile: general.economy.nano
@@ -100,10 +100,10 @@ spec:
           value: gitea
         dbPassword:
           parameter: dbPassword
-        adminEmail:
-          parameter: adminEmail
-        adminPassword:
-          parameter: adminPassword
+        ownerEmail:
+          parameter: ownerEmail
+        ownerPassword:
+          parameter: ownerPassword
         # The OIDC client the platform registered for `web`'s endpoint,
         # which Gitea keeps as a sign-in source in its database.
         oidcIssuerURL:
@@ -120,14 +120,14 @@ spec:
     # when the deployment is created (BP-PARAM-011). Gitea matches their
     # platform sign-in to the admin account by this email and links the two
     # once they enter the admin password.
-    adminEmail:
+    ownerEmail:
       from: "${{ deployment.creator.email }}"
     # Disclosed to whoever manages the deployment. The deployer enters it once
     # to link their platform sign-in to `admin`; it also serves the API with
     # Basic auth (to mint a first token from a script).
     # 24 bytes in BASE64URL is 32 characters, above Gitea's 8-character
     # minimum, and needs no quoting in a shell or a URL.
-    adminPassword:
+    ownerPassword:
       generator:
         byteLength: 24
         encoding: BASE64URL

@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 8
+  revision: 9
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
@@ -76,3 +76,19 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the database endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

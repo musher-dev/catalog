@@ -139,7 +139,7 @@ base_install_mise() {
   retry 3 5 bash -c 'curl -fsSL https://mise.run | sh'
 }
 
-# Installs the CLIs pinned in .devcontainer/mise.toml (tools with no Feature),
+# Installs the CLIs pinned in .config/mise/config.toml (tools with no Feature),
 # then regenerates shims. MISE_GLOBAL_CONFIG_FILE (devcontainer.json →
 # containerEnv) points mise at that manifest.
 #
@@ -152,7 +152,7 @@ base_install_mise() {
 base_install_tools() {
   local mise
   mise="$(command -v mise || echo "${_MISE_BIN}")"
-  local config="${MISE_GLOBAL_CONFIG_FILE:-${_LIB_DIR}/../../mise.toml}"
+  local config="${MISE_GLOBAL_CONFIG_FILE:-${_LIB_DIR}/../../../.config/mise/config.toml}"
   log "Installing pinned CLIs from ${config}..."
   "${mise}" trust "${config}" >/dev/null 2>&1 || true
   retry 3 5 "${mise}" install
@@ -193,7 +193,8 @@ base_install_claude() {
 #
 # actionlint and shellcheck are here because `task check` runs both, and a tool
 # that is absent or built for the wrong CPU architecture should fail loudly at
-# container build rather than at the first push.
+# container build rather than at the first push. crane is here because authoring
+# an item reads image tags and config with it, and this container has no Docker.
 #
 # Claude is checked only when it was meant to be installed, so a container
 # built with MUSHER_INSTALL_CLAUDE=0 does not fail its own verification.
@@ -205,7 +206,7 @@ base_install_claude() {
 # Returns:
 #   0 if all tools found, 1 if any are missing
 base_verify_tools() {
-  local tools=(gh task node npm lefthook actionlint shellcheck yamllint codex)
+  local tools=(gh task node npm lefthook actionlint shellcheck yamllint codex crane)
   [[ "${MUSHER_INSTALL_CLAUDE:-1}" == "0" ]] || tools+=(claude)
   verify_tools "${tools[@]}"
 }

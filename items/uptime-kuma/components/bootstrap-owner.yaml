@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     One-shot job that creates Uptime Kuma's admin account over the private
     network and, by default, turns Uptime Kuma's own login off so the
@@ -61,17 +61,21 @@ spec:
     # Any refusal or timeout exits 1, which the platform records for the
     # deployment. The password reaches the process through the environment,
     # never argv.
+    #
+    # WORKAROUND(platform-api#1445): nothing can run after another node is
+    #   ready, so the job polls the app until it answers, then creates the
+    #   first account.
     command:
       - node
       - -e
       - |-
         const { io } = require("socket.io-client");
         const base = "http://" + process.env.KUMA_ADDRESS;
-        const user = process.env.ADMIN_USERNAME;
-        const pass = process.env.ADMIN_PASSWORD;
+        const user = process.env.OWNER_USERNAME;
+        const pass = process.env.OWNER_PASSWORD;
         const deadline = Date.now() + Number(process.env.READY_TIMEOUT_SECONDS) * 1000;
-        const say = (m) => console.log("bootstrap-admin: " + m);
-        const fail = (m) => { console.error("bootstrap-admin: " + m); process.exit(1); };
+        const say = (m) => console.log("bootstrap-owner: " + m);
+        const fail = (m) => { console.error("bootstrap-owner: " + m); process.exit(1); };
         const sleep = (ms) => new Promise((r) => setTimeout(r, ms));
         (async () => {
           for (;;) {
@@ -122,23 +126,23 @@ spec:
         target:
           envVar: KUMA_ADDRESS
         description: Private host:port of Uptime Kuma, from the web node's `address` output.
-      adminUsername:
+      ownerUsername:
         schema:
           type: string
         default: admin
         target:
-          envVar: ADMIN_USERNAME
+          envVar: OWNER_USERNAME
         description: Username of the admin account the job creates.
       # Uptime Kuma refuses a password check-password-strength rates "Too
       # weak" (server/server.js, 2.5.11). A generated BASE64URL password is
       # far above that.
-      adminPassword:
+      ownerPassword:
         schema:
           type: string
         sensitive: true
         required: true
         target:
-          envVar: ADMIN_PASSWORD
+          envVar: OWNER_PASSWORD
         description: Password the admin account is created with.
       disableAuth:
         schema:

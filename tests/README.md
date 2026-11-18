@@ -80,7 +80,8 @@ pass. This suite runs the first three.
 | `structural.test.ts` | `structural` | Every document validates against its family's vendored JSON Schema. |
 | `semantic.test.ts` | `semantic` | The cross-document rules: identity agreement, every YAML file of the item parsing (CORE-ITEM-002), the listing's `itemType` against the item root (LIST-ITEM-001), one component document per component item (LIST-ITEM-002), reference resolution and dependency validity (§10), path containment, media and its size bounds (LIST-MEDIA-001..004), the overview Markdown profile over `overview` and `gettingStarted`, environment variables — no two inputs claim one `envVar` (COMP-ENVVAR-002), mounts (§5.5), schedules (COMP-JOB-002), probe endpoints (COMP-EP-002), trust bundles, probe credentials and build secrets reading guaranteed inputs (COMP-EP-006/010, COMP-BUILD-004), output origins, connection members and templates (COMP-OUT-002/003/004, COMP-PLACEHOLDER-001, COMP-EP-004), inputs nothing reads (COMP-INPUT-001), authored sensitive values (COMP-VAL-005, §11), node compute (BP-NODE-001/002), volume allocation, exposure and its readiness rule (COMP-EP-003), access and viewer identity — the mode or claim each viewer property needs, OIDC clients and the exemptions a component offers (BP-NODE-007/008, COMP-EP-012/014), binding resolution and type agreement (BP-BIND-006/007, BP-PARAM-008), value cycles (BP-BIND-002), connection bindings — a connection input takes a connection parameter and a connection parameter takes one (BP-CONNECTION-001), and the parameters — reachability, schema agreement, origins, creator facts, hashes, enum labels and the deploy form offering what a required input needs (BP-PARAM-001..003, BP-PARAM-011/012, BP-PLACEHOLDER-001, BP-UI-003, BP-UI-005, CORE-PLACEHOLDER-001..003). |
 | `layout.test.ts` | — | The item folder structure, and the catalog's own additions to it. |
-| `rules.test.ts` | — | The rules themselves, against deliberately broken synthetic items. |
+| `policy.test.ts` | — | The catalog's own policy: `CATALOG_*` rules that are not spec rules — a privileged port, an input required only by default in a `COMPONENT` item, a SERVICE with no readiness probe, icon dimensions, CR line endings, an untagged command wrapper, a building-block copy drifting from its source. They must never join `SEMANTIC_CHECKS`, which also runs the specification's conformance corpus, and that corpus is right to accept what they reject. A deliberate exception lives in [`policy-exceptions.ts`](policy-exceptions.ts), keyed `items/<slug>/<file>#<pointer>` with `{rule, reason, issue}`; an exception that no longer matches a finding fails as stale. |
+| `rules.test.ts` | — | The rules themselves, semantic and policy, against deliberately broken synthetic items. |
 | `conformance.test.ts` | all three | The pinned release's conformance corpus, run through the same three phases. Each case is a test named by its id. |
 
 `admission` (v1's `capability`) is deliberately absent. Whether a Compute
@@ -217,3 +218,19 @@ this suite picks it up when it adopts the release that carries it. If it needs a
 document or the filesystem, it is `semantic`: add it to `tests/lib/semantic.ts`
 with its diagnostic code, add it to `SEMANTIC_CHECKS` there and wire it into
 `semantic.test.ts`, and add a case to `rules.test.ts` proving it fires.
+
+[`lib/model.ts`](lib/model.ts) holds the component-model helpers both
+`semantic.ts` and `policy.ts` read documents through — where a component keeps
+its inputs, workload and endpoints, which kind an input is and whether it is
+required — so the two cannot disagree about what a document says.
+
+## Adding a policy rule
+
+A rule that is the catalog's choice rather than the specification's — anything
+the conformance corpus would rightly pass — is policy. Add it to
+[`lib/policy.ts`](lib/policy.ts) under a `CATALOG_*` code and to
+`POLICY_CHECKS`, add a case to `rules.test.ts` that fails on a bad fixture and
+passes on a good one, and document it in the
+[authoring guide](../docs/authoring.md). Where an item cannot meet it yet,
+record an exception in [`policy-exceptions.ts`](policy-exceptions.ts) naming
+the issue that would let it.

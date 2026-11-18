@@ -8,7 +8,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Neo4j Community graph database on one persistent volume, reached over Bolt
     by workloads in the same deployment and checked over its HTTP discovery
@@ -44,6 +44,11 @@ spec:
     # (docker-entrypoint.sh, 2026.10.2). The DB_* variables are deliberately
     # not NEO4J_-prefixed: the entrypoint would turn them into settings too,
     # and strict validation refuses unknown ones.
+    #
+    # WORKAROUND(platform-api#1448): NEO4J_AUTH is `neo4j/<password>`,
+    #   composed from an input.
+    # WORKAROUND(platform-api#1447): Neo4j settings are lower-case environment
+    #   variables, which an input cannot target.
     command:
       - sh
       - -c

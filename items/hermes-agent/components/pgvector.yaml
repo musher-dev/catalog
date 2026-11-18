@@ -1,16 +1,25 @@
-# The PostgreSQL server Hindsight keeps its memory banks in. The `postgres`
-# item's component (items/postgres/components/postgres.yaml, revision 8) with
-# the image swapped: Hindsight requires the pgvector extension, which the stock
-# postgres image does not ship.
+# copy-of: items/postgres/components/postgres.yaml@9
+# copy-differs: /metadata/description, /spec/contract/inputs/postgresPassword/schema/pattern
+# copy-differs: /spec/contract/outputs/address/description, /spec/workload/source/image
+#
+# The PostgreSQL server Hindsight keeps its memory banks in: the `postgres`
+# item's component with the image swapped, because Hindsight requires the
+# pgvector extension, which the stock postgres image does not ship. It is not
+# the `pgvector` item's component, which adds a Perl readiness supervisor this
+# node was released without.
 #
 # The pgvector image is the official Debian postgres image with the extension
 # added, so its entrypoint and PGDATA handling are the same. PostgreSQL 17 is
 # the major the rest of this catalog runs; Hindsight needs 14 or later
 # (hindsight-docs/docs/developer/installation.md).
+#
+# The password's `pattern` is narrower than the original's: Hindsight writes
+# it into a connection URL unencoded, and one parameter binds both inputs,
+# whose schemas must then agree (ERR_CONFLICTING_INPUT_SCHEMA).
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: PostgreSQL with the pgvector extension and a single persistent data volume.
 spec:
   type: SERVICE
@@ -55,6 +64,7 @@ spec:
       postgresPassword:
         schema:
           type: string
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:
@@ -89,3 +99,19 @@ spec:
         from:
           endpoint: primary
           property: privateAddress
+      hostname:
+        schema:
+          type: string
+        description: >-
+          Mesh-internal hostname of the database endpoint, resolvable only by
+          workloads in the same deployment.
+        from:
+          endpoint: primary
+          property: privateHostname
+      port:
+        schema:
+          type: integer
+        description: Port of the database endpoint on that hostname.
+        from:
+          endpoint: primary
+          property: privatePort

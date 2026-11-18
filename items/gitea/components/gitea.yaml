@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Gitea, a self-hosted Git forge with repositories, issues, pull requests,
     a package registry and Actions, serving Git over HTTPS and keeping its
@@ -39,7 +39,7 @@ spec:
         # Its redirect URI is `<ROOT_URL>user/oauth2/<source name>/callback`
         # (services/auth/source/oauth2/providers.go, v28.3.0). The bootstrap
         # job registers the source under the name `Musher`
-        # (components/bootstrap.yaml).
+        # (components/bootstrap-owner.yaml).
         oidc:
           redirectPaths:
             - /user/oauth2/Musher/callback
@@ -317,7 +317,7 @@ spec:
       # alice@a.example would take over alice@b.example's account and anyone
       # whose email starts with admin@ would get the deployer's `admin`. The
       # deployer links their sign-in to `admin` once with the generated
-      # Admin password (components/bootstrap.yaml).
+      # Admin password (components/bootstrap-owner.yaml).
       oauth2AutoRegistration:
         schema:
           type: string

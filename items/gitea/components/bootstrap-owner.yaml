@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     One-shot job that creates Gitea's first admin account for the deployer and
     registers the platform's OpenID Connect provider as a Gitea sign-in source,
@@ -54,6 +54,10 @@ spec:
     # tables with a header row, ID first and the name second
     # (cmd/admin_user_list.go, cmd/admin_auth.go, v28.3.0), so awk matches the
     # second column exactly. The source name has no spaces.
+    #
+    # WORKAROUND(platform-api#1445): nothing can run after another node is
+    #   ready, so the job polls the server until it answers, then creates the
+    #   first account and the sign-in source.
     command:
       - sh
       - -c
@@ -63,28 +67,28 @@ spec:
         deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ))
         until curl -fsS -o /dev/null --max-time 5 "$base/api/healthz"; do
           if [ "$(date +%s)" -ge "$deadline" ]; then
-            echo "bootstrap: $base/api/healthz did not answer within ${READY_TIMEOUT_SECONDS}s" >&2
+            echo "bootstrap-owner: $base/api/healthz did not answer within ${READY_TIMEOUT_SECONDS}s" >&2
             exit 1
           fi
           sleep 3
         done
-        if gitea admin user list --admin | awk 'NR > 1 { print $2 }' | grep -Fqx "$ADMIN_USERNAME"; then
-          echo "bootstrap: admin ${ADMIN_USERNAME} already exists; leaving it unchanged"
+        if gitea admin user list --admin | awk 'NR > 1 { print $2 }' | grep -Fqx "$OWNER_USERNAME"; then
+          echo "bootstrap-owner: admin ${OWNER_USERNAME} already exists; leaving it unchanged"
         else
           gitea admin user create --admin --must-change-password=false \
-            --username="$ADMIN_USERNAME" --email="$ADMIN_EMAIL" --password="$ADMIN_PASSWORD"
-          echo "bootstrap: created admin ${ADMIN_USERNAME} <${ADMIN_EMAIL}>"
+            --username="$OWNER_USERNAME" --email="$OWNER_EMAIL" --password="$OWNER_PASSWORD"
+          echo "bootstrap-owner: created admin ${OWNER_USERNAME} <${OWNER_EMAIL}>"
         fi
         discovery="${OIDC_ISSUER_URL%/}/.well-known/openid-configuration"
         id=$(gitea admin auth list | awk -v n="$OIDC_SOURCE_NAME" 'NR > 1 && $2 == n { print $1 }')
         if [ -n "$id" ]; then
           gitea admin auth update-oauth --id="$id" --provider openidConnect \
             --key="$OIDC_CLIENT_ID" --secret="$OIDC_CLIENT_SECRET" --auto-discover-url="$discovery"
-          echo "bootstrap: updated sign-in source ${OIDC_SOURCE_NAME} (id ${id})"
+          echo "bootstrap-owner: updated sign-in source ${OIDC_SOURCE_NAME} (id ${id})"
         else
           gitea admin auth add-oauth --name="$OIDC_SOURCE_NAME" --provider openidConnect \
             --key="$OIDC_CLIENT_ID" --secret="$OIDC_CLIENT_SECRET" --auto-discover-url="$discovery"
-          echo "bootstrap: added sign-in source ${OIDC_SOURCE_NAME}"
+          echo "bootstrap-owner: added sign-in source ${OIDC_SOURCE_NAME}"
         fi
   contract:
     inputs:
@@ -162,30 +166,30 @@ spec:
         description: SSL mode for the PostgreSQL connection, which stays on the private network.
       # Gitea usernames take letters, digits, `-`, `_` and `.`, and some names
       # are reserved (models/user/user.go, v28.3.0).
-      adminUsername:
+      ownerUsername:
         schema:
           type: string
         default: admin
         target:
-          envVar: ADMIN_USERNAME
+          envVar: OWNER_USERNAME
         description: Username of the admin account created on first run.
-      adminEmail:
+      ownerEmail:
         schema:
           type: string
         presentationHint: EMAIL
         required: true
         target:
-          envVar: ADMIN_EMAIL
+          envVar: OWNER_EMAIL
         description: >-
           Email address of the admin account. A platform sign-in with the same
           email is offered to link to this account with its password.
-      adminPassword:
+      ownerPassword:
         schema:
           type: string
         sensitive: true
         required: true
         target:
-          envVar: ADMIN_PASSWORD
+          envVar: OWNER_PASSWORD
         description: Password the admin account is created with.
       # Gitea's sign-in button reads "Sign in with <name>", and the name is
       # part of the redirect path components/gitea.yaml declares.

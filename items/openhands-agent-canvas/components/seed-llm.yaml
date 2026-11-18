@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     One-shot job that writes the deployment's language-model connection into
     Agent Canvas as its active LLM profile, through the agent server's own API.
@@ -80,6 +80,9 @@ spec:
     # Exec form: argv, no shell of the platform's own. `set -eu` plus
     # `curl -f` turns any non-2xx into a failed run, which the platform records
     # for the deployment.
+    #
+    # WORKAROUND(platform-api#1445): nothing can run after the app is ready,
+    #   so the job polls it until it answers, then seeds its model settings.
     command:
       - sh
       - -c

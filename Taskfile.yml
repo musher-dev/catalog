@@ -85,7 +85,7 @@ tasks:
   # ===========================================================================
   # Linting
   #
-  # actionlint and yamllint are pinned in .devcontainer/mise.toml, and
+  # actionlint and yamllint are pinned in .config/mise/config.toml, and
   # shellcheck as a devcontainer Feature, so a container has them and a bare
   # checkout may not. Each of those skips with a note rather than failing the
   # run. markdownlint-cli2 is an npm devDependency, so `npm ci` brings it

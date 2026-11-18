@@ -14,7 +14,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     FerretDB serving the MongoDB wire protocol from PostgreSQL with the
     DocumentDB extension, signing clients in with PostgreSQL roles.
@@ -101,6 +101,7 @@ spec:
       pgPassword:
         schema:
           type: string
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:

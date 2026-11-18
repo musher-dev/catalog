@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: sim
-  revision: 1
+  revision: 2
   description: >-
     Sim's AI-agent workflow builder behind the platform's sign-in, with its
     realtime collaboration server on a second public address, PostgreSQL with
@@ -15,8 +15,8 @@ metadata:
 # - The one-shot `migrations` container is folded into the realtime node,
 #   which applies the schema before it serves (components/sim-realtime.yaml).
 # - The `cron` container is left out. Its image (ghcr.io/simstudioai/cron)
-#   serves no port, and in catalog run uccz47da6 the platform stopped it as a
-#   WORKER every time, about 15 s after start, with "port_bind_timeout". Its
+#   serves no port, and the platform stops a WORKER with no endpoint about
+#   15 s after start, with "port_bind_timeout" (platform-api#1440). Its
 #   ENTRYPOINT ignores any `command`, so nothing can be started beside
 #   supercronic to hold a port. Without it, scheduled workflows, polling
 #   triggers and the other background jobs do not run (docker-compose.prod.yml,

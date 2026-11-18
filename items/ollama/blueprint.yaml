@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: ollama
-  revision: 1
+  revision: 2
   description: >-
     Ollama serving a small open model on CPU, private to the deployment, with
     Open WebUI in front of it behind the platform's sign-in, signing viewers

@@ -14,7 +14,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hindsight Control Plane, the web UI for browsing, searching and managing an
     agent's memory banks, calling a Hindsight API it holds the key for.
@@ -57,7 +57,7 @@ spec:
       #
       # Not a loopback address: start-all.sh rewrites one to `localhost`
       # because Next.js would redirect every page to itself (#1926).
-      hostname:
+      host:
         schema:
           type: string
         default: 0.0.0.0

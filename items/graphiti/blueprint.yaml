@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: graphiti
-  revision: 1
+  revision: 2
   description: >-
     Graphiti's MCP server on the deployer's OpenAI-compatible model
     connection, with its knowledge graph in Neo4j, embeddings from a private

@@ -1,11 +1,10 @@
-# The Valkey server Open WebUI shares its live state through. A copy of the
-# `valkey` item's component (items/valkey/components/valkey.yaml, revision 1):
-# a repo-local componentRef cannot leave its item directory, so a blueprint
-# that needs one carries its own. Keep the two in step.
+# copy-of: items/valkey/components/valkey.yaml@2
+#
+# The Valkey server Open WebUI shares its live state through.
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Valkey in-memory data store behind a password, with append-only persistence
     on one volume.
@@ -43,6 +42,10 @@ spec:
     # The image compiles protected-mode off (9.1/alpine/Dockerfile in
     # valkey-io/valkey-container), so the password is the only check a client
     # meets.
+    #
+    # WORKAROUND(platform-api#1447): the password has to reach the server
+    #   through a config file rather than argv, and a component can mount no
+    #   file.
     command:
       - sh
       - -c
@@ -70,7 +73,7 @@ spec:
         schema:
           type: string
           minLength: 16
-          pattern: ^[A-Za-z0-9._~+/=-]+$
+          pattern: ^[A-Za-z0-9._~-]+$
         sensitive: true
         required: true
         target:
@@ -78,7 +81,7 @@ spec:
         description: >-
           Password a client must present (AUTH) before Valkey serves it; copy it
           from the deployment's Installation tab. At least 16 letters, digits or
-          `._~+/=-`, with no spaces or quotes.
+          `._~-`, with no spaces or quotes.
     # The same outputs, with the same names, as the `redis` item's component,
     # so a blueprint can move a consumer from one to the other by changing the
     # node's componentRef and its password binding.

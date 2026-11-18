@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: searxng
-  revision: 1
+  revision: 2
   description: >-
     SearXNG metasearch behind the platform's sign-in, as a private web search
     engine for the organization's members.

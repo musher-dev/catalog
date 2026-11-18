@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: agent-zero
-  revision: 1
+  revision: 2
   description: >-
     Agent Zero behind the platform's sign-in, thinking with the language model
     the deployer selects and driving a private AIO Sandbox computer through MCP

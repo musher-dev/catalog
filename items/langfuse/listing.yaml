@@ -90,6 +90,9 @@ spec:
     set up.
 
     ## Limitations
+    - This item is experimental. Its four data containers have run on
+      Musher, but `web` and `worker` have not yet been deployed and checked
+      here end to end.
     - Media attachments (images, audio and files in traces) and batch
       exports to S3 are off. Both need the browser to reach the S3 store
       directly, and here it is private.
@@ -116,7 +119,7 @@ spec:
     4. To use the playground or LLM-as-a-judge evaluators, add a model under
        **Project settings > LLM Connections**.
   category: OBSERVABILITY
-  lifecycleStage: BETA
+  lifecycleStage: EXPERIMENTAL
   tags:
     - llm-observability
     - tracing

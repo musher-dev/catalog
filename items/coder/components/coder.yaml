@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: >-
     Coder control plane (coderd) with built-in Terraform provisioners, signing
     members in through the platform's OpenID Connect provider and keeping its
@@ -99,7 +99,7 @@ spec:
       # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.38.6), which
       # nothing outside the container could reach. 7080 is the port upstream's
       # compose file uses.
-      httpAddress:
+      listenAddress:
         schema:
           type: string
         default: 0.0.0.0:7080

@@ -14,6 +14,12 @@
 # through the GitHub API on every run, so a degraded API takes the whole setup
 # down before it reaches a single check.
 #
+# This file is .config/mise/config.toml, not .devcontainer/mise.toml, so the
+# organization's shared dev container (musher-dev/development-container), whose
+# mise reads a repository's .config/mise/config.toml and nothing under
+# .devcontainer/, installs the same pins as this repository's own container,
+# which points MISE_GLOBAL_CONFIG_FILE here (devcontainer.json).
+#
 # Change a version here, then rebuild the container or run `mise install`.
 # Docs: https://mise.jdx.dev
 

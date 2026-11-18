@@ -158,7 +158,7 @@ _motd_tips() {
   echo "  * Add an item:             README.md (Adding an item)"
   echo "  * How validation works:    tests/README.md"
   echo "  * Item contracts:          README.md (Item contracts)"
-  echo "  * Tool versions:           .devcontainer/{devcontainer.json,mise.toml}"
+  echo "  * Tool versions:           .devcontainer/devcontainer.json, .config/mise/config.toml"
 }
 
 # Renders the full MOTD to stdout.

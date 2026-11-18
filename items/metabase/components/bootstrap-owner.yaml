@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     One-shot job that creates Metabase's first admin account, for the
     deployer, through the server's own setup API over the private network.
@@ -23,7 +23,8 @@ spec:
   # replaces Metabase's setup wizard: the deployer signs in with their own
   # email and a generated password.
   #
-  # The window that remains. In a live test (run zuxxw35f7) Metabase logged
+  # The window that remains (platform-api#1444). In a live deploy test
+  # Metabase logged
   # POST /api/setup about two seconds after the platform recorded `web` as
   # ready and its public endpoint as activated, so the private address may
   # also wait for readiness. A visitor would need the URL, the token from
@@ -56,45 +57,49 @@ spec:
     # characters at least); the blueprint generates 32.
     #
     # The JSON body goes to curl on stdin, so the password is not in any
-    # process's argv. The password is BASE64URL and the token a UUID, neither
-    # of which needs escaping in JSON. The email and site name are escaped for
-    # `\` and `"`.
+    # process's argv. The token is a UUID; every other string is escaped for
+    # `\` and `"`, the password included: it is BASE64URL today, but the input
+    # accepts any string.
     #
     # Exec form: argv, no shell of the platform's own. `set -eu` plus `curl
     # -f` turn any non-2xx into a failed run, which the platform records for
     # the deployment. That includes a 403 from losing the race described
     # above, which then needs a look rather than silence.
+    #
+    # WORKAROUND(platform-api#1445): nothing can run after another node is
+    #   ready, so the job polls the app until it answers, then creates the
+    #   first account.
     command:
       - sh
       - -c
-      - >-
-        set -eu;
-        base="http://${METABASE_ADDRESS}";
-        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ));
+      - |
+        set -eu
+        base="http://${METABASE_ADDRESS}"
+        deadline=$(( $(date +%s) + READY_TIMEOUT_SECONDS ))
         until curl -fsS -o /dev/null --max-time 5 "$base/api/health"; do
-        if [ "$(date +%s)" -ge "$deadline" ]; then
-        echo "bootstrap-admin: $base/api/health did not answer within ${READY_TIMEOUT_SECONDS}s" >&2;
-        exit 1;
-        fi;
-        sleep 2;
-        done;
-        props=$(curl -fsS --max-time 15 "$base/api/session/properties");
+          if [ "$(date +%s)" -ge "$deadline" ]; then
+            echo "bootstrap-owner: $base/api/health did not answer within ${READY_TIMEOUT_SECONDS}s" >&2
+            exit 1
+          fi
+          sleep 2
+        done
+        props=$(curl -fsS --max-time 15 "$base/api/session/properties")
         if printf '%s' "$props" | grep -q '"has-user-setup":true'; then
-        echo "bootstrap-admin: Metabase already has a user; nothing to do";
-        exit 0;
-        fi;
-        token=$(printf '%s' "$props" | sed -n 's/.*"setup-token":"\([0-9a-fA-F-]*\)".*/\1/p');
+          echo "bootstrap-owner: Metabase already has a user; nothing to do"
+          exit 0
+        fi
+        token=$(printf '%s' "$props" | sed -n 's/.*"setup-token":"\([0-9a-fA-F-]*\)".*/\1/p')
         if [ -z "$token" ]; then
-        echo "bootstrap-admin: no setup token in /api/session/properties" >&2;
-        exit 1;
-        fi;
-        esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; };
-        printf '{"token":"%s","user":{"email":"%s","password":"%s"},"prefs":{"site_name":"%s"}}'
-        "$token" "$(esc "$ADMIN_EMAIL")" "$ADMIN_PASSWORD" "$(esc "$SITE_NAME")"
-        | curl -fsS -o /dev/null --max-time 60 -X POST
-        -H "Content-Type: application/json"
-        --data-binary @- "$base/api/setup";
-        echo "bootstrap-admin: created admin <${ADMIN_EMAIL}>"
+          echo "bootstrap-owner: no setup token in /api/session/properties" >&2
+          exit 1
+        fi
+        esc() { printf '%s' "$1" | sed -e 's/\\/\\\\/g' -e 's/"/\\"/g'; }
+        printf '{"token":"%s","user":{"email":"%s","password":"%s"},"prefs":{"site_name":"%s"}}' \
+          "$token" "$(esc "$OWNER_EMAIL")" "$(esc "$OWNER_PASSWORD")" "$(esc "$SITE_NAME")" |
+          curl -fsS -o /dev/null --max-time 60 -X POST \
+            -H "Content-Type: application/json" \
+            --data-binary @- "$base/api/setup"
+        echo "bootstrap-owner: created the admin account <${OWNER_EMAIL}>"
   contract:
     inputs:
       # ADR 0033: every value that reaches this workload enters through an
@@ -107,21 +112,21 @@ spec:
         target:
           envVar: METABASE_ADDRESS
         description: Private host:port of the Metabase server, from the web node's `address` output.
-      adminEmail:
+      ownerEmail:
         schema:
           type: string
         presentationHint: EMAIL
         required: true
         target:
-          envVar: ADMIN_EMAIL
+          envVar: OWNER_EMAIL
         description: Email address the admin account is created with, which is also its sign-in name.
-      adminPassword:
+      ownerPassword:
         schema:
           type: string
         sensitive: true
         required: true
         target:
-          envVar: ADMIN_PASSWORD
+          envVar: OWNER_PASSWORD
         description: Password the admin account is created with.
       siteName:
         schema:

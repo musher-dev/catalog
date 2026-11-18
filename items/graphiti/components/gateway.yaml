@@ -1,10 +1,10 @@
 # Adapted from the `firecrawl` item's gateway (items/firecrawl/components/
-# gateway.yaml, revision 1): the same Caddy key check, in front of an MCP
+# gateway.yaml): the same Caddy key check, in front of an MCP
 # server rather than a REST API.
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Caddy reverse proxy that admits only requests carrying the deployment's
     API key as a bearer token, in front of an MCP server that checks none.
@@ -42,6 +42,9 @@ spec:
     # - `admin off` leaves no admin API listening; `auto_https off` because
     #   the platform's edge terminates TLS. Caddy writes no access log
     #   unless told to, so keys are never logged.
+    #
+    # WORKAROUND(platform-api#1447): Caddy takes its configuration from a
+    #   file, which a component cannot mount, so the shell writes it.
     command:
       - sh
       - -c
