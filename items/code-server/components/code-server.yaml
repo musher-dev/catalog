@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 9
+  revision: 10
   description: code-server, VS Code in the browser, with a persistent home directory.
 spec:
   type: SERVICE
@@ -27,6 +27,18 @@ spec:
     # src/node/http.ts), which is right for the public 443 or no port. An edge
     # setting X-Forwarded-Host and another port would have every WebSocket
     # refused, and nothing in the specification states what the edge sends.
+    #
+    # NO ROOT. host-agent 2.11.0 runs every container with no-new-privileges
+    # (specifications component 2.3.0, COMP-SECURITY-005), and no `security`
+    # setting gives root back. `coder` has passwordless sudo in the image
+    # (ci/release-image/Dockerfile), but sudo is setuid, so it now fails: the
+    # IDE terminal has no root and cannot `apt install`. fixuid is setuid too,
+    # so the entrypoint's `eval "$(fixuid -q)"` logs that fixuid is not
+    # running as root (NoNewPrivileges) and exits 1 on every start. `eval ""`
+    # returns 0, so the start carries on, and the uid already matches
+    # `coder`'s, so nothing needed remapping. The error line is harmless.
+    # Don't override the ENTRYPOINT to hide it: that would also skip the
+    # ENTRYPOINTD scripts.
     command:
       - --auth
       - none
@@ -47,8 +59,9 @@ spec:
       # The volume must be writable by uid 1000. The image runs as USER 1000
       # (ci/release-image/Dockerfile, v4.145.2), and its entrypoint's
       # `fixuid -q` only remaps and re-owns files when the container runs
-      # under a different uid than `coder`'s. It does nothing here, so a volume
-      # mounted root-owned stays root-owned, and code-server cannot write
+      # under a different uid than `coder`'s. It would do nothing here, and
+      # cannot run anyway (NO ROOT, above), so a volume mounted root-owned
+      # stays root-owned, and code-server cannot write
       # ~/.config or ~/.local. That relies on the platform mounting it with
       # group or owner 1000, not on anything this document can state.
       data:

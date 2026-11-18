@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     OpenHands Agent Canvas all-in-one image (agent server, automation backend,
     web UI and bundled editor) behind one port, with state and project volumes.
@@ -31,6 +31,13 @@ spec:
     # never reads its arguments. Anything here would be ignored, so no boot
     # script can run before the services start. Everything is configured
     # through env vars, and the language model through the seed job instead.
+    #
+    # NO ROOT. The image runs as `openhands`, which its base image gives
+    # `NOPASSWD:ALL` sudo. host-agent 2.11.0 runs every container with
+    # no-new-privileges (specifications component 2.3.0, COMP-SECURITY-005),
+    # and no `security` setting gives root back, so that setuid sudo fails.
+    # The agent's own `sudo apt-get install ...` fails with it: system
+    # packages a task needs must already be in the image.
     #
     # The entrypoint (docker/Dockerfile, docker/entrypoint.sh, v1.37.0) starts:
     #   - the agent server on 0.0.0.0:18000, because a session key is set, and
