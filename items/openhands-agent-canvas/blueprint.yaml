@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: openhands-agent-canvas
-  revision: 4
+  revision: 5
   description: >-
     OpenHands Agent Canvas behind the platform's sign-in, with persistent state
     and projects, telemetry off, and the deployer's language-model connection

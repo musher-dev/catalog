@@ -1,12 +1,12 @@
 # The computer Agent Zero drives through MCP: a Chromium browser, a shell and
 # file and code-execution APIs in a container of their own. A copy of the
 # `aio-sandbox` item's component (items/aio-sandbox/components/aio-sandbox.yaml,
-# revision 1): a repo-local componentRef cannot leave its item directory, so a
+# revision 2): a repo-local componentRef cannot leave its item directory, so a
 # blueprint that needs one carries its own. Keep the two in step.
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     AIO Sandbox, one container that gives AI agents a Chromium browser, a shell,
     file and code-execution APIs and an MCP server behind one API key, with the
@@ -31,6 +31,14 @@ spec:
       # configuration and execs supervisord. Every service except nginx then
       # runs as `gem` (opt/gem/supervisord/*.conf, 1.11.0). It needs neither
       # privileged mode nor a Docker socket.
+      #
+      # NO ROOT FOR `gem`. host-agent 2.11.0 runs every container with
+      # no-new-privileges (specifications component 2.3.0, COMP-SECURITY-005),
+      # and no `security` setting gives root back. The entrypoint, gem.sh and
+      # RUN_HOOK_INIT already run as root, and supervisord drops to `gem`, so
+      # the start is unaffected. But sudo is setuid, so `gem`'s sudo fails:
+      # the shell, Jupyter, code-server and any agent in them cannot become
+      # root or install system packages.
       image: ghcr.io/agent-infra/sandbox:1.11.0
     endpoints:
       primary:
@@ -87,8 +95,8 @@ spec:
   contract:
     inputs:
       # Without it nginx loads its no-auth configuration and every route,
-      # including a shell with passwordless sudo, is open to anyone who can
-      # reach the port (gem.sh, 1.11.0).
+      # including the shell, the file API and the VNC desktop, is open to
+      # anyone who can reach the port (gem.sh, 1.11.0).
       apiKey:
         schema:
           type: string

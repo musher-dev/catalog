@@ -29,13 +29,22 @@ spec:
     own login screen is turned off. An 8 GiB persistent volume is mounted
     at `/home/coder`, so projects, extensions, and settings survive
     restarts.
+
+    ## Limitations
+    - There is no root in the container. The terminal runs as `coder`, and
+      `sudo` fails because every container runs with no-new-privileges, so
+      `apt install` isn't available. Install tools without root, under
+      `/home/coder`.
+    - Every start logs an error from `fixuid` saying it isn't running as
+      root. It's harmless: the editor starts normally.
   gettingStarted: |
     1. Open the deployment's URL and sign in to Musher if asked. The editor
        opens straight away, with no separate password.
     2. Keep your projects under `/home/coder`. Everything there survives a
        restart, along with your extensions and settings.
     3. Open a folder from that directory and start working, using the built-in
-       terminal for your toolchain.
+       terminal for your toolchain. The terminal has no root, so install
+       tools under `/home/coder` rather than with `sudo`.
   category: DEVELOPER_TOOLS
   lifecycleStage: STABLE
   tags:

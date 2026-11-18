@@ -29,8 +29,8 @@ spec:
 
     ## What you'll be asked for
     - An **API key** that every client presents. Without one, upstream leaves
-      every route open, including a shell with root through `sudo`, so this
-      component requires it.
+      every route open, including the shell, the file API and the VNC
+      desktop, so this component requires it.
 
     ## Defaults
     The component runs `ghcr.io/agent-infra/sandbox:1.11.0` on port 8080. The
@@ -41,7 +41,8 @@ spec:
     A 10 GiB volume at `/home/gem` holds the sandbox user's home: the agent's
     working files, the browser profile and its downloads. Everything else in
     the container is rebuilt on each restart, including software an agent
-    installs outside that directory.
+    installs outside that directory. There is no root for agents, so system
+    packages must already be in the image.
 
     Upstream's Kubernetes example limits it to 1 vCPU and 2 GiB, and its
     Compose file to 4 vCPUs and 8 GiB. Give it at least 2 vCPUs and 4 GiB with
@@ -54,9 +55,12 @@ spec:
     installed.
 
     ## Access and security
-    - The container starts as root and runs its services as the `gem` user,
-      who has passwordless `sudo`. Treat anything with the key as having
-      root in the container.
+    - The container starts as root and runs its services as the `gem` user.
+      `gem`'s `sudo` fails, because every container runs with
+      no-new-privileges, so the shell, JupyterLab and code-server have no
+      root and can't install system packages. Treat anything with the key
+      as having full control of `gem`: its files, its processes and the
+      network.
     - Chromium runs with `--no-sandbox`. Its own process sandbox needs
       unconfined seccomp, which upstream asks Docker for and a Musher node
       doesn't grant. A browser exploit therefore lands directly in the

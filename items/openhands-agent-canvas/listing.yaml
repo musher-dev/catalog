@@ -74,8 +74,11 @@ spec:
     Agent Canvas has no user accounts here. Everyone the platform admits gets
     the same full control: they can run the agent, change its settings and
     credentials, and use the editor. The agent runs shell commands as the
-    container's user, with read and write access to `/projects`, the state
-    volume and the network. Nothing isolates one conversation from another.
+    container's `openhands` user, with read and write access to `/projects`,
+    the state volume and the network. It has no root: `sudo` fails, because
+    every container runs with no-new-privileges, so the agent can't install
+    system packages with `apt-get`. Anything like that must already be in
+    the image. Nothing isolates one conversation from another.
     Limit who can open the deployment accordingly, and give the agent only
     credentials you're willing to expose to everyone who can.
 
