@@ -1,5 +1,5 @@
 # The PostgreSQL server Paperclip keeps its state in. A copy of the `postgres`
-# item's component (items/postgres/components/postgres.yaml, revision 7): a
+# item's component (items/postgres/components/postgres.yaml, revision 9): a
 # repo-local componentRef cannot leave its item directory, so a blueprint that
 # needs one carries its own. Keep the two in step when bumping the image.
 #
@@ -8,13 +8,13 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: postgres:17.11-alpine
+      image: postgres:17.12-alpine
     endpoints:
       primary:
         targetPort: 5432

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: langfuse
-  revision: 1
+  revision: 2
   description: >-
     Langfuse web and worker on their own PostgreSQL, ClickHouse, Valkey and
     SeaweedFS, with an owner account and project API key created for the

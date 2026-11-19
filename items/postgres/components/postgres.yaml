@@ -1,13 +1,13 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 8
+  revision: 9
   description: PostgreSQL relational database with a single persistent data volume.
 spec:
   type: SERVICE
   workload:
     source:
-      image: postgres:17.11-alpine
+      image: postgres:17.12-alpine
     endpoints:
       primary:
         targetPort: 5432

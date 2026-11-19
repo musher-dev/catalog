@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: contextforge
-  revision: 1
+  revision: 2
   description: >-
     IBM ContextForge MCP gateway behind the platform's sign-in, with its own
     Postgres for the registry and a password-protected Valkey cache.

@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: gitea
-  revision: 1
+  revision: 2
   description: >-
     Gitea Git forge behind the platform's sign-in, on its own PostgreSQL, with
     an admin account for the deployer, members signing in through the
