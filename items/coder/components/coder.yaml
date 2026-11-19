@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: >-
     Coder control plane (coderd) with built-in Terraform provisioners, signing
     members in through the platform's OpenID Connect provider and keeping its
@@ -10,9 +10,13 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v2.38.6 is the current stable release (stable since
-      # 2026-11-03; v2.39.x is mainline). The ghcr tag carries the `v` prefix:
-      # `2.38.6` does not resolve.
+      # PINNED. v2.38.10 is the latest patch of the stable minor (2.38 is
+      # Stable and 2.39 Mainline in docs/reference/releases.md). Upstream
+      # supports only the newest patch of a minor. v2.38.7 validates workspace
+      # app URLs on the server and keeps database errors out of API responses.
+      # v2.38.8 bumps the bundled terraform. v2.38.9 and v2.38.10 change only
+      # release CI. The ghcr tag carries the `v` prefix: `2.38.10` does not
+      # resolve.
       #
       # v2.38 removes Coder Tasks. Migrations 000592-000595 delete the tasks,
       # task_snapshots and task_workspace_apps tables and task notifications,
@@ -23,18 +27,18 @@ spec:
       #
       # The image is Alpine with `ENTRYPOINT ["/opt/coder", "server"]` and no
       # CMD, runs as USER 1000 with HOME=/home/coder, and bundles terraform
-      # 1.17.1 for the built-in provisioners (scripts/Dockerfile,
-      # scripts/Dockerfile.base, v2.38.6). No `command`: the entrypoint already
-      # runs the server, and a `command` would only be appended to it as
-      # arguments, so no shell can run here to compose a value.
-      image: ghcr.io/coder/coder:v2.38.6
+      # 1.17.2 for the built-in provisioners (scripts/Dockerfile,
+      # scripts/Dockerfile.base, v2.38.10). No `command`: the entrypoint
+      # already runs the server, and a `command` would only be appended to it
+      # as arguments, so no shell can run here to compose a value.
+      image: ghcr.io/coder/coder:v2.38.10
     endpoints:
       primary:
         targetPort: 7080
         protocol: HTTP
         # Coder signs members in as an OpenID Connect client of the platform.
         # It sends `<CODER_ACCESS_URL>/api/v2/users/oidc/callback` as its
-        # redirect URI (createOIDCConfig, cli/server.go, v2.38.6).
+        # redirect URI (createOIDCConfig, cli/server.go, v2.38.10).
         oidc:
           redirectPaths:
             - /api/v2/users/oidc/callback
@@ -43,7 +47,7 @@ spec:
         # `/api`: the CLI, workspace agents, and the VS Code and JetBrains
         # extensions authenticate with Coder's own `Coder-Session-Token`
         # header, not `Authorization: Bearer` (APITokenFromRequest,
-        # coderd/httpmw/apikey.go, v2.38.6, reads the bearer only as a
+        # coderd/httpmw/apikey.go, v2.38.10, reads the bearer only as a
         # fallback). A `bearerToken` exemption would therefore let none of them
         # through. Coder authenticates every /api/v2 route itself except a
         # short public set (build info, auth methods, login, the OIDC
@@ -65,11 +69,11 @@ spec:
             - /bin
     # No volume. With an external database coderd keeps no state of its own.
     # Upstream's compose says its home volume "is not required in a
-    # production environment" (compose.yaml, v2.38.6). The Terraform provider
+    # production environment" (compose.yaml, v2.38.10). The Terraform provider
     # cache under ~/.cache/coder is rebuilt on demand.
     health:
       # /healthz answers "OK" once the HTTP server is up, outside any auth
-      # (coderd/coderd.go, v2.38.6). That is after the server has connected to
+      # (coderd/coderd.go, v2.38.10). That is after the server has connected to
       # PostgreSQL and applied migrations. Coder retries the database for 30
       # seconds and then exits (ConnectToPostgres, cli/server.go). On a first
       # boot the `db` node may still be initialising, so the budget allows for a
@@ -96,7 +100,7 @@ spec:
       # input, including the constants below. They carry defaults, so no
       # blueprint has to wire them and the deploy form gains no field.
       #
-      # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.38.6), which
+      # The default is 127.0.0.1:3000 (codersdk/deployment.go, v2.38.10), which
       # nothing outside the container could reach. 7080 is the port upstream's
       # compose file uses.
       httpAddress:
@@ -156,6 +160,40 @@ spec:
         target:
           envVar: CODER_OIDC_SIGN_IN_TEXT
         description: Label on the login page's OpenID Connect button.
+      # Coder refuses an OIDC sign-in unless the `email_verified` claim is
+      # true, and it treats a missing claim as false: "fail-closed"
+      # (coderd/userauth.go, v2.38.10). The platform releases EMAIL only as an
+      # address it has verified (blueprint BP-ACCESS-006). Blueprint v2 puts
+      # `email_verified` beside `email` in an assertion (BP-ACCESS-007) but
+      # does not say so for an ID token (BP-ACCESS-008). If the token left the
+      # claim out, every member would get "Email not verified". The platform
+      # has already made the check this skips. coderd logs one warning at boot
+      # that it will not check the claim.
+      oidcIgnoreEmailVerified:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: CODER_OIDC_IGNORE_EMAIL_VERIFIED
+        description: >-
+          Whether Coder accepts the OIDC email without checking the
+          email_verified claim, as the literal string Coder parses.
+      # By default, clients and agents open the embedded DERP relay with
+      # `Upgrade: derp`. They fall back to WebSocket only when they detect a
+      # failure, which upstream says "does not work in all situations"
+      # (docs/reference/cli/server/index.md, v2.38.10). Blueprint v2 covers
+      # HTTP requests and WebSocket upgrades at the platform's edge
+      # (BP-ACCESS-002) and says nothing of other upgrades. So every client
+      # uses WebSocket from the start.
+      derpForceWebSockets:
+        schema:
+          type: string
+        default: 'true'
+        target:
+          envVar: CODER_DERP_FORCE_WEBSOCKETS
+        description: >-
+          Whether clients and agents always reach the DERP relay over
+          WebSocket, as the literal string Coder parses.
       # Coder hands this to workspace agents and CLI logins as the address to
       # call back on, and builds its OIDC redirect URI from it.
       accessURL:

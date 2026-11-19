@@ -54,15 +54,14 @@ spec:
 
     ## Defaults
     Two containers and a one-time setup job. The first container runs
-    `ghcr.io/coder/coder:v2.38.6`, the stable release channel, with the
+    `ghcr.io/coder/coder:v2.38.10`, the stable release channel, with the
     dashboard and API on port 7080 behind the platform's HTTPS edge and
     sign-in. Requests from the CLI, workspace agents and IDE extensions pass
     straight through to Coder, which authenticates them itself. It runs one
     built-in Terraform provisioner, so workspace builds run one at a time. The
-    second container
-    is a private PostgreSQL 17 server that only Coder can reach, holding all of
-    Coder's state on a 10 GiB volume. The database password is generated, and
-    you can reveal it on the Installation tab.
+    second container is a private PostgreSQL 17 server that only Coder can
+    reach, holding all of Coder's state on a 10 GiB volume. The database
+    password is generated, and you can reveal it on the Installation tab.
 
     Usage telemetry to Coder is turned off. Workspace apps are served on paths
     under the deployment's URL. Apps configured for subdomain access are
@@ -70,11 +69,18 @@ spec:
     audit logs, template access control, workspace proxies and AI Gateway need
     a license from Coder.
 
+    Coder Agents is not set up for you. An Owner adds an LLM provider's API
+    key and a model under **Admin settings** > **AI**. Coder calls the provider
+    from this deployment, not from your workspaces. Without a license, five
+    agents run at a time, and the rest wait in a queue.
+
     ## Upgrades
     Coder removed Tasks in v2.38 in favor of Coder Agents. When an existing
     deployment moves to this version, its tasks and task notifications are
     permanently deleted, and API tokens and OAuth grants scoped only to tasks
-    are revoked. Workspaces and audit entries are kept.
+    are revoked. Workspaces and audit entries are kept. From v2.38.7, a
+    template build fails if an external app URL uses a scheme such as
+    `javascript:` or `data:`.
   gettingStarted: |
     1. Copy the **Owner password** from the deployment's Installation tab and
        sign in with the email you deployed with.

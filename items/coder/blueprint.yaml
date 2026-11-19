@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: coder
-  revision: 4
+  revision: 5
   description: >-
     Coder control plane behind the platform's sign-in, on its own PostgreSQL,
     with an Owner account created for the deployer and members signing in
@@ -34,7 +34,7 @@ spec:
       # CODER_PROVISIONER_DAEMONS to 1; upstream's default is 3), running
       # terraform for a workspace build in this container. Upstream's floor is
       # "1 CPU core and 2 GB of memory per coderd replica" (docs/install/
-      # validate/scale-testing.md, v2.38.6), which standard.nano meets.
+      # validate/scale-testing.md, v2.38.10), which standard.nano meets.
       # Workspaces themselves run wherever their template puts them, not here.
       compute:
         profile: general.standard.nano
