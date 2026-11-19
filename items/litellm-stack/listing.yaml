@@ -27,7 +27,7 @@ spec:
       model traffic, with models managed from the dashboard.
 
     ## Defaults
-    Three nodes. `db` runs `postgres:17.11-alpine` on a private endpoint
+    Three nodes. `db` runs `postgres:17.12-alpine` on a private endpoint
     with a 10 GiB volume; `cache` runs `redis:8.10.3-alpine` with
     append-only persistence on a 5 GiB volume; `web` runs
     `ghcr.io/berriai/litellm:v1.108.3` on port 4000 behind the platform's

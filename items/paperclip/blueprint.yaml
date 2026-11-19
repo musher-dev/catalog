@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: paperclip
-  revision: 4
+  revision: 5
   description: >-
     Paperclip agent orchestration behind the platform's sign-in, on its own
     PostgreSQL, with Claude Code agents on the deployer's language-model
