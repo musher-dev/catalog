@@ -1,0 +1,428 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Hermes Agent as a household meal planner: Mealie's MCP server wired in,
+    every model the connection lists offered, and the dashboard signed in
+    through the platform's OpenID Connect provider.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v0.23.1, the release this item was proven on. The process
+      # model, the dashboard's OIDC sign-in and the config writer are the ones
+      # items/hermes-agent/components/hermes-agent.yaml documents at v0.23.0;
+      # re-read the files it lists there when bumping.
+      image: nousresearch/hermes-agent:v0.23.1
+    # `command` replaces the image's empty CMD and keeps its ENTRYPOINT, so
+    # s6-overlay runs the cont-init hooks (UID remap, volume chown, first-boot
+    # seeding of config.yaml and .env) and the supervised dashboard, then this
+    # program as the `hermes` user. It converges config.yaml on every boot and
+    # execs `hermes gateway run`, which hands the gateway to s6.
+    #
+    # 1. THE LANGUAGE MODEL. Unlike the hermes-agent item, which offers only
+    #    the connection's model, this offers every model the endpoint lists
+    #    for the key, so the household can switch models in the dashboard and
+    #    keep the choice across restarts while it stays listed. Hermes's own
+    #    /models probe sends no key (NousResearch/hermes-agent#145452), so the
+    #    list is fetched here. When the endpoint lists nothing, the last list
+    #    is kept, then the connection's model alone. The credential stays in
+    #    LLM_API_KEY (`key_env`) and never lands in config.yaml.
+    # 2. MEALIE. The private MCP server is written into `mcp_servers.mealie`.
+    #    The terminal runs in the agent's workspace, a `docker` or
+    #    `singularity` backend falls back to `local` (no container runtime
+    #    here), profile-building onboarding is off, and any memory provider is
+    #    cleared so the built-in memory is used.
+    # 3. PERSONA. SOUL.md and workspace/AGENTS.md are seeded from the two
+    #    inputs below when missing, still the image's default, or unchanged
+    #    since the last seed. A file someone edited is never overwritten; a
+    #    sha256 of each seed is kept under mealplanner-seed/ to tell.
+    command:
+      - python
+      - -c
+      - |
+        import hashlib
+        import json
+        import os
+        import re
+        import time
+        import urllib.request
+        from pathlib import Path
+
+        from hermes_cli.config import (
+            atomic_config_replace, get_config_path, require_readable_config_before_write)
+
+
+        def say(msg):
+            print(f"meal-planner: {msg}", flush=True)
+
+
+        home = Path(os.environ.get("HERMES_HOME", "/opt/data"))
+        path = get_config_path()
+
+
+        def section(cfg, key):
+            value = cfg.get(key)
+            if not isinstance(value, dict):
+                value = {}
+                cfg[key] = value
+            return value
+
+
+        def fetch(url, headers, timeout=30):
+            req = urllib.request.Request(url, headers=headers)
+            with urllib.request.urlopen(req, timeout=timeout) as res:
+                return res.read()
+
+
+        # 1. The language model.
+        base_url = os.environ["LLM_BASE_URL"].strip().rstrip("/")
+        fallback = os.environ.get("LLM_MODEL", "").strip()
+        cfg = require_readable_config_before_write(path)
+        providers = section(cfg, "providers")
+        previous = providers.get("llm") if isinstance(providers.get("llm"), dict) else {}
+        listed = None
+        for attempt in range(1, 5):
+            try:
+                body = fetch(f"{base_url}/models", {"Authorization": f"Bearer {os.environ['LLM_API_KEY']}"}, timeout=10)
+                ids = sorted({m["id"] for m in json.loads(body).get("data", []) if m.get("id")},
+                             key=lambda s: [int(t) if t.isdigit() else t for t in re.split(r"(\d+)", s)])
+                if ids:
+                    listed = ids
+                    break
+                raise ValueError("no models listed")
+            except Exception as exc:
+                say(f"model list attempt {attempt} failed: {exc}")
+                if attempt < 4:
+                    time.sleep(3)
+        models = (listed or [m for m in previous.get("models") or [] if isinstance(m, str)]
+                  or ([fallback] if fallback else []))
+        if not models:
+            raise SystemExit("meal-planner: the endpoint listed no models and no earlier list exists")
+        model = section(cfg, "model")
+        current = str(model.get("default") or "") if model.get("provider") == "custom:llm" else ""
+        default = (current if current in models else
+                   fallback if fallback in models else
+                   ([m for m in models if "haiku" in m.lower()] or models)[-1])
+        providers["llm"] = {"name": "Language model", "api": base_url, "key_env": "LLM_API_KEY",
+                            "transport": "openai_chat", "discover_models": False, "models": models,
+                            "default_model": default}
+        for stale in ("api_key", "model", "api"):
+            model.pop(stale, None)
+        model.update({"provider": "custom:llm", "default": default, "base_url": base_url,
+                      "api_mode": "chat_completions", "key_env": "LLM_API_KEY"})
+        say(f"offering {len(models)} model(s), default {default}")
+
+        # 2. Mealie, the workspace, and defaults for an unattended household agent.
+        mcp_servers = section(cfg, "mcp_servers")
+        mcp_servers["mealie"] = {"url": os.environ["MEALIE_MCP_URL"].strip(), "enabled": True,
+                                 "timeout": 120, "connect_timeout": 30}
+        terminal = section(cfg, "terminal")
+        terminal["cwd"] = str(home / "workspace")
+        if terminal.get("backend") in ("docker", "singularity"):
+            terminal["backend"] = "local"
+        section(cfg, "onboarding")["profile_build"] = "off"
+        section(cfg, "memory").pop("provider", None)
+        atomic_config_replace(path, cfg)
+
+        # 3. Persona.
+        marks = home / "mealplanner-seed"
+        marks.mkdir(parents=True, exist_ok=True)
+        image_default = Path("/opt/hermes/docker/SOUL.md")
+
+
+        def digest(data):
+            return hashlib.sha256(data).hexdigest()
+
+
+        def seed(target, content, *, replaceable=()):
+            if not content.strip():
+                return
+            data = (content.rstrip("\n") + "\n").encode()
+            mark = marks / (target.name + ".sha256")
+            if target.is_symlink():
+                say(f"{target.name} is a symlink; left alone")
+                return
+            if target.exists():
+                have = digest(target.read_bytes())
+                known = {mark.read_text().strip()} if mark.exists() else set()
+                if have == digest(data):
+                    mark.write_text(digest(data) + "\n")
+                    return
+                if have not in known and have not in replaceable:
+                    say(f"{target.name} was edited; left alone")
+                    return
+            target.parent.mkdir(parents=True, exist_ok=True)
+            tmp = target.with_name(target.name + ".seed-tmp")
+            tmp.write_bytes(data)
+            os.replace(tmp, target)
+            mark.write_text(digest(data) + "\n")
+            say(f"wrote {target.relative_to(home)}")
+
+
+        seed(home / "workspace" / "AGENTS.md", os.environ.get("MEALPLANNER_AGENTS_MD", ""))
+        seed(home / "SOUL.md", os.environ.get("MEALPLANNER_SOUL_MD", ""),
+             replaceable={digest(image_default.read_bytes())} if image_default.exists() else set())
+
+        os.execvp("hermes", ["hermes", "gateway", "run"])
+    endpoints:
+      # The web dashboard. Only it is exposed: a component has one readiness
+      # probe, and every PUBLIC HTTP endpoint needs one. The gateway's API
+      # server stays on the container's loopback.
+      primary:
+        targetPort: 9119
+        protocol: HTTP
+        # Hermes signs viewers in itself as an OpenID Connect client of the
+        # platform; its callback is `<HERMES_DASHBOARD_PUBLIC_URL>/auth/callback`.
+        oidc:
+          redirectPaths:
+            - /auth/callback
+    volumes:
+      # HERMES_HOME: config, saved keys and channel tokens, sessions, memory,
+      # skills, cron jobs, logs and the agent's workspace.
+      data:
+        mountPath: /opt/data
+        minSizeGiB: 10
+    health:
+      readiness:
+        # Public on the dashboard's auth gate, so a probe without a session
+        # gets 200.
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 20
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 18
+      liveness:
+        http:
+          endpoint: primary
+          path: /api/health
+        initialDelaySeconds: 120
+        periodSeconds: 30
+        timeoutSeconds: 5
+        failureThreshold: 3
+  contract:
+    inputs:
+      hermesHome:
+        description: Directory Hermes keeps its state in, the `data` volume's mount path.
+        schema:
+          type: string
+        default: /opt/data
+        target:
+          envVar: HERMES_HOME
+      timezone:
+        description: IANA timezone the household plans in.
+        schema:
+          type: string
+        default: UTC
+        target:
+          envVar: TZ
+      dashboardEnabled:
+        description: >-
+          Whether the image's supervised dashboard service runs, as the literal
+          string its run script parses.
+        schema:
+          type: string
+        default: "1"
+        target:
+          envVar: HERMES_DASHBOARD
+      dashboardHost:
+        description: Address the dashboard listens on inside the container.
+        schema:
+          type: string
+        default: 0.0.0.0
+        target:
+          envVar: HERMES_DASHBOARD_HOST
+      dashboardPort:
+        description: Port the dashboard listens on, the `primary` endpoint's target port.
+        schema:
+          type: string
+        default: "9119"
+        target:
+          envVar: HERMES_DASHBOARD_PORT
+      dashboardPublicURL:
+        description: >-
+          Public https URL of this deployment's dashboard, which Hermes builds
+          its sign-in callback from.
+        schema:
+          type: string
+        required: true
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: HERMES_DASHBOARD_PUBLIC_URL
+      oidcIssuerURL:
+        description: >-
+          Issuer URL of the platform's OpenID Connect provider. Hermes fetches
+          its discovery document from this URL.
+        schema:
+          type: string
+        required: true
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: HERMES_DASHBOARD_OIDC_ISSUER
+      oidcClientID:
+        description: Client identifier the platform registered for the dashboard endpoint.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: HERMES_DASHBOARD_OIDC_CLIENT_ID
+      oidcClientSecret:
+        description: Client secret the platform registered for the dashboard endpoint.
+        schema:
+          type: string
+        required: true
+        sensitive: true
+        target:
+          envVar: HERMES_DASHBOARD_OIDC_CLIENT_SECRET
+      # One language-model connection in three strings, all wired from the
+      # `llm` node (components/llm.yaml).
+      llmBaseURL:
+        description: >-
+          Base URL of the OpenAI-compatible chat-completions API the agent sends
+          model requests to, ending in the version segment (for example /v1).
+        schema:
+          type: string
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: LLM_BASE_URL
+      llmAPIKey:
+        description: Bearer credential for the API above.
+        schema:
+          type: string
+        sensitive: true
+        target:
+          envVar: LLM_API_KEY
+      llmModel:
+        description: >-
+          Model the agent falls back to as its default when the one already
+          selected is no longer listed.
+        schema:
+          type: string
+        target:
+          envVar: LLM_MODEL
+      mealieMcpUrl:
+        description: Private streamable-HTTP URL of the Mealie MCP server.
+        schema:
+          type: string
+        required: true
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: MEALIE_MCP_URL
+      mealPlannerSoulMd:
+        description: Persona seeded into SOUL.md while nobody has edited it.
+        schema:
+          type: string
+        default: |
+          # SOUL.md - Who You Are
+
+          You are Basil 🌿, a practical, warm meal planner for one household: a
+          kitchen-dwelling meal-planning assistant, warm, practical and unfussy.
+
+          - Be concrete: real dishes, real dates, real quantities. No filler.
+          - Have opinions about food, but the household's preferences and allergies win.
+          - Favour variety across the week, use up ingredients that are already bought,
+            and keep weeknight cooking realistic.
+          - Keep answers short in chat; offer the full plan or list when it is useful.
+          - If you change this file, tell the user.
+        target:
+          envVar: MEALPLANNER_SOUL_MD
+      mealPlannerAgentsMd:
+        description: >-
+          Working rules seeded into the agent's workspace AGENTS.md. Edits made
+          there are kept.
+        schema:
+          type: string
+        default: |
+          # AGENTS.md - Meal Planner Workspace
+
+          You are this household's meal-planning assistant. Personality and tone live in
+          `SOUL.md`; this file holds the working rules.
+
+          ## Mealie
+
+          Mealie is the source of truth for recipes, meal plans and shopping lists. Reach
+          it only through the tools of the `mealie` MCP server. They are named
+          `mcp__mealie__<tool>` (for example `mcp__mealie__get_recipes`,
+          `mcp__mealie__get_mealplans`, `mcp__mealie__get_shopping_lists`). They are
+          usually not listed directly: call them through `tool_call` with that name and
+          its arguments, and use `tool_search` (for example "mealie meal plan") when you
+          are unsure of a tool's name or parameters.
+
+          - Look things up before answering: search recipes, read the meal plan or the
+            shopping list with the tools rather than from memory.
+          - Never present a recipe as being "in Mealie" unless a tool returned it. Ideas
+            that are not in Mealie are suggestions; offer to add them.
+          - Plan meals with the meal-plan tools, using ISO dates (`YYYY-MM-DD`) in the
+            household's timezone. Say which dates and slots you changed.
+          - Build shopping lists from planned recipes with the shopping-list tools, and
+            merge with what is already on the list instead of duplicating it.
+          - Ask before deleting anything, before replacing an existing plan entry, and
+            before bulk changes (more than a week of entries or more than 20 items).
+          - If the Mealie tools are missing or failing, say so plainly and do not invent
+            results.
+
+          ## Household preferences
+
+          Keep stable preferences in your user profile (the `memory` tool's user
+          target): household size, diets, allergies (treat these as hard rules),
+          dislikes, budget, cooking time on weeknights, and favourite cuisines. Check
+          them before suggesting or planning. Ask about allergies before the first plan
+          if none are recorded.
+
+          ## Memory
+
+          - Use the `memory` tool for durable facts and decisions: what the household
+            liked or rejected, standing plans, recurring shopping habits. Keep entries
+            short and dated.
+          - Use `session_search` to recall what was discussed in earlier conversations.
+          - Skip secrets.
+
+          ## Red lines
+
+          - Don't share household data with people or services the user didn't ask for.
+          - Confirm destructive or irreversible actions the user didn't ask for.
+          - Before changing config or schedulers, inspect existing state and merge.
+
+          ## Tools
+
+          Local notes about tools and the environment go here.
+        target:
+          envVar: MEALPLANNER_AGENTS_MD
+    outputs:
+      publicURL:
+        description: >-
+          Public https URL the dashboard answers at, as the platform allocated
+          it. The blueprint binds it back into this node's dashboardPublicURL
+          input.
+        schema:
+          type: string
+        from:
+          endpoint: primary
+          property: publicURL
+        presentationHint: ENDPOINT_URL
+      oidcIssuerURL:
+        description: Issuer URL of the platform's OpenID Connect provider.
+        schema:
+          type: string
+        from:
+          endpoint: primary
+          property: oidcIssuerURL
+        presentationHint: ENDPOINT_URL
+      oidcClientID:
+        description: Client identifier the platform registered for the dashboard endpoint.
+        schema:
+          type: string
+        from:
+          endpoint: primary
+          property: oidcClientID
+      oidcClientSecret:
+        description: Client secret the platform registered for the dashboard endpoint.
+        schema:
+          type: string
+        from:
+          endpoint: primary
+          property: oidcClientSecret
+        sensitive: true

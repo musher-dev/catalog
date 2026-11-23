@@ -63,6 +63,7 @@ currently ship screenshots.
 | `litellm` | <https://github.com/BerriAI.png?size=512> | GitHub org avatar | LiteLLM maintainer (BerriAI) GitHub org avatar; nominative use. |
 | `litellm-stack` | <https://github.com/BerriAI.png?size=512> | GitHub org avatar | The same LiteLLM mark as `litellm`; nominative use. |
 | `llama-cpp` | <https://raw.githubusercontent.com/ggml-org/llama.cpp/cd959bae99ff4bed22bef2604f45241c09bbb8c8/media/llama1-icon.png> | in-repo asset | llama.cpp mark from the ggml-org/llama.cpp repository at v0.9.0 (MIT-licensed project); nominative use. |
+| `mealie-meal-planner` | <https://raw.githubusercontent.com/mealie-recipes/mealie/v3.30.0/frontend/public/icons/android-chrome-512x512.png> | in-repo asset (512 px, used as is) | Mealie mark from the mealie-recipes/mealie repository (AGPL-3.0-only project); nominative use. |
 | `meilisearch` | <https://github.com/meilisearch.png?size=512> | GitHub org avatar | Meilisearch mark via the meilisearch GitHub org avatar; nominative use. |
 | `metabase` | <https://github.com/metabase.png?size=512> | GitHub org avatar (served at its native 256 px, the listing v2 minimum; used as is) | Metabase mark via the metabase GitHub org avatar (AGPL-3.0-licensed open-source edition); nominative use. |
 | `mlflow` | <https://github.com/mlflow.png?size=512> | GitHub org avatar | MLflow mark via the mlflow GitHub org avatar; nominative use. |
