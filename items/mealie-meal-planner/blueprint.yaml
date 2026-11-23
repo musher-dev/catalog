@@ -2,7 +2,7 @@ specVersion: v2
 kind: BLUEPRINT
 metadata:
   slug: mealie-meal-planner
-  revision: 1
+  revision: 2
   description: >-
     Mealie behind the platform's sign-in with the deployer as its admin, a
     private Mealie MCP server, and the Hermes meal-planner agent Basil on the

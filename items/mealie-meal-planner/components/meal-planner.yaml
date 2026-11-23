@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Hermes Agent as a household meal planner: Mealie's MCP server wired in,
     every model the connection lists offered, and the dashboard signed in
@@ -10,11 +10,16 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v0.23.1, the release this item was proven on. The process
-      # model, the dashboard's OIDC sign-in and the config writer are the ones
-      # items/hermes-agent/components/hermes-agent.yaml documents at v0.23.0;
-      # re-read the files it lists there when bumping.
-      image: nousresearch/hermes-agent:v0.23.1
+      # PINNED. v0.23.3 is the latest stable release (2026-11-19); the item was
+      # proven on v0.23.1. Between the two, the config writer this boot calls
+      # (atomic_config_replace, require_readable_config_before_write), the
+      # entrypoint, the dashboard's s6 run script, /api/health and the
+      # /auth/callback route are unchanged, and the MCP server keys written
+      # below are still documented. stage2-hook.sh only seeds .env and
+      # auth.json owner-only. The process model and OIDC sign-in are the ones
+      # items/hermes-agent/components/hermes-agent.yaml documents; re-read the
+      # files it lists there when bumping.
+      image: nousresearch/hermes-agent:v0.23.3
     # `command` replaces the image's empty CMD and keeps its ENTRYPOINT, so
     # s6-overlay runs the cont-init hooks (UID remap, volume chown, first-boot
     # seeding of config.yaml and .env) and the supervised dashboard, then this
