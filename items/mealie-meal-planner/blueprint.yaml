@@ -1,0 +1,157 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: mealie-meal-planner
+  revision: 1
+  description: >-
+    Mealie behind the platform's sign-in with the deployer as its admin, a
+    private Mealie MCP server, and the Hermes meal-planner agent Basil on the
+    deployer's language-model connection, its dashboard signed in through the
+    platform's OpenID Connect provider.
+spec:
+  nodes:
+    llm:
+      componentRef: ./components/llm.yaml
+      # No compute, no volumes, no exposure: an EXTERNAL node runs nothing.
+      bindings:
+        llm:
+          parameter: llm
+    mealie:
+      componentRef: ./components/mealie.yaml
+      # One household's recipes on SQLite; Mealie's API and its background
+      # scheduler fit comfortably here.
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 5
+      # Signed in, with the viewer's email forwarded as a header Mealie trusts.
+      # The platform admits only viewers its access policy allows, and Mealie
+      # then signs each one in to the account with that email.
+      exposure:
+        web:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: HEADER
+          viewerClaims:
+            - EMAIL
+      bindings:
+        timezone:
+          parameter: timezone
+        # This node's own allocated address and header name, from the outputs
+        # the component derives from its `web` endpoint: a discovery
+        # dependency, not a value cycle.
+        publicBaseURL:
+          node: mealie
+          output: publicURL
+        reverseProxyAuthHeader:
+          node: mealie
+          output: viewerEmailHeader
+    mealie-mcp:
+      componentRef: ./components/mealie-mcp.yaml
+      # A small Python process that proxies MCP calls to Mealie's API.
+      compute:
+        profile: general.economy.nano
+      # No exposure: the server has no authentication of its own and acts as
+      # the Mealie admin, so only the agent inside this deployment reaches it.
+      bindings:
+        # The deployer's verified sign-in email, recorded once at create. It
+        # becomes the admin account's email, so the deployer's own sign-in at
+        # Mealie's edge lands on the admin.
+        ownerEmail:
+          parameter: ownerEmail
+        ownerName:
+          parameter: ownerName
+        adminPassword:
+          parameter: mealieAdminPassword
+        mealieBaseUrl:
+          node: mealie
+          output: baseURL
+        mealieAuthHeader:
+          node: mealie
+          output: viewerEmailHeader
+    hermes:
+      componentRef: ./components/meal-planner.yaml
+      compute:
+        profile: general.standard.small
+      volumes:
+        data:
+          sizeGiB: 10
+      # Signed in, never path-exempt: the dashboard holds saved keys and
+      # channel tokens and starts agent turns that run shell commands. The
+      # platform admits only viewers its access policy allows, and Hermes then
+      # signs the same viewer in as an OpenID Connect client of the platform.
+      # The email and name are released so the dashboard can show who is
+      # signed in.
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: OIDC
+          viewerClaims:
+            - EMAIL
+            - NAME
+      bindings:
+        timezone:
+          parameter: timezone
+        dashboardPublicURL:
+          node: hermes
+          output: publicURL
+        oidcIssuerURL:
+          node: hermes
+          output: oidcIssuerURL
+        oidcClientID:
+          node: hermes
+          output: oidcClientID
+        oidcClientSecret:
+          node: hermes
+          output: oidcClientSecret
+        llmBaseURL:
+          node: llm
+          output: baseURL
+        llmAPIKey:
+          node: llm
+          output: apiKey
+        llmModel:
+          node: llm
+          output: model
+        mealieMcpUrl:
+          node: mealie-mcp
+          output: mcpURL
+  parameters:
+    llm:
+      from: "${{ connections.llm.default }}"
+      ui:
+        label: Language model
+        order: 1
+    # Never on the form: the platform supplies it from the deployment's
+    # creator. A creator with no verified email cannot deploy this item, which
+    # is the point: an unverified address must not become the Mealie admin.
+    ownerEmail:
+      from: "${{ deployment.creator.email }}"
+    # Asked rather than taken from `deployment.creator.name`, which would
+    # refuse the deployment for a creator without a name on record.
+    ownerName:
+      default: ""
+      ui:
+        label: Your display name in Mealie
+        order: 2
+    timezone:
+      default: UTC
+      ui:
+        label: Timezone
+        order: 3
+        examples:
+          - UTC
+          - Europe/London
+          - America/New_York
+    # Mealie's seeded admin keeps a password for its own sign-in screen.
+    # Everyday sign-in goes through the platform, so this is disclosed to
+    # whoever manages the deployment rather than typed in.
+    mealieAdminPassword:
+      generator:
+        byteLength: 24
+        encoding: BASE64URL
+      ui:
+        label: Mealie admin password
+        order: 4

@@ -1,0 +1,127 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Mealie recipe manager and meal planner from the official image with SQLite
+    storage, signing viewers in from the platform-forwarded email header.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v3.30.0 is the release this item was proven on. Tags carry the
+      # `v` prefix; `latest` and `nightly` move. SQLite is the image's default
+      # database (DB_ENGINE unset), kept under /app/data with the uploads.
+      image: ghcr.io/mealie-recipes/mealie:v3.30.0
+    endpoints:
+      web:
+        targetPort: 9000
+        protocol: HTTP
+    volumes:
+      # /app/data: the SQLite database, recipe images, backups and the secret
+      # Mealie generates for its own session tokens on first start.
+      data:
+        mountPath: /app/data
+        minSizeGiB: 1
+    health:
+      readiness:
+        # /api/app/about answers without a session and only once the API has
+        # run its migrations.
+        http:
+          endpoint: web
+          path: /api/app/about
+        initialDelaySeconds: 20
+  contract:
+    inputs:
+      timezone:
+        description: Timezone Mealie uses for scheduling and dates.
+        schema:
+          type: string
+        default: UTC
+        required: false
+        target:
+          envVar: TZ
+      allowSignup:
+        description: Whether new users can sign themselves up.
+        schema:
+          type: string
+          enum:
+            - "true"
+            - "false"
+        default: "false"
+        required: false
+        target:
+          envVar: ALLOW_SIGNUP
+      publicBaseURL:
+        description: Public URL Mealie builds absolute links with.
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: BASE_URL
+      # Mealie's trusted-proxy sign-in. The blueprint selects viewerIdentity
+      # HEADER on `web`, so the platform's edge sets this header to the
+      # signed-in viewer's email on every request and strips any copy a client
+      # sent. Mealie matches the value to an account by username, then by
+      # email. The header is trusted from any caller on the private network,
+      # which is how the MCP server signs in (components/mealie-mcp.yaml).
+      reverseProxyAuthHeader:
+        description: >-
+          Name of the request header carrying the signed-in viewer's email,
+          which Mealie matches to an account by username, then email.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: REVERSE_PROXY_AUTH_HEADER
+      # Off: only people with a Mealie account get in, and the deployer's
+      # account is the seeded admin the MCP server claims for them. The admin
+      # adds household members in Mealie with their sign-in emails.
+      reverseProxyAuthSignup:
+        description: Whether a signed-in viewer with no Mealie account gets one created.
+        schema:
+          type: string
+          enum:
+            - "true"
+            - "false"
+        default: "false"
+        required: false
+        target:
+          envVar: REVERSE_PROXY_AUTH_SIGNUP_ENABLED
+      reverseProxyAuthEnabled:
+        description: Whether Mealie signs viewers in from the trusted proxy header.
+        schema:
+          type: string
+          enum:
+            - "true"
+            - "false"
+        default: "true"
+        required: false
+        target:
+          envVar: REVERSE_PROXY_AUTH_ENABLED
+    outputs:
+      baseURL:
+        description: >-
+          Private base URL of the Mealie web endpoint, reachable from other
+          services in the deployment.
+        schema:
+          type: string
+        from:
+          template: http://${{ self.endpoints.web.privateHostname }}:${{ self.endpoints.web.privatePort }}
+      publicURL:
+        description: Public URL of the Mealie web endpoint.
+        schema:
+          type: string
+        from:
+          endpoint: web
+          property: publicURL
+        presentationHint: ENDPOINT_URL
+      viewerEmailHeader:
+        description: >-
+          Name of the header the platform forwards the signed-in viewer's
+          email in.
+        schema:
+          type: string
+        from:
+          endpoint: web
+          property: viewerEmailHeader

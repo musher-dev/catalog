@@ -1,0 +1,107 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: mealie-meal-planner
+spec:
+  itemType: BLUEPRINT
+  displayName: Mealie Meal Planner
+  summary: >-
+    Mealie, the self-hosted recipe manager, with Basil, a Hermes meal-planning
+    agent that searches your recipes, plans the week and builds shopping lists
+    in Mealie, running on your organization's language model
+  overview: |
+    ## What it is
+    Mealie is an open-source recipe manager and meal planner. It imports
+    recipes from the web, keeps a weekly meal plan, and turns planned recipes
+    into shopping lists. This deployment runs Mealie together with Basil, a
+    meal-planning agent built on Nous Research's Hermes Agent. Basil works in
+    Mealie through Mealie's MCP server, so a request like "plan next week's
+    dinners around the chicken we already bought" ends up as real meal-plan
+    entries and a merged shopping list rather than a chat reply.
+
+    ## When to use
+    - You want a recipe library and meal plan your household owns, on
+      infrastructure you control.
+    - You want an assistant that plans meals from your own recipes and
+      remembers the household's diets, allergies and dislikes.
+    - You want to talk to that assistant from a browser, or from Telegram,
+      Discord or Slack once you connect a channel.
+
+    ## What you'll be asked for
+    A **language model**, chosen once. It defaults to your organization's
+    model connection; anything speaking the OpenAI chat-completions protocol
+    with streaming and tool calls will do. Basil offers every model that
+    endpoint lists, and you can switch between them in the agent's dashboard.
+
+    Optionally, the **display name** your Mealie account shows, and the
+    **timezone** the household plans in.
+
+    You are not asked for an email. Your verified Musher sign-in email becomes
+    the email of Mealie's admin account, so you sign in to Mealie as its
+    admin.
+
+    ## Defaults
+    Three containers run:
+
+    - **Mealie** (`ghcr.io/mealie-recipes/mealie:v3.30.0`) on SQLite, with a
+      5 GiB volume for the database, recipe images and backups.
+    - **Mealie's MCP server**, built from
+      [rldiao/mealie-mcp-server](https://github.com/rldiao/mealie-mcp-server).
+      Only this deployment can reach it. When it starts it signs in to Mealie,
+      replaces the seeded admin's default password with a generated one, gives
+      the admin your email, and mints its own API token.
+    - **Basil** (`nousresearch/hermes-agent:v0.23.1`), the Hermes gateway and
+      web dashboard, with a 10 GiB volume for its configuration, memory,
+      skills, sessions and workspace. Its persona and working rules are seeded
+      into `SOUL.md` and `workspace/AGENTS.md`. Edit either one and your edit
+      is kept.
+
+    The language model is written into Hermes's configuration on every start.
+    A model you pick in the dashboard stays selected while the endpoint still
+    lists it.
+
+    ## Access and security
+    Mealie and the agent's dashboard each have their own address, and both
+    sit behind the Musher sign-in. The platform admits only people its
+    access policy allows for this deployment.
+
+    In Mealie, the platform passes your email to Mealie, which signs you in to
+    the account with that email. New accounts are not created automatically.
+    To add household members, create their Mealie accounts with their Musher
+    sign-in emails from Mealie's admin settings. The admin password Mealie's
+    own sign-in screen accepts is generated for you; reveal it on the
+    deployment's **Installation** tab.
+
+    Everyone admitted to the agent's dashboard has full control of the agent,
+    including keys and channel tokens saved there and shell commands it runs
+    in its container. Limit who can open the deployment accordingly.
+
+    Mealie trusts the sign-in header from anything inside the deployment.
+    That is how the MCP server signs in as the admin, and it means the agent,
+    whose shell runs inside the deployment, can act as any Mealie user. The
+    MCP server has no sign-in of its own and is never exposed outside the
+    deployment.
+  gettingStarted: |
+    1. Open Mealie's address and sign in to Musher. You land in Mealie as its
+       admin. The first start can take a few minutes while the MCP server
+       claims the admin account.
+    2. Add a few recipes, or import them from their URLs.
+    3. Open the agent's address and sign in. Tell Basil your household size,
+       diets and allergies, then ask it to plan the week.
+    4. To add household members, create their Mealie accounts with their
+       Musher sign-in emails, and make sure the deployment admits them.
+    5. To reach Basil from a messaging app, add Telegram, Discord or Slack on
+       the dashboard's **Channels** page, then restart the gateway from there.
+  category: PRODUCTIVITY
+  lifecycleStage: BETA
+  tags:
+    - recipes
+    - meal-planning
+    - agents
+    - mcp
+    - self-hosted
+  homepageURL: https://mealie.io
+  sourceRepositoryURL: https://github.com/mealie-recipes/mealie
+  supportURL: https://docs.mealie.io
+  license: AGPL-3.0-only AND MIT
+  icon: media/icon.png

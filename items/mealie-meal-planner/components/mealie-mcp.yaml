@@ -1,0 +1,245 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    MCP server for the Mealie API over streamable HTTP. At start it signs in to
+    Mealie over the private network, claims the seeded admin for the deployer
+    and mints its own API token.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED, by digest as well as tag. rldiao/mealie-mcp-server (MIT)
+      # publishes no image, so this is its own Dockerfile built unmodified at
+      # commit 86ebf379536cf2b3a07c2007798db02894c51f21, the tip of `main`
+      # (2026-10-03). The image's OCI labels record that source and revision.
+      # The digest keeps a re-pushed tag from changing what deploys. A git
+      # source is not an option: building one needs the platform's GitHub App
+      # installed on the repository, and this is a third party's.
+      image: ghcr.io/justinmerrell/mealie-mcp-server:86ebf37@sha256:86a6c758f962f05ab178b54c98ebfa0c1cfb77a1d184633c2d44ffc16abe389c
+    # BOOTSTRAP. Upstream's server needs MEALIE_API_KEY, a token minted inside
+    # Mealie, which no deploy form can know. So this replaces the image's CMD
+    # (`python src/server.py`, WORKDIR /app) with a short program that mints
+    # one, then execs the same server. httpx is already in the image as the
+    # server's own HTTP client.
+    #
+    # It signs in through Mealie's reverse-proxy endpoint, sending the trusted
+    # header with the admin's username. Mealie trusts that header from any
+    # caller on the private network; the platform sets it only at the public
+    # edge. Mealie ends a user's sessions when the account changes, so it
+    # signs in again after each change.
+    #
+    # On the first start Mealie's seeded admin still has its well-known default
+    # email and password. The program replaces the password with the generated
+    # one, then sets the email to the deployer's, so the deployer's own
+    # sign-in at the edge lands on the admin account. Once the email has
+    # changed that branch never runs again, and later edits made in Mealie are
+    # kept.
+    #
+    # Every start mints a fresh token named MEALIE_TOKEN_NAME and deletes the
+    # ones earlier starts left, so exactly one is live.
+    command:
+      - python
+      - -c
+      - |
+        import os, sys, time
+        import httpx
+
+        def log(msg):
+            print("mealie-mcp-bootstrap: " + msg, file=sys.stderr, flush=True)
+
+        base = os.environ["MEALIE_BASE_URL"].rstrip("/")
+        header = os.environ["MEALIE_AUTH_HEADER"]
+        admin_username = os.environ.get("MEALIE_ADMIN_USERNAME", "admin")
+        owner_email = os.environ["MEALIE_OWNER_EMAIL"].strip().lower()
+        owner_name = os.environ.get("MEALIE_OWNER_NAME", "").strip()
+        admin_password = os.environ.pop("MEALIE_ADMIN_PASSWORD")
+        token_name = os.environ.get("MEALIE_TOKEN_NAME", "mealie-mcp")
+        deadline = time.monotonic() + int(os.environ.get("READY_TIMEOUT_SECONDS", "900"))
+        DEFAULT_EMAIL, DEFAULT_PASSWORD = "changeme@example.com", "MyPassword"
+
+        client = httpx.Client(base_url=base, timeout=30)
+        while True:
+            try:
+                if client.get("/api/app/about").status_code == 200:
+                    break
+            except httpx.HTTPError:
+                pass
+            if time.monotonic() > deadline:
+                log("Mealie did not answer /api/app/about in time")
+                sys.exit(1)
+            time.sleep(3)
+
+        def sign_in():
+            r = client.get("/api/auth/reverse-proxy", headers={header: admin_username})
+            if r.status_code != 200:
+                log("reverse-proxy sign-in as %r answered HTTP %d" % (admin_username, r.status_code))
+                sys.exit(1)
+            auth = {"Authorization": "Bearer " + r.json()["access_token"]}
+            me = client.get("/api/users/self", headers=auth)
+            me.raise_for_status()
+            return auth, me.json()
+
+        auth, me = sign_in()
+
+        if me.get("email") == DEFAULT_EMAIL:
+            r = client.put("/api/users/password", headers=auth,
+                           json={"currentPassword": DEFAULT_PASSWORD, "newPassword": admin_password})
+            log("admin password set" if r.status_code == 200
+                else "admin password not changed (HTTP %d)" % r.status_code)
+            auth, me = sign_in()
+            update = dict(me, email=owner_email, fullName=owner_name or me.get("fullName"))
+            r = client.put("/api/users/" + me["id"], headers=auth, json=update)
+            log("admin account claimed for the deployment creator" if r.status_code == 200
+                else "admin email not changed (HTTP %d)" % r.status_code)
+            auth, me = sign_in()
+        else:
+            log("admin account already claimed")
+
+        for token in me.get("tokens") or []:
+            if token.get("name") == token_name:
+                client.delete("/api/users/api-tokens/%d" % token["id"], headers=auth)
+        r = client.post("/api/users/api-tokens", headers=auth, json={"name": token_name})
+        r.raise_for_status()
+        os.environ["MEALIE_API_KEY"] = r.json()["token"]
+        client.close()
+        log("API token minted; starting the MCP server")
+        os.execvp(sys.executable, [sys.executable, "src/server.py"])
+    endpoints:
+      # Streamable HTTP at /mcp. The server has no authentication of its own
+      # and acts as the Mealie admin, so the blueprint never exposes it.
+      mcp:
+        targetPort: 8765
+        protocol: HTTP
+    health:
+      # A GET without `Accept: text/event-stream` is refused with 406 once the
+      # server is up, which is the cheapest answer it gives. The startup probe
+      # allows 190 x 5 s, longer than READY_TIMEOUT_SECONDS, because the
+      # server only starts after Mealie answers.
+      startup:
+        http:
+          endpoint: mcp
+          path: /mcp
+          expectedStatuses:
+            - 406
+        initialDelaySeconds: 5
+        periodSeconds: 5
+        timeoutSeconds: 3
+        failureThreshold: 190
+      readiness:
+        http:
+          endpoint: mcp
+          path: /mcp
+          expectedStatuses:
+            - 406
+        initialDelaySeconds: 0
+        periodSeconds: 15
+        timeoutSeconds: 3
+        successThreshold: 1
+        failureThreshold: 3
+  contract:
+    inputs:
+      host:
+        description: Address the server binds to inside the container.
+        schema:
+          type: string
+        default: 0.0.0.0
+        required: false
+        target:
+          envVar: MCP_HOST
+      port:
+        description: Port the server listens on.
+        schema:
+          type: string
+        default: "8765"
+        required: false
+        target:
+          envVar: MCP_PORT
+      ownerName:
+        description: Display name the seeded Mealie admin account is given on first start.
+        schema:
+          type: string
+        required: false
+        target:
+          envVar: MEALIE_OWNER_NAME
+      tokenName:
+        description: >-
+          Name of the Mealie API token the server mints for itself on every
+          start.
+        schema:
+          type: string
+        default: mealie-mcp
+        required: false
+        target:
+          envVar: MEALIE_TOKEN_NAME
+      transport:
+        description: MCP transport; HTTP clients need streamable-http.
+        schema:
+          type: string
+        default: streamable-http
+        required: false
+        target:
+          envVar: MCP_TRANSPORT
+      ownerEmail:
+        description: >-
+          Email the seeded Mealie admin account is given on first start, so the
+          deployer signs in as that admin.
+        schema:
+          type: string
+        required: true
+        presentationHint: EMAIL
+        target:
+          envVar: MEALIE_OWNER_EMAIL
+      adminPassword:
+        description: >-
+          Password the seeded Mealie admin account is given on first start,
+          replacing Mealie's well-known default.
+        schema:
+          type: string
+        required: true
+        sensitive: true
+        target:
+          envVar: MEALIE_ADMIN_PASSWORD
+      adminUsername:
+        description: Username of the Mealie admin account the server acts as.
+        schema:
+          type: string
+        default: admin
+        required: false
+        target:
+          envVar: MEALIE_ADMIN_USERNAME
+      mealieBaseUrl:
+        description: Base URL of the Mealie instance the server talks to.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MEALIE_BASE_URL
+      mealieAuthHeader:
+        description: >-
+          Name of the header Mealie's reverse-proxy sign-in reads, the one the
+          platform forwards viewer emails in.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: MEALIE_AUTH_HEADER
+      readyTimeoutSeconds:
+        description: How long the server waits for Mealie to answer before it exits.
+        schema:
+          type: integer
+        default: 900
+        required: false
+        target:
+          envVar: READY_TIMEOUT_SECONDS
+    outputs:
+      mcpURL:
+        description: >-
+          Private streamable-HTTP URL of the MCP server, for clients in the
+          deployment.
+        schema:
+          type: string
+        from:
+          template: http://${{ self.endpoints.mcp.privateAddress }}/mcp
+        presentationHint: ENDPOINT_URL
