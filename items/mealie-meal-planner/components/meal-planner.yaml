@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 2
+  revision: 3
   description: >-
     Hermes Agent as a household meal planner: Mealie's MCP server wired in,
     every model the connection lists offered, and the dashboard signed in
@@ -33,7 +33,14 @@ spec:
     #    /models probe sends no key (NousResearch/hermes-agent#145452), so the
     #    list is fetched here. When the endpoint lists nothing, the last list
     #    is kept, then the connection's model alone. The credential stays in
-    #    LLM_API_KEY (`key_env`) and never lands in config.yaml.
+    #    LLM_API_KEY (`key_env`) and never lands in config.yaml. The provider
+    #    is keyed `musher` and named "Musher LLM connection"; Hermes labels a
+    #    keyed provider by its key, so the model picker shows `custom:musher`.
+    #    Revisions before 3 keyed it `llm`. That entry is dropped when it is
+    #    the one this script wrote (`key_env: LLM_API_KEY` and the connection's
+    #    base URL, or no key beyond the ones it wrote), and a `custom:llm`
+    #    choice moves to `custom:musher` with its model kept. A provider
+    #    someone added under the name `llm` is left alone.
     # 2. MEALIE. The private MCP server is written into `mcp_servers.mealie`.
     #    The terminal runs in the agent's workspace, a `docker` or
     #    `singularity` backend falls back to `local` (no container runtime
@@ -86,7 +93,13 @@ spec:
         fallback = os.environ.get("LLM_MODEL", "").strip()
         cfg = require_readable_config_before_write(path)
         providers = section(cfg, "providers")
-        previous = providers.get("llm") if isinstance(providers.get("llm"), dict) else {}
+        legacy = providers.get("llm")
+        legacy = legacy if (isinstance(legacy, dict) and legacy.get("key_env") == "LLM_API_KEY" and (
+            str(legacy.get("api") or "").rstrip("/") == base_url
+            or set(legacy) <= {"name", "api", "key_env", "transport", "discover_models", "models",
+                               "default_model", "api_key"})) else None
+        previous = (providers.get("musher") if isinstance(providers.get("musher"), dict) else
+                    legacy or {})
         listed = None
         for attempt in range(1, 5):
             try:
@@ -106,16 +119,19 @@ spec:
         if not models:
             raise SystemExit("meal-planner: the endpoint listed no models and no earlier list exists")
         model = section(cfg, "model")
-        current = str(model.get("default") or "") if model.get("provider") == "custom:llm" else ""
+        ours = {"custom:musher"} | ({"custom:llm"} if legacy is not None else set())
+        current = str(model.get("default") or "") if model.get("provider") in ours else ""
         default = (current if current in models else
                    fallback if fallback in models else
                    ([m for m in models if "haiku" in m.lower()] or models)[-1])
-        providers["llm"] = {"name": "Language model", "api": base_url, "key_env": "LLM_API_KEY",
-                            "transport": "openai_chat", "discover_models": False, "models": models,
-                            "default_model": default}
+        if legacy is not None:
+            del providers["llm"]
+        providers["musher"] = {"name": "Musher LLM connection", "api": base_url, "key_env": "LLM_API_KEY",
+                               "transport": "openai_chat", "discover_models": False, "models": models,
+                               "default_model": default}
         for stale in ("api_key", "model", "api"):
             model.pop(stale, None)
-        model.update({"provider": "custom:llm", "default": default, "base_url": base_url,
+        model.update({"provider": "custom:musher", "default": default, "base_url": base_url,
                       "api_mode": "chat_completions", "key_env": "LLM_API_KEY"})
         say(f"offering {len(models)} model(s), default {default}")
 
