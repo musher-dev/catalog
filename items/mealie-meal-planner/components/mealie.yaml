@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 1
+  revision: 2
   description: >-
     Mealie recipe manager and meal planner from the official image with SQLite
     storage, signing viewers in from the platform-forwarded email header.
@@ -9,10 +9,14 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v3.30.0 is the release this item was proven on. Tags carry the
-      # `v` prefix; `latest` and `nightly` move. SQLite is the image's default
+      # PINNED. v3.31.0 is the latest stable release (2026-11-13), a batch of
+      # security fixes over v3.30.0, which this item was proven on. Request
+      # bodies are now capped by MAX_UPLOAD_SIZE_MB (default 1024), and the
+      # recipe API no longer returns `cookTime`; neither touches the MCP
+      # server's bootstrap. Tags carry the `v` prefix; `latest` and `nightly`
+      # move. SQLite is the image's default
       # database (DB_ENGINE unset), kept under /app/data with the uploads.
-      image: ghcr.io/mealie-recipes/mealie:v3.30.0
+      image: ghcr.io/mealie-recipes/mealie:v3.31.0
     endpoints:
       web:
         targetPort: 9000
