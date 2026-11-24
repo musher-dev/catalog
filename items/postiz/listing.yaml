@@ -1,0 +1,90 @@
+specVersion: v2
+kind: LISTING
+metadata:
+  slug: postiz
+spec:
+  itemType: BLUEPRINT
+  displayName: Postiz
+  summary: >-
+    Open-source social media scheduler: plan, write and schedule posts to
+    X, LinkedIn, Bluesky, Reddit, Instagram and more from one calendar, with
+    PostgreSQL, Redis and Temporal included.
+  overview: |
+    ## What it is
+    Postiz is an open-source alternative to Buffer and Hootsuite. You connect
+    your social accounts, write posts in one editor, preview how each network
+    shows them, and place them on a shared calendar. Postiz publishes them at
+    the scheduled time and reports analytics for the channels that offer
+    them. Teams can work in one workspace, and a
+    public API lets other tools and AI agents schedule posts too.
+
+    ## When to use
+    - You post to several networks and want one calendar instead of each
+      network's own scheduler.
+    - You want your drafts, media and schedule on infrastructure you control.
+    - You want an API or agent to queue posts for review and publishing.
+
+    ## Defaults
+    Four containers and a one-time setup job, upstream's Docker Compose setup
+    without its developer tools:
+
+    - **Postiz**: `ghcr.io/gitroomhq/postiz-app:v2.26.0` on 2 vCPU and
+      4 GiB, served on port 5000 behind the platform's HTTPS edge and
+      sign-in. One container runs the web app, the API and the workers that
+      publish posts. Uploaded media is stored on a 10 GiB volume.
+    - **Database**: a private PostgreSQL 17 server on 1 vCPU and 1 GiB, with
+      a 10 GiB volume. It holds Postiz's data and Temporal's two databases.
+    - **Cache**: a private Redis 8 server on 1 vCPU and 1 GiB, behind a
+      password, with a 5 GiB volume.
+    - **Temporal**: `temporalio/server:1.32.2` on 1 vCPU and 2 GiB, private.
+      Postiz runs each scheduled post as a Temporal workflow, so a post due
+      while Postiz restarts is still published when it comes back.
+    - **Setup job**: `temporalio/admin-tools:1.32.2` creates Temporal's
+      databases and its `default` namespace. It runs again on every update
+      and changes only what is missing.
+
+    The database and Redis passwords and Postiz's session secret are
+    generated. You can reveal the two passwords on the Installation tab.
+
+    ## Access and security
+    Postiz is behind the platform's sign-in, and then Postiz's own accounts.
+    Anyone you let into the deployment can create a Postiz account until you
+    turn registration off. Two routes skip the platform's sign-in:
+
+    - `/uploads`: the images and videos in your posts. Social networks fetch
+      them from here when Postiz publishes, and the file names are random.
+    - `/api/public`: Postiz's public API, which checks its own API key.
+
+    ## Limitations
+    - Most networks need a developer app of your own before Postiz can
+      connect to them: X, LinkedIn, Reddit, Facebook, Instagram, Threads,
+      YouTube, TikTok, Pinterest and others. Their client IDs and secrets
+      aren't settings of this item yet. Bluesky, Nostr and Lemmy connect with
+      credentials you type into Postiz, so they work right away.
+    - The AI writing assistant, Stripe billing, email notifications and
+      cloud media storage (Cloudflare R2) aren't configured.
+    - Temporal's own web UI isn't included.
+  gettingStarted: |
+    1. Open the deployment's URL and sign in to Musher. The first start can
+       take several minutes while Postiz sets up its database.
+    2. Create your Postiz account on its sign-up page. The first account
+       owns the workspace.
+    3. Click **Add Channel** and connect Bluesky with your handle and an app
+       password (Bluesky's Settings, then App Passwords).
+    4. Write a post, pick a time on the calendar and click **Add to
+       Calendar**. Postiz publishes it at that time.
+    5. To use the public API, create an API key in Postiz's settings and
+       call `/api/public/v1` on this deployment's URL with it.
+  category: COMMUNICATION
+  lifecycleStage: BETA
+  tags:
+    - social-media
+    - scheduling
+    - marketing
+    - content-calendar
+    - buffer-alternative
+  homepageURL: https://postiz.com
+  sourceRepositoryURL: https://github.com/gitroomhq/postiz-app
+  supportURL: https://docs.postiz.com
+  license: AGPL-3.0-only
+  icon: media/icon.png
