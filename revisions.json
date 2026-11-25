@@ -1,0 +1,630 @@
+{
+  "items/activepieces/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "2345dd1772fc2698be136780ab31d847b4fa17de9429d8e97cd567f43893c7f6"
+  },
+  "items/activepieces/components/activepieces-app.yaml": {
+    "revision": 1,
+    "sha256": "4cbabc3be385af7e6dc14d2bd9fb5d16a40a5542e119bc5afdeade08fd270cc3"
+  },
+  "items/activepieces/components/activepieces-worker.yaml": {
+    "revision": 1,
+    "sha256": "673cee5ef869245cf1950434f9adfe167c98c5826b31f4871c9f059ce8fb7a64"
+  },
+  "items/activepieces/components/pgvector.yaml": {
+    "revision": 1,
+    "sha256": "e59424fd53b3c25711c5b66365fcbba16db9056e3ae4af09ad597a3edf94dde0"
+  },
+  "items/activepieces/components/valkey.yaml": {
+    "revision": 1,
+    "sha256": "1e26256ca0bdef6811b5d0b81c0f74263022bf0cdd8ace9db6ccf2ee860cf983"
+  },
+  "items/agent-zero/blueprint.yaml": {
+    "revision": 2,
+    "sha256": "436d53aa7ac711d3c198a75e657f5c86336e82c0801c6e148e6e60bafd702548"
+  },
+  "items/agent-zero/components/agent-zero.yaml": {
+    "revision": 1,
+    "sha256": "221a3f86c98a5aa591ec4e5a8e2b474e64592f6c83e85ba1807ddc96e456584e"
+  },
+  "items/agent-zero/components/aio-sandbox.yaml": {
+    "revision": 2,
+    "sha256": "1143ae0c032593488de584e1ddc23d54c64a4f3e1e697b2cb1e4f6f0b4174d29"
+  },
+  "items/agent-zero/components/llm.yaml": {
+    "revision": 1,
+    "sha256": "c8921c1863937acee10b1cbade7e18a6ea6312fc97ea413762f416f348f641d8"
+  },
+  "items/aio-sandbox/components/aio-sandbox.yaml": {
+    "revision": 2,
+    "sha256": "aeef26e5807ebe3022e110928cd4622f06cf2d33ca69acd5357b469111434a5f"
+  },
+  "items/anythingllm/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "8112ec2a72ac91ca132ec804251dc600e838f1630f84d4b9f614e8b08e0cc7fd"
+  },
+  "items/anythingllm/components/anythingllm.yaml": {
+    "revision": 1,
+    "sha256": "32b7d5f7723f01760ff19b76f7f89b2e2bff92c33d9b113434987c07580749b9"
+  },
+  "items/anythingllm/components/llm.yaml": {
+    "revision": 1,
+    "sha256": "f5729cf32eac5bfbb9f03190afd4c2c426a56445f141baf7253bfe45a0d7fbdc"
+  },
+  "items/code-server/blueprint.yaml": {
+    "revision": 10,
+    "sha256": "27eebac0c6ddeffa5d713fa6e50006fcc9b89534f6f57be9e29c515eb56600aa"
+  },
+  "items/code-server/components/code-server.yaml": {
+    "revision": 10,
+    "sha256": "dcc4ce4fff6644c3e28cc72fbedd9f830eb986241d9ae4b27ec98f860bc4233d"
+  },
+  "items/coder/blueprint.yaml": {
+    "revision": 5,
+    "sha256": "26f95eb1e76277638f283d934e80f45e93922878b8782f16446ea0af4bfd577f"
+  },
+  "items/coder/components/bootstrap-owner.yaml": {
+    "revision": 3,
+    "sha256": "2ae127e8e57f07f63995434811117c451cd4851393bc930c8e7142c2ca29b7cb"
+  },
+  "items/coder/components/coder.yaml": {
+    "revision": 5,
+    "sha256": "9a1fbf6f77a60601200439b853a14e10b65e719786ae9c0ab67f60ff79816cd7"
+  },
+  "items/coder/components/postgres.yaml": {
+    "revision": 3,
+    "sha256": "cd166383ad992025166bedbdca8bc13713780a6cac92523d0017ee19992abcb0"
+  },
+  "items/contextforge/blueprint.yaml": {
+    "revision": 2,
+    "sha256": "b78ad60582fe5e3d173709474b5894bd9fc4b4bae8d91177900f3d6e33d29492"
+  },
+  "items/contextforge/components/contextforge.yaml": {
+    "revision": 1,
+    "sha256": "b01b5e261684d37f92dc083da54c29b341cc23367f82ccee1922319c695d310b"
+  },
+  "items/contextforge/components/postgres.yaml": {
+    "revision": 2,
+    "sha256": "0b44522e4379f743f350f01ea54da64453f91d58d333df9c712ded0a10bc5404"
+  },
+  "items/contextforge/components/valkey.yaml": {
+    "revision": 1,
+    "sha256": "69e752fd31bddeb09a05a4f0e78cbe4ed4787a0237259897542811de89b0b6e0"
+  },
+  "items/crawl4ai/components/crawl4ai.yaml": {
+    "revision": 1,
+    "sha256": "067b3832e45d9c1348603d82c5d8e2eb7201d06f48cf76247bb2e39cd3805dfb"
+  },
+  "items/docling-serve/components/docling-serve.yaml": {
+    "revision": 1,
+    "sha256": "4a70cb2d6c19999ed40a3b80830357c7b5d4f84b5d5c2637a6f32f4658b3b7ec"
+  },
+  "items/doom/blueprint.yaml": {
+    "revision": 5,
+    "sha256": "b02a484f5565392ed92dbef9c5ac41bda38494c3616cbdd944d36a7220fbfb41"
+  },
+  "items/doom/components/doom.yaml": {
+    "revision": 4,
+    "sha256": "f38ca44148b511297def6d249338eca07b6b2947ef1468c16ceb74b781e9191b"
+  },
+  "items/firecrawl/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "2701a189c31c7b6a75e37ec28afe245c1b9f586d83c0be4bddd70dee549de13b"
+  },
+  "items/firecrawl/components/firecrawl.yaml": {
+    "revision": 1,
+    "sha256": "77664638ef0930d2188394cdd17eb3a67e08bfa07f62eb2e49e8fefca87ca23f"
+  },
+  "items/firecrawl/components/gateway.yaml": {
+    "revision": 1,
+    "sha256": "3b50d03f48ec66cda5175dde77349947887e0efb95e1716ad18f6009eeec2adb"
+  },
+  "items/firecrawl/components/nuq-postgres.yaml": {
+    "revision": 1,
+    "sha256": "bbb5074c98cab53d8e0a27c777149cb83a3e5d9d46011ea3703b1cbad9b7a705"
+  },
+  "items/firecrawl/components/playwright.yaml": {
+    "revision": 1,
+    "sha256": "e5b3d5cbbb84d98d70d4107bfa522ee8f34d1e77ac621000104be6394ec35b01"
+  },
+  "items/firecrawl/components/rabbitmq.yaml": {
+    "revision": 1,
+    "sha256": "276d39fa6a4e431cb297542e00189f9ea88d35872cc31ff211f279a906d6f9f5"
+  },
+  "items/firecrawl/components/redis.yaml": {
+    "revision": 1,
+    "sha256": "64985a64a39ac291875712d66520b5783748c30a85143c203aec126ade753eaf"
+  },
+  "items/flowise/blueprint.yaml": {
+    "revision": 10,
+    "sha256": "f7b346dbe72f6f29e961b2195af12476a153f800dfeb6b4b8ad93f050fee40be"
+  },
+  "items/flowise/components/flowise.yaml": {
+    "revision": 9,
+    "sha256": "f05ba0edaaafb4113bd7f74c990764619528c7aa0db3ce6142a5b6621c961b79"
+  },
+  "items/gitea/blueprint.yaml": {
+    "revision": 2,
+    "sha256": "887091fbc923c7d286d0cd60ca7c82c7dbea102d9c3a9dad552749e4ab5949cc"
+  },
+  "items/gitea/components/bootstrap.yaml": {
+    "revision": 1,
+    "sha256": "dc543b45e761b16f21a4fa9c5a4d2f1a556ca5f1e7fccdb8edd9713fdedbfc50"
+  },
+  "items/gitea/components/gitea.yaml": {
+    "revision": 1,
+    "sha256": "0160a79566ce678b7baf236602dab7d47bb9b2f5f3ad3ee3c1c1dddb3e84334d"
+  },
+  "items/gitea/components/postgres.yaml": {
+    "revision": 9,
+    "sha256": "657274e8b7654eaa672eb58d77afdaf6e662e1e000f3c415b01d5db345387ed4"
+  },
+  "items/graphiti/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "1c7daff86c792bb18fe177517cbb9bd84483dcabcf70a65b2da3e8a284c7be3a"
+  },
+  "items/graphiti/components/gateway.yaml": {
+    "revision": 1,
+    "sha256": "04a24fe0d28c01927f60e62f5f13c82a36f17985feb4111486055b966672cf0c"
+  },
+  "items/graphiti/components/graphiti-mcp.yaml": {
+    "revision": 1,
+    "sha256": "9618239f0d4d72731b6c1fe84b5e61e6cf94994c6003021b64b588f12a7c3209"
+  },
+  "items/graphiti/components/llm.yaml": {
+    "revision": 1,
+    "sha256": "5a3caf50465a6c0efaa649179a9e477de5810cecc41e5370b70713a9ef15e069"
+  },
+  "items/graphiti/components/neo4j.yaml": {
+    "revision": 1,
+    "sha256": "cb2ddb06d33f9799174bb603f47f236da68750ba15801ce661daf46f115578c0"
+  },
+  "items/graphiti/components/text-embeddings-inference.yaml": {
+    "revision": 1,
+    "sha256": "c354cefe8ff9646ac8b2c2479b20f529e959d93b1515b2b325013c35de6b454d"
+  },
+  "items/hermes-agent/blueprint.yaml": {
+    "revision": 6,
+    "sha256": "0924f8ff0313ed75c2f5edfb0084e6661e107f525bc9da379625f54b89ec75f9"
+  },
+  "items/hermes-agent/components/hermes-agent.yaml": {
+    "revision": 5,
+    "sha256": "a08d47fb965be7688d917b2510bc9487a9c78c21d997355f77755b2a0d78d8b7"
+  },
+  "items/hermes-agent/components/hindsight-control-plane.yaml": {
+    "revision": 1,
+    "sha256": "7518e91432ca33f0f879be20273f18f32877550e07c290f739fa662bf4b12027"
+  },
+  "items/hermes-agent/components/hindsight.yaml": {
+    "revision": 1,
+    "sha256": "060f4fb5150fbd340eb02b16f4e5a3e3044a6c3f592ef718ea6135e20e18557b"
+  },
+  "items/hermes-agent/components/llm.yaml": {
+    "revision": 4,
+    "sha256": "5237b78e7f966710b5af8d9343609f686e1cc992d8bdcd99b15ad2814527c01f"
+  },
+  "items/hermes-agent/components/pgvector.yaml": {
+    "revision": 1,
+    "sha256": "bb630dd0f2dbe9fd3ffe33e974b584088daa4f7da30adfda893fea48a08754a2"
+  },
+  "items/hindsight/components/hindsight.yaml": {
+    "revision": 1,
+    "sha256": "5f8f7eafc157f7b163f5e6c5137e4ed11224ea2b03d7756f7b3169a8667a9adb"
+  },
+  "items/label-studio/blueprint.yaml": {
+    "revision": 11,
+    "sha256": "9770848c89785b24c65a31d7aed1c5fb2ff2b39a1533ed8b26ae0843f8a007ed"
+  },
+  "items/label-studio/components/label-studio.yaml": {
+    "revision": 12,
+    "sha256": "4aff10d8f4f25b345271c02d1bff317d3e8d4ec5327925bf94dcec41c9dfa827"
+  },
+  "items/langflow/blueprint.yaml": {
+    "revision": 11,
+    "sha256": "711001f2f1eb8e10750c9060d85edebb792bdbc9901ef01983f0c0141ef0b969"
+  },
+  "items/langflow/components/langflow.yaml": {
+    "revision": 10,
+    "sha256": "36f2ac685349f0a964ce6cfec0630b912da501b5a08314d487ead7298335289a"
+  },
+  "items/langfuse/blueprint.yaml": {
+    "revision": 2,
+    "sha256": "0da9c9bdef3be1cdcde84df6fbdd2ab69667fac76c55b4c68f385a39fec435ae"
+  },
+  "items/langfuse/components/clickhouse.yaml": {
+    "revision": 1,
+    "sha256": "c7e3a0acdc1cb4a6da13f658b58138b6b01e1ffa24d45f21f204f81c61d7d75c"
+  },
+  "items/langfuse/components/langfuse-web.yaml": {
+    "revision": 1,
+    "sha256": "cf7f24549e219c57f7fa238ff2850b51546cbcb1669e28cb4c02fe8d387885df"
+  },
+  "items/langfuse/components/langfuse-worker.yaml": {
+    "revision": 1,
+    "sha256": "d3eabf004243c46a928c78b5b12138dfc73ccf8f13fe938bbe435a0db092d2ff"
+  },
+  "items/langfuse/components/llm.yaml": {
+    "revision": 6,
+    "sha256": "d4f6aa56f7e9ac149241830ed8061366af40d112d7824fe1b2b657ea3eda9c04"
+  },
+  "items/langfuse/components/postgres.yaml": {
+    "revision": 9,
+    "sha256": "bf6561e246dfc26c549e346ee0442eb0baa5a6de7da877c5f104ee324d41a1eb"
+  },
+  "items/langfuse/components/seaweedfs.yaml": {
+    "revision": 1,
+    "sha256": "df76b86027819099a487e0d90e9695a5e4c39a7091ad68f7be05132bb0d21a74"
+  },
+  "items/langfuse/components/valkey.yaml": {
+    "revision": 1,
+    "sha256": "4937ee35f0f0cbd97a5bd6f37a2b915578b6edba4ed843450c9ee442407d7103"
+  },
+  "items/librechat/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "b71eddd336b03fcd697d871e0c97ca0d1c7b4445d016e43bef68d0d89351d89d"
+  },
+  "items/librechat/components/documentdb.yaml": {
+    "revision": 1,
+    "sha256": "87aa79b29f64e89b4c03f2bea496c23141799e98380826e99073f1b2fa941f86"
+  },
+  "items/librechat/components/ferretdb.yaml": {
+    "revision": 1,
+    "sha256": "dc7c94226b714bacbbda1f067f15ddd7a204e557e0eb277c22e511d3866b8620"
+  },
+  "items/librechat/components/librechat.yaml": {
+    "revision": 1,
+    "sha256": "4aa2d05fe98e5267065e50e7b7327a9e47de108632f7aa9c801eeeffa619ed14"
+  },
+  "items/librechat/components/llm.yaml": {
+    "revision": 1,
+    "sha256": "4236de27bc1ad269e110cf3253dce61ce22cf25328f8557451d8eea5c305eed4"
+  },
+  "items/librechat/components/meilisearch.yaml": {
+    "revision": 10,
+    "sha256": "dd759a09f81a8bd6ad03be8c8951101342f02491d4d28a3c744a280e9b2e31a2"
+  },
+  "items/litellm-stack/blueprint.yaml": {
+    "revision": 5,
+    "sha256": "b6f236b300a27dfccc78a14cf578fde3a29b69becb5dd2c9ab27469db0917680"
+  },
+  "items/litellm-stack/components/litellm.yaml": {
+    "revision": 3,
+    "sha256": "cb28a75088bd8535dd832b30d7d8ba65c0fbecacd6d780ac38ecbc44c8e8f0d8"
+  },
+  "items/litellm-stack/components/postgres.yaml": {
+    "revision": 3,
+    "sha256": "0401ab6abb0ce0226fd619ca0ce3b3b65d2cddf6bb9ca5e84207c7435e169f64"
+  },
+  "items/litellm-stack/components/redis.yaml": {
+    "revision": 3,
+    "sha256": "93ae9753bf08169ac2fae4ba90ca55a26bf0b9129e428396df507bada485ae13"
+  },
+  "items/litellm/blueprint.yaml": {
+    "revision": 8,
+    "sha256": "ed372624b8663abe80b90001ebd9c377ce6622f3e40e4394ce811684e9e5755c"
+  },
+  "items/litellm/components/litellm.yaml": {
+    "revision": 8,
+    "sha256": "fc0234c166ca5531aec70fe512fdc40ca608fb60b746860eef7a8b26125811d1"
+  },
+  "items/llama-cpp/components/llama-cpp.yaml": {
+    "revision": 1,
+    "sha256": "8c7f7caf7d09e6ba566f3c8e1e310536d8140db8b94f1cbca6d29ceca419f827"
+  },
+  "items/llm-endpoint/components/endpoint.yaml": {
+    "revision": 6,
+    "sha256": "0c769cf1d1a3a7a6b9910656319ac4a19d83ae829f6c239c65d33a08a39c95c9"
+  },
+  "items/mealie-meal-planner/blueprint.yaml": {
+    "revision": 3,
+    "sha256": "a48d07a468dfe38fd8ef2f30e0cd3bdca512b44d4426466d25dca431b1a41886"
+  },
+  "items/mealie-meal-planner/components/llm.yaml": {
+    "revision": 1,
+    "sha256": "bfbf9bd59d02c659824fd4a996e672e3439c6bc291961876acfdf718921a49e3"
+  },
+  "items/mealie-meal-planner/components/meal-planner.yaml": {
+    "revision": 3,
+    "sha256": "00aa3f8db45897f59b31c25c222f75f150821788c660cc7229886442a3b61277"
+  },
+  "items/mealie-meal-planner/components/mealie-mcp.yaml": {
+    "revision": 1,
+    "sha256": "1353d76dacafb3f8da33a78fbc5bc8839907299eb0b95492279850957ad4c02f"
+  },
+  "items/mealie-meal-planner/components/mealie.yaml": {
+    "revision": 2,
+    "sha256": "e97c5e896ade4145ec14532db20c47b59750060fca29e7b0b283037130c20ef9"
+  },
+  "items/meilisearch/blueprint.yaml": {
+    "revision": 10,
+    "sha256": "7785412c1a82cc8020736acfb13deeb3b0a0e35ae097c4b2080a5bd88f840abe"
+  },
+  "items/meilisearch/components/meilisearch.yaml": {
+    "revision": 10,
+    "sha256": "d08f070d1217fb1764ce51e8f23ade53dce09fd15f98299f123232d522085db5"
+  },
+  "items/metabase/blueprint.yaml": {
+    "revision": 2,
+    "sha256": "032544d9a085d59386744ac0cb04c4c52cdc4759c86d2b54884bb397a852e381"
+  },
+  "items/metabase/components/bootstrap-admin.yaml": {
+    "revision": 1,
+    "sha256": "a5f5735d94589407437a119276eeaeebf99f3f8defbdbbc50379e1efa68aa78d"
+  },
+  "items/metabase/components/metabase.yaml": {
+    "revision": 1,
+    "sha256": "ee9c70047891b281bb1743ae9f937c6acf18c4f678c163b38c787168b989f2fb"
+  },
+  "items/metabase/components/postgres.yaml": {
+    "revision": 2,
+    "sha256": "08c3ec5b275c3ad08b65d88b4129a3fa41ea1e5326e4ec2857a175bec26078c0"
+  },
+  "items/mlflow/blueprint.yaml": {
+    "revision": 12,
+    "sha256": "12f011dc8abb066096dd479d4b45a93ec33941c43ae51f16f16dc4bc6318e1ce"
+  },
+  "items/mlflow/components/mlflow.yaml": {
+    "revision": 13,
+    "sha256": "2eb130f52cd402a5d2a168c92e77054befb3e51917f617670a02bfb7f59158be"
+  },
+  "items/n8n/blueprint.yaml": {
+    "revision": 11,
+    "sha256": "327e22f60509ab7f1bae9ec33839bb4855f1d2dc669eb96e764d59bae714914f"
+  },
+  "items/n8n/components/n8n.yaml": {
+    "revision": 13,
+    "sha256": "e746f68aee0c02b2c9c96fa8f7725d3520490ab6e15bafc12d3df536758b31d3"
+  },
+  "items/ollama/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "1b5ef5a481cff469bc0bcbcb345142650d200bdf5013994ebbcb259c47702669"
+  },
+  "items/ollama/components/ollama.yaml": {
+    "revision": 1,
+    "sha256": "b21072511cec1e328bdb8490f4e96f71b143b60f598e88ca07776926339b5ffb"
+  },
+  "items/ollama/components/open-webui.yaml": {
+    "revision": 1,
+    "sha256": "d242f176c1a25fc78b34c322c2c59646ef2f8015477a2878db92604d4b945c61"
+  },
+  "items/open-webui-stack/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "322535b5b61706aeee7e54e3a94ee302b086cae9e94bce36abe9b11e2e98649b"
+  },
+  "items/open-webui-stack/components/llm.yaml": {
+    "revision": 4,
+    "sha256": "f63ade36cf78e5824638af2ccb68d1642e12b7086696420a17e33b36a191af97"
+  },
+  "items/open-webui-stack/components/open-webui.yaml": {
+    "revision": 1,
+    "sha256": "19cf44a24f370509dc3c7a317bd660127b1a9bf6c24b72c36e74d27c64a2586d"
+  },
+  "items/open-webui-stack/components/pgvector.yaml": {
+    "revision": 1,
+    "sha256": "aeb3df2c1332e491e4676110ea3f559bb22c9b63c73ec51b18c15a389846c149"
+  },
+  "items/open-webui-stack/components/valkey.yaml": {
+    "revision": 1,
+    "sha256": "aa9e1ce8a9e006cb6e921db3da125effe48fa115d89db1f2d533761917e65377"
+  },
+  "items/open-webui-vllm/blueprint.yaml": {
+    "revision": 3,
+    "sha256": "7abfdbae4c9bdcbdffcaa1cf223fb08f8d045261800d9982c145d8c18b4d4d75"
+  },
+  "items/open-webui-vllm/components/open-webui.yaml": {
+    "revision": 3,
+    "sha256": "125ff9326aef78cf4706da2b08a67d81668e40b9b878527781e1b0427f6928f9"
+  },
+  "items/open-webui-vllm/components/vllm.yaml": {
+    "revision": 3,
+    "sha256": "8bee2c2fbda971da370b5829ce83bc2e285c52ca1967fbf3c2a6e06c91f7ecc7"
+  },
+  "items/open-webui/blueprint.yaml": {
+    "revision": 11,
+    "sha256": "8fd24a87b47ad81a8eef57881c73e171c2e7d666db446b314bcb05be92ee7682"
+  },
+  "items/open-webui/components/llm.yaml": {
+    "revision": 4,
+    "sha256": "f63ade36cf78e5824638af2ccb68d1642e12b7086696420a17e33b36a191af97"
+  },
+  "items/open-webui/components/open-webui.yaml": {
+    "revision": 13,
+    "sha256": "136108f938eb3e01fe2b4b2c560b7168a4ae25e2d8f01f4d62447ad411b13a98"
+  },
+  "items/openclaw/blueprint.yaml": {
+    "revision": 14,
+    "sha256": "8410ef34a32c3f1024982b6cae39e82fdb06bd06478eb318b5078d12a381da25"
+  },
+  "items/openclaw/components/llm.yaml": {
+    "revision": 4,
+    "sha256": "cad81b731313360afa3aae6f32232c10a4280ca7727475313283bfed7fa6c722"
+  },
+  "items/openclaw/components/openclaw.yaml": {
+    "revision": 14,
+    "sha256": "2a2315296a6f1d93b1e89d8b67c5d79fe54e5b4582161ed5c275f857b4c1dbca"
+  },
+  "items/opencode/blueprint.yaml": {
+    "revision": 5,
+    "sha256": "4d55903a71fd919baad61090638d9891280509503bb1bc51d25c91257939a1eb"
+  },
+  "items/opencode/components/llm.yaml": {
+    "revision": 3,
+    "sha256": "b86a67a5213c4547e733f6c8725a1a10cc929c912f3b6c3e3e34a8378f83aa95"
+  },
+  "items/opencode/components/opencode.yaml": {
+    "revision": 4,
+    "sha256": "0dda1f7061bb8bb7d0497fa26abae6c726289fd97e7695966d5835e155f85239"
+  },
+  "items/openhands-agent-canvas/blueprint.yaml": {
+    "revision": 5,
+    "sha256": "7a4a87862d0d52110020931d97f6cb1c2e9fa88e90390c7527958e41dafda9f9"
+  },
+  "items/openhands-agent-canvas/components/agent-canvas.yaml": {
+    "revision": 4,
+    "sha256": "ca8ddda05a1bb71e3fe8f938acf1b25d0b06916a496f8682b5ea4ea243b4ba0a"
+  },
+  "items/openhands-agent-canvas/components/llm.yaml": {
+    "revision": 3,
+    "sha256": "73ae5adbb36c53b002bbae1079bc0a843ec5ed9dd836c0b381462cdae796f6f0"
+  },
+  "items/openhands-agent-canvas/components/seed-llm.yaml": {
+    "revision": 3,
+    "sha256": "40a17d7fdcb90def552afdff57e864a07aa6fe1466e8591db8617c76ea873ec7"
+  },
+  "items/paperclip/blueprint.yaml": {
+    "revision": 5,
+    "sha256": "16ab222e870eff8d468a32b0b000aa8a65a798700a5ea26e21b323185aab3034"
+  },
+  "items/paperclip/components/llm.yaml": {
+    "revision": 2,
+    "sha256": "003ae7b53a8df002c08ce7ec80a6e828d604d9f52b34c21c01a0e2b8c5f3d892"
+  },
+  "items/paperclip/components/paperclip.yaml": {
+    "revision": 3,
+    "sha256": "1183c27e23ddfaf8e17e0f61d9b7d593e2235875023c4d2639d01febf8c1e0b5"
+  },
+  "items/paperclip/components/postgres.yaml": {
+    "revision": 3,
+    "sha256": "d4a2a176925b8d5af8b4c21c4559baab710c1a49f46b66400c522af99c5e3058"
+  },
+  "items/pgvector/components/pgvector.yaml": {
+    "revision": 1,
+    "sha256": "a807a2849216106499dd24a4306f84b6ea6f379d26107c64de801907cd1cc37f"
+  },
+  "items/playwright-mcp/components/playwright-mcp.yaml": {
+    "revision": 1,
+    "sha256": "4fb0df67ae9e604741c52216ccc36dcdec1ab5419cb73732d80c3bf655bc2086"
+  },
+  "items/postgres/components/postgres.yaml": {
+    "revision": 9,
+    "sha256": "73f48c15bbca6cb62c34ca5fc89f1ec9429e6bd605681d5b49fa6700b66135f5"
+  },
+  "items/postiz/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "85ab27ac62e800bd9c575c3c7645ae7e0a05855a0809c216924e831cd3bdfb1b"
+  },
+  "items/postiz/components/postgres.yaml": {
+    "revision": 2,
+    "sha256": "d1ec35d47b459bab6ca891b4bda70b16f62d07e720c67ef4f874b6bceffd33a4"
+  },
+  "items/postiz/components/postiz.yaml": {
+    "revision": 1,
+    "sha256": "e933725583353d83fcc31ebc3e6d0eff867bcb74d73b9e959f386c13daa28634"
+  },
+  "items/postiz/components/redis.yaml": {
+    "revision": 8,
+    "sha256": "0055ff01bdc511cf2040cbd41cf51e2c336cc170f25cffcf6aef3683940237fe"
+  },
+  "items/postiz/components/schema-setup.yaml": {
+    "revision": 1,
+    "sha256": "3b90c6669a255e022169d9dd79e2df654befe33aad24bedd6059e13ce72ad8c4"
+  },
+  "items/postiz/components/temporal-server.yaml": {
+    "revision": 1,
+    "sha256": "8d1b60aad0b0cb62cfcb0647be68346d91c4da6df279e1b7f01c040dd8b4a5e8"
+  },
+  "items/qdrant/blueprint.yaml": {
+    "revision": 9,
+    "sha256": "244ecd251e588ff781be2d500cfbd749393a28fab954ef76e8e326c572a18c24"
+  },
+  "items/qdrant/components/qdrant.yaml": {
+    "revision": 8,
+    "sha256": "855047376083af98adfa0a9addae92240117fe49ba6273c1e73e44eaf72ee6fc"
+  },
+  "items/redis/components/redis.yaml": {
+    "revision": 8,
+    "sha256": "37553632beda64c348193268662a0643c627135b9143a52ec1e3feba3655245f"
+  },
+  "items/searxng/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "d6dadfac410ccf733b5e6d0b42f71dd190f4ae4270301225e89dfd92d9a84b80"
+  },
+  "items/searxng/components/searxng.yaml": {
+    "revision": 1,
+    "sha256": "7189c3fa09a9ba9af3676dc65015c11b5bfad2daf9a7d9abd39f19cb0840f9e2"
+  },
+  "items/seaweedfs/components/seaweedfs.yaml": {
+    "revision": 1,
+    "sha256": "fbb8ad54f04054b2b787b6c8294b5307aa57f61e162cc13a47feb35cc037d87e"
+  },
+  "items/sim/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "efa39c76fdbe1ff134c80f22eadf4ee414fa89501a1f8f64951c19809a615a66"
+  },
+  "items/sim/components/llm.yaml": {
+    "revision": 6,
+    "sha256": "d34bfb2accf081327eda4a3bb8aa2985c4aa7f18a5127330b2d00eedc6c88f7a"
+  },
+  "items/sim/components/pgvector.yaml": {
+    "revision": 1,
+    "sha256": "8a13816f57574413b71d4083216e27edf8d7cf5e609fdf221aabdb4fbf074446"
+  },
+  "items/sim/components/sim-app.yaml": {
+    "revision": 1,
+    "sha256": "6fb923a935235770a1f22b0f5e1052b6ccba418c095ae44ff3d336d7928c98b1"
+  },
+  "items/sim/components/sim-realtime.yaml": {
+    "revision": 1,
+    "sha256": "a27018e01b17cd3fa1005a51ecc4e39a898e53c85a5977f6efb8686fbdae9d55"
+  },
+  "items/sim/components/valkey.yaml": {
+    "revision": 1,
+    "sha256": "567c357b51d9d60a62c92d306676afc072d5be46c33cd4a8160a325d8a5c0e80"
+  },
+  "items/temporal/blueprint.yaml": {
+    "revision": 2,
+    "sha256": "f68f961848cf3ec5dd6625863a797a4181118f6184bb8a50f07231b24fe16a67"
+  },
+  "items/temporal/components/postgres.yaml": {
+    "revision": 2,
+    "sha256": "c7acd4bda79a1a27b950e6022173da72f9ed5610cdaf8e9cb6da1673c691188e"
+  },
+  "items/temporal/components/schema-setup.yaml": {
+    "revision": 1,
+    "sha256": "f8d215613ec8afc5b037369063b16b17405883004209e67a80a9fadfd4e9eb91"
+  },
+  "items/temporal/components/temporal-server.yaml": {
+    "revision": 1,
+    "sha256": "481615b4dd05da3b97b80f152e46e187f46e8d542d6aae44d0868ba5a06c0481"
+  },
+  "items/temporal/components/temporal-ui.yaml": {
+    "revision": 1,
+    "sha256": "219d86c83eb3b26467f82295934b12e00d1ffa0b6566e8aac24cd46dd1a2551d"
+  },
+  "items/text-embeddings-inference/components/text-embeddings-inference.yaml": {
+    "revision": 1,
+    "sha256": "de40fc729edfcdbc695acdfd80956d9942f74e76942a15ebc6f5d72cc34f84e0"
+  },
+  "items/uptime-kuma/blueprint.yaml": {
+    "revision": 1,
+    "sha256": "b29f1987b3d84d69c958da58c813786056d74a97c8192f0ae332884412ada25f"
+  },
+  "items/uptime-kuma/components/bootstrap-admin.yaml": {
+    "revision": 1,
+    "sha256": "420142473cebc927ff60d95a2fcc4189a1e948552bc1f6e52cdffca789b71a76"
+  },
+  "items/uptime-kuma/components/uptime-kuma.yaml": {
+    "revision": 1,
+    "sha256": "832982c26c1eea3147466b6f4fa1a661d57872f976630c6529cb08ff44196582"
+  },
+  "items/valkey/components/valkey.yaml": {
+    "revision": 1,
+    "sha256": "8f39aa460b5d213d0db3c27d3da10738d22798a999d92b8b3e6414c50809e075"
+  },
+  "items/voicestudio/blueprint.yaml": {
+    "revision": 3,
+    "sha256": "db7a07b51fa217644bd013a497b18c8bdcb56a1333e1a3a3547bde49afe07c57"
+  },
+  "items/voicestudio/components/voicestudio.yaml": {
+    "revision": 3,
+    "sha256": "06bfbd1ff7314dd8dfeb8a6071b2a32f766bb6c2be04bb30dfa6f33e801c1554"
+  },
+  "items/zeroclaw/blueprint.yaml": {
+    "revision": 3,
+    "sha256": "20d81ca6d9ca4645ce6b98ab2017097af3f5bc5ae3c4fd68dbc82cf525a0a4dd"
+  },
+  "items/zeroclaw/components/zeroclaw.yaml": {
+    "revision": 3,
+    "sha256": "953871d10f9677c25b7a921b9473d76df328da6a59d7871e6088a4152c6b6b88"
+  }
+}
