@@ -1,0 +1,156 @@
+specVersion: v2
+kind: BLUEPRINT
+metadata:
+  slug: postiz
+  revision: 1
+  description: >-
+    Postiz social media scheduler behind the platform's sign-in, on its own
+    PostgreSQL and Redis, with a Temporal server (and its schema setup job)
+    running its scheduling workflows.
+# Upstream's docker-compose.yaml, trimmed to what Postiz needs to run: postiz,
+# postiz-postgres, postiz-redis, temporal-postgresql, temporal and
+# temporal-admin-tools. Left out:
+# - spotlight (Sentry's local debugger) and temporal-ui, which are developer
+#   tools;
+# - temporal-elasticsearch: visibility uses PostgreSQL, as in the `temporal`
+#   item, and Postiz registers its own search attributes there on start;
+# - the second PostgreSQL server: Postiz's database and Temporal's two share
+#   one (components/postgres.yaml).
+#
+# Only Postiz is public. The database, Redis and Temporal's gRPC API stay
+# PRIVATE, reachable only inside the deployment.
+spec:
+  nodes:
+    db:
+      componentRef: ./components/postgres.yaml
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 10
+      bindings:
+        postgresPassword:
+          parameter: dbPassword
+        # A superuser, as in upstream's compose, so the setup job can create
+        # Temporal's two databases beside `postiz`, which is created here.
+        postgresUser:
+          value: postiz
+        postgresDb:
+          value: postiz
+    redis:
+      componentRef: ./components/redis.yaml
+      compute:
+        profile: general.economy.nano
+      volumes:
+        data:
+          sizeGiB: 5
+      bindings:
+        redisPassword:
+          parameter: redisPassword
+    temporal:
+      componentRef: ./components/temporal-server.yaml
+      # As in the `temporal` item: one process, four history shards.
+      compute:
+        profile: general.standard.nano
+      bindings:
+        postgresHost:
+          node: db
+          output: hostname
+        postgresPort:
+          node: db
+          output: port
+        postgresUser:
+          value: postiz
+        postgresPassword:
+          parameter: dbPassword
+    temporal-setup:
+      componentRef: ./components/schema-setup.yaml
+      compute:
+        profile: general.economy.nano
+      bindings:
+        sqlHost:
+          node: db
+          output: hostname
+        sqlPort:
+          node: db
+          output: port
+        sqlUser:
+          value: postiz
+        sqlPassword:
+          parameter: dbPassword
+        temporalAddress:
+          node: temporal
+          output: grpcAddress
+    web:
+      componentRef: ./components/postiz.yaml
+      # Four Node processes (backend, frontend, orchestrator and pm2) and
+      # nginx in one container. Upstream's compose sets no limit; 2 vCPU and
+      # 4 GiB is the size this item was tested on.
+      compute:
+        profile: general.standard.small
+      volumes:
+        uploads:
+          sizeGiB: 10
+      # The platform signs the viewer in before forwarding, and Postiz then
+      # asks for its own account. No identity is passed on: Postiz has no
+      # header or OIDC sign-in this item can use without its generic OAuth
+      # provider settings.
+      #
+      # PATHS grants the routes the component offers: /uploads, which social
+      # networks fetch media from, and /api/public, which checks its own API
+      # key (components/postiz.yaml).
+      exposure:
+        primary:
+          visibility: PUBLIC
+          access: RESTRICTED
+          viewerIdentity: NONE
+          accessExemptions:
+            - PATHS
+      bindings:
+        # The node's own public URL. A node reading its own endpoint output
+        # is a discovery dependency and not a value cycle (BP-BIND-002).
+        mainURL:
+          node: web
+          output: publicURL
+        jwtSecret:
+          parameter: jwtSecret
+        dbAddress:
+          node: db
+          output: address
+        dbName:
+          value: postiz
+        dbUser:
+          value: postiz
+        dbPassword:
+          parameter: dbPassword
+        redisAddress:
+          node: redis
+          output: address
+        redisPassword:
+          parameter: redisPassword
+        temporalAddress:
+          node: temporal
+          output: grpcAddress
+  parameters:
+    # HEX keeps both passwords free of characters a connection URL would
+    # treat specially: Postiz reads them inside DATABASE_URL and REDIS_URL.
+    # Disclosed for direct database access and backups.
+    dbPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Database password
+        order: 1
+    redisPassword:
+      generator:
+        byteLength: 24
+        encoding: HEX
+      ui:
+        label: Redis password
+        order: 2
+    # Signs Postiz sessions. Not disclosed: nothing outside Postiz needs it.
+    jwtSecret:
+      generator:
+        byteLength: 32
+        encoding: HEX
