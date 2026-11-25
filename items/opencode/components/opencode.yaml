@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     OpenCode coding agent's server and web UI behind HTTP basic auth, on an
     OpenAI-compatible model, with config, sessions and a workspace home on three
@@ -238,6 +238,17 @@ spec:
       #     packages/opencode/src/provider/provider.ts), so no npm download
       #     happens. Its SDK appends /chat/completions to baseURL, so a base
       #     ending /v1 is what it wants.
+      #   - `name: "Musher LLM connection"`, which is what the model picker,
+      #     the model tooltip and Settings show for the provider
+      #     (packages/app/src/components/model-tooltip.tsx,
+      #     settings-models.tsx). The id stays `llm`: OpenCode has no provider
+      #     alias, and every session records `llm/<model>` in its SQLite row
+      #     and event log on the `data` volume (packages/core/src/session/sql.ts,
+      #     SessionV1.Event.Updated), which a prompt sent without a model
+      #     resolves again (currentModel, packages/opencode/src/session/prompt.ts)
+      #     and fails with "Model not found" when the provider is gone. A new
+      #     id would break those sessions, and there is no boot script that
+      #     could rewrite them.
       #   - one model, keyed and named by the connection's model id. A
       #     config model defaults to text in and out with tool calls on.
       #   - `model` and `small_model` both point at it. parseModel splits on
@@ -264,7 +275,7 @@ spec:
             "provider": {
               "llm": {
                 "npm": "@ai-sdk/openai-compatible",
-                "name": "Language model",
+                "name": "Musher LLM connection",
                 "options": {
                   "baseURL": "{env:LLM_BASE_URL}",
                   "apiKey": "{env:LLM_API_KEY}"

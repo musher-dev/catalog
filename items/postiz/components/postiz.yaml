@@ -1,0 +1,260 @@
+specVersion: v2
+kind: COMPONENT
+metadata:
+  revision: 1
+  description: >-
+    Postiz social media scheduler (web UI, API and Temporal workers in one
+    container behind nginx), on an external PostgreSQL, Redis and Temporal
+    server.
+spec:
+  type: SERVICE
+  workload:
+    source:
+      # PINNED. v2.26.0 is the latest release. Upstream's build-containers
+      # workflow tags the image with the git tag itself, `v` prefix included;
+      # its compose file runs `latest`.
+      image: ghcr.io/gitroomhq/postiz-app:v2.26.0
+    # The image's CMD is `sh -c "nginx && pnpm run pm2"` (Dockerfile.dev): nginx
+    # on 5000 fronts the backend (3000, under /api/), the Next.js frontend
+    # (4200) and the uploads directory (/uploads/), and pm2 runs `prisma db
+    # push` before it starts the backend, frontend and orchestrator (the
+    # Temporal workers). This keeps that CMD and prepends what Postiz cannot
+    # read from separate inputs:
+    #
+    # - DATABASE_URL and REDIS_URL are whole connection strings, so they are
+    #   assembled here from the address the database and cache publish and the
+    #   generated passwords, which are HEX and need no URL escaping. The two
+    #   password variables are unset before Postiz starts, so they reach it
+    #   only inside the URLs.
+    # - FRONTEND_URL and NEXT_PUBLIC_BACKEND_URL are MAIN_URL and MAIN_URL/api,
+    #   as in upstream's compose, derived from the one public URL so the three
+    #   cannot disagree. Two inputs may not claim one envVar, so they are
+    #   exported here rather than declared.
+    command:
+      - sh
+      - -c
+      - |
+        set -eu
+        base="${MAIN_URL%/}"
+        export MAIN_URL="$base" FRONTEND_URL="$base" NEXT_PUBLIC_BACKEND_URL="$base/api"
+        db_auth="${POSTIZ_DB_USER}:${POSTIZ_DB_PASSWORD}"
+        export DATABASE_URL="postgresql://${db_auth}@${POSTIZ_DB_ADDRESS}/${POSTIZ_DB_NAME}"
+        export REDIS_URL="redis://:${POSTIZ_REDIS_PASSWORD}@${POSTIZ_REDIS_ADDRESS}"
+        unset POSTIZ_DB_PASSWORD POSTIZ_REDIS_PASSWORD
+        mkdir -p "$UPLOAD_DIRECTORY"
+        nginx
+        exec pnpm run pm2
+    endpoints:
+      primary:
+        targetPort: 5000
+        protocol: HTTP
+        # Routes the platform may forward without a signed-in viewer, when a
+        # node grants PATHS:
+        # - /uploads: media Postiz stores locally. Social networks fetch a
+        #   post's images and videos from these URLs when it publishes, and
+        #   they hold no viewer session. File names are random
+        #   (libraries/nestjs-libraries/src/upload/local.storage.ts).
+        # - /api/public: Postiz's public API (api/public/v1), which checks the
+        #   API key every request carries.
+        exemptibleRequests:
+          paths:
+            - /uploads
+            - /api/public
+    volumes:
+      uploads:
+        mountPath: /uploads
+        minSizeGiB: 5
+    # Postiz has no health route on the backend; the orchestrator's
+    # /health/status listens on 3002 inside the container only. `/` goes
+    # through nginx to the frontend, which answers 200 or a redirect to
+    # /auth once pm2 has started it, and 502 until then.
+    health:
+      # The first start runs `prisma db push` before the four processes start,
+      # which takes a few minutes on a small machine: up to 15 minutes here.
+      startup:
+        http:
+          endpoint: primary
+          path: /
+        initialDelaySeconds: 30
+        periodSeconds: 10
+        timeoutSeconds: 5
+        failureThreshold: 90
+      readiness:
+        http:
+          endpoint: primary
+          path: /
+        initialDelaySeconds: 10
+        timeoutSeconds: 5
+        successThreshold: 1
+        failureThreshold: 3
+      liveness:
+        http:
+          endpoint: primary
+          path: /
+        periodSeconds: 30
+        timeoutSeconds: 10
+        failureThreshold: 5
+  contract:
+    inputs:
+      mainURL:
+        description: >-
+          Public URL Postiz is reached at; the frontend URL and the backend URL
+          (with /api) are derived from it.
+        schema:
+          type: string
+        required: true
+        presentationHint: ENDPOINT_URL
+        target:
+          envVar: MAIN_URL
+      jwtSecret:
+        description: >-
+          Secret that signs Postiz session tokens; fixed for the deployment's
+          lifetime.
+        schema:
+          type: string
+        required: true
+        sensitive: true
+        target:
+          envVar: JWT_SECRET
+      dbAddress:
+        description: Mesh-internal host:port of the PostgreSQL server.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: POSTIZ_DB_ADDRESS
+      dbName:
+        description: Database Postiz keeps its records in.
+        schema:
+          type: string
+        default: postiz
+        target:
+          envVar: POSTIZ_DB_NAME
+      dbUser:
+        description: Role Postiz connects to PostgreSQL as.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: POSTIZ_DB_USER
+      dbPassword:
+        description: Password of that role; URL-safe characters only.
+        schema:
+          type: string
+        required: true
+        sensitive: true
+        target:
+          envVar: POSTIZ_DB_PASSWORD
+      redisAddress:
+        description: Mesh-internal host:port of the Redis server.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: POSTIZ_REDIS_ADDRESS
+      redisPassword:
+        description: >-
+          Password the Redis server requires; URL-safe characters only. The
+          same schema as the redis component's own input, which it is bound
+          beside.
+        schema:
+          type: string
+          minLength: 16
+          pattern: ^[A-Za-z0-9._~+/=-]+$
+        required: true
+        sensitive: true
+        target:
+          envVar: POSTIZ_REDIS_PASSWORD
+      temporalAddress:
+        description: Mesh-internal host:port of the Temporal frontend gRPC API.
+        schema:
+          type: string
+        required: true
+        target:
+          envVar: TEMPORAL_ADDRESS
+      temporalNamespace:
+        description: Temporal namespace Postiz runs its workflows in.
+        schema:
+          type: string
+        default: default
+        target:
+          envVar: TEMPORAL_NAMESPACE
+      backendInternalURL:
+        description: URL the frontend reaches the backend at inside the container.
+        schema:
+          type: string
+        default: http://localhost:3000
+        target:
+          envVar: BACKEND_INTERNAL_URL
+      isGeneral:
+        description: >-
+          Whether Postiz runs as the general (non-Gitroom) edition, as the
+          literal string it parses.
+        schema:
+          type: string
+        default: "true"
+        target:
+          envVar: IS_GENERAL
+      disableRegistration:
+        description: >-
+          Whether new sign-ups are refused after the first account, as the
+          literal string Postiz parses.
+        schema:
+          type: string
+        default: "false"
+        target:
+          envVar: DISABLE_REGISTRATION
+      storageProvider:
+        description: >-
+          Where uploaded media is stored: local keeps it on the uploads volume.
+        schema:
+          type: string
+        default: local
+        target:
+          envVar: STORAGE_PROVIDER
+      uploadDirectory:
+        description: Directory uploaded media is written to.
+        schema:
+          type: string
+        default: /uploads
+        target:
+          envVar: UPLOAD_DIRECTORY
+      publicUploadDirectory:
+        description: Path uploaded media is served under.
+        schema:
+          type: string
+        default: /uploads
+        target:
+          envVar: NEXT_PUBLIC_UPLOAD_DIRECTORY
+      apiLimit:
+        description: Public API requests allowed per hour.
+        schema:
+          type: string
+        default: "30"
+        target:
+          envVar: API_LIMIT
+      nxAddPlugins:
+        description: Nx plugin inference switch, off in production.
+        schema:
+          type: string
+        default: "false"
+        target:
+          envVar: NX_ADD_PLUGINS
+      mastodonURL:
+        description: Mastodon instance Postiz connects to.
+        schema:
+          type: string
+        default: https://mastodon.social
+        target:
+          envVar: MASTODON_URL
+    outputs:
+      publicURL:
+        description: >-
+          Public https URL this deployment answers at, which Postiz uses as its
+          main URL.
+        schema:
+          type: string
+        from:
+          endpoint: primary
+          property: publicURL
+        presentationHint: ENDPOINT_URL
