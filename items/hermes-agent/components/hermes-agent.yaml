@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 3
+  revision: 4
   description: >-
     Hermes Agent's messaging gateway and web dashboard in one container, signing
     viewers in through the platform's OpenID Connect provider, with agent state
@@ -65,17 +65,25 @@ spec:
     # (website/docs/integrations/providers.md, "Legacy env vars"). So the
     # script writes the documented custom-provider shape on every boot:
     #
-    #   - providers.llm, a keyed custom provider (configuring-models.md): `api`
-    #     is the base URL, `api_mode: chat_completions` pins the OpenAI wire
-    #     (the docs spell it `transport`; the resolver reads either),
-    #     and `key_env: LLM_API_KEY` names the env var holding the credential.
+    #   - providers.musher, a keyed custom provider (configuring-models.md):
+    #     `name` is the display name, `api` is the base URL,
+    #     `api_mode: chat_completions` pins the OpenAI wire (the docs spell it
+    #     `transport`; the resolver reads either), and `key_env: LLM_API_KEY`
+    #     names the env var holding the credential.
     #     `_match_new_style_provider` (hermes_cli/runtime_provider_custom.py)
     #     reads the key from that env var at request time, so the credential
     #     never lands in config.yaml on the volume.
-    #   - model.provider `custom:llm`, the stable identity Hermes gives a
-    #     keyed provider (`custom_provider_slug`, hermes_cli/providers.py). A
-    #     `custom:` name is never shadowed by a built-in provider
-    #     (`_shadowed_by_builtin`).
+    #   - model.provider `custom:musher`, the stable identity Hermes gives a
+    #     keyed provider (`custom_provider_slug`, hermes_cli/providers.py): the
+    #     config key, not the display name. The model picker shows it beside
+    #     the model ("current: <model> · custom:musher"), so the key names the
+    #     platform rather than the connection. A `custom:` name is never
+    #     shadowed by a built-in provider (`_shadowed_by_builtin`).
+    #   - providers.llm, the key revisions before 4 wrote, is removed when it is
+    #     the one this script wrote: `key_env: LLM_API_KEY` and either the
+    #     connection's base URL or no key beyond the ones it wrote. A provider
+    #     someone added under that name is left alone. model.provider needs no
+    #     migration, because it is overwritten on every boot.
     #   - model.base_url, model.api_mode and model.key_env, set to the same
     #     values. A route that resolves through `model.base_url` instead (the
     #     bare-custom path, `_resolve_direct_alias_runtime`) then reaches the
@@ -84,7 +92,7 @@ spec:
     #     left behind.
     #   - model.default, the model id, as a string. `hermes config set` is not
     #     used because it coerces values that look like numbers or booleans.
-    #   - model.api_key and providers.llm.api_key are removed if present, so a
+    #   - model.api_key and providers.musher.api_key are removed if present, so a
     #     literal key left by an edit cannot shadow the connection's.
     #
     # LLM_API_KEY is not on Hermes's provider-credential scrub list
@@ -160,7 +168,7 @@ spec:
     # cannot parse. A corrupt config then fails the boot visibly instead of
     # being reset. Not `atomic_config_write`: since v0.21.6 it raises when a
     # write would omit an existing path, so the deliberate removals above (a
-    # stale model.api_key, an extra key under providers.llm) would stop the
+    # stale model.api_key, a stale providers.llm) would stop the
     # container from booting.
     command:
       - python
@@ -179,13 +187,19 @@ spec:
         model = cfg.get("model") if isinstance(cfg.get("model"), dict) else {}
         model.pop("api_key", None)
         model.pop("model", None)
-        model.update({"provider": "custom:llm", "default": model_id, "base_url": base_url,
+        model.update({"provider": "custom:musher", "default": model_id, "base_url": base_url,
                       "api_mode": "chat_completions", "key_env": "LLM_API_KEY"})
         cfg["model"] = model
 
         providers = cfg.get("providers") if isinstance(cfg.get("providers"), dict) else {}
-        providers["llm"] = {"api": base_url, "api_mode": "chat_completions",
-                            "key_env": "LLM_API_KEY", "default_model": model_id}
+        old = providers.get("llm")
+        if (isinstance(old, dict) and old.get("key_env") == "LLM_API_KEY"
+                and (str(old.get("api") or "").rstrip("/") == base_url
+                     or set(old) <= {"api", "api_mode", "key_env", "default_model", "api_key"})):
+            del providers["llm"]
+        providers["musher"] = {"name": "Musher LLM connection", "api": base_url,
+                               "api_mode": "chat_completions", "key_env": "LLM_API_KEY",
+                               "default_model": model_id}
         cfg["providers"] = providers
 
         terminal = cfg.get("terminal")
