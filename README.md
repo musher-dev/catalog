@@ -380,6 +380,15 @@ dimensions, and, for a `COMPONENT` item, the runtime minimums listed as
 **(sync only)** above. An item that passes here can still be rejected at
 sync.
 
+One part of "whether a revision increases" is checked here. `revisions.json`
+records each component and blueprint document's revision with the SHA-256 of
+its text, as `main` published it. The platform keeps the text it imported
+under each revision and refuses different text at that revision
+(`ERR_REVISION_NOT_INCREASING`), even if only a comment changed.
+`tests/revisions.test.ts` fails such a change. After you raise a revision, or
+add or remove a document, run `npm run revisions:lock`. It refuses to record
+changed text at a revision that is already recorded.
+
 Keep changes to one item per pull request, so a rejection that only the platform
 can raise is easy to attribute. Adopting a new specification release is the
 standing exception: a release that narrows what validates makes every
