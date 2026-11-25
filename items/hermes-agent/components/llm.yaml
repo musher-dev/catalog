@@ -26,7 +26,7 @@ spec:
           model, acquired together.
         connection:
           # Streaming and tool calls, both unconditionally. Read from the
-          # source at v0.23.0, not observed against a running deployment.
+          # source at v0.23.3, not observed against a running deployment.
           # Hermes is an agent loop: the chat-completions transport attaches
           # the agent's tool definitions to the request (`api_kwargs["tools"]`
           # in agent/transports/chat_completions.py), and the agent core

@@ -45,7 +45,7 @@ spec:
     as sensitive.
 
     ## Defaults
-    A single container runs `nousresearch/hermes-agent:v0.23.0` with the
+    A single container runs `nousresearch/hermes-agent:v0.23.3` with the
     dashboard on port 9119, behind the platform's HTTPS edge and sign-in. The
     messaging gateway runs beside it, supervised so that a crash restarts the
     gateway, not the container. No messaging channel is connected at first.
