@@ -1,18 +1,36 @@
-# Code owners for the Musher catalog.
+# CODEOWNERS: the ownership half of the selective code-owner review gate
 #
-# A catch-all is deliberate here: this repository is a single curated content
-# corpus with one owning team, so every path wants the same reviewer. (The
-# platform monorepo bans a catch-all because its review gate is paired with a
-# branch ruleset that turns one into blanket review — that pairing does not
-# exist here.)
+# Docs: https://docs.github.com/en/repositories/managing-your-repositorys-settings-and-features/customizing-your-repository/about-code-owners
+# The standard is musher-dev/platform ADR 0134, checked by engineering-conventions
+# COMM-09 (no `*` catch-all) and COMM-10 (every anchored path exists). The other
+# half is the organization ruleset's `require_code_owner_review`
+# (musher-dev/infra-github#57).
 #
-# This file and the CI configuration (.github/) keep an owner of their own, so
-# a change to who reviews, or to how CI checks the catalog, goes through that
-# owner. The last matching pattern wins, so they follow the catch-all.
+# How review works here:
 #
-# GitHub silently ignores an owner without write access, so verify access when
-# adding one.
+#   A pull request that touches NO path listed below merges on green CI alone:
+#   the catalog's required checks (.github/workflows/validate.yml) are the gate.
+#   That includes curated items under items/ and package-lock.json bumps.
+#   A pull request that touches a listed path also needs its owner's approval.
+#   GitHub waives that on the owner's own pull requests.
+#
+# What is owned, and why:
+#   /CODEOWNERS   who reviews what
+#   /.github/     the workflows that run the required checks
+#
+# Everything else is unowned on purpose. Listing a path is a commitment to
+# review every change to it, so keep the list short.
+#
+# Syntax rules that bite:
+#   - NEVER add a `*` catch-all (COMM-09). Once the org gate applies, it makes
+#     every pull request codeowned and brings back blanket review.
+#   - LAST matching pattern wins: order from broad to specific.
+#   - ALL owners for a pattern go on ONE line.
+#   - Owners need EXPLICIT write access to this repo, or the entry is silently
+#     ignored and the path becomes unowned. GitHub lists ignored lines at
+#     `gh api repos/musher-dev/catalog/codeowners/errors`.
+#   - A root-anchored path must exist (COMM-10): after a rename, the old line
+#     protects nothing.
 
-*            @amiralis1365
-/CODEOWNERS  @justinmerrell
-/.github/    @justinmerrell
+/CODEOWNERS   @justinmerrell
+/.github/     @justinmerrell
