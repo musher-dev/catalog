@@ -1,7 +1,7 @@
 specVersion: v2
 kind: COMPONENT
 metadata:
-  revision: 4
+  revision: 5
   description: >-
     Hermes Agent's messaging gateway and web dashboard in one container, signing
     viewers in through the platform's OpenID Connect provider, with agent state
@@ -10,7 +10,14 @@ spec:
   type: SERVICE
   workload:
     source:
-      # PINNED. v0.23.0 is the latest stable release (2026-11-05). Upstream
+      # PINNED. v0.23.3 is the latest stable release (2026-11-19); the item was
+      # written against v0.23.0. Between the two, the config writer the boot
+      # calls (atomic_config_replace, require_readable_config_before_write,
+      # get_config_path), the keyed-provider route (_match_new_style_provider,
+      # custom_provider_slug, _shadowed_by_builtin), the dashboard's s6 run
+      # script, main-wrapper.sh, the self-hosted OIDC plugin, /api/health,
+      # _redirect_uri and plugin-catalog/hindsight.yaml are unchanged.
+      # stage2-hook.sh only seeds .env and auth.json owner-only. Upstream
       # moved from CalVer tags to SemVer after v2026.9.24 (which was v0.21.5).
       # Docker Hub tags carry the `v` prefix and are multi-arch (amd64, arm64).
       # The `-desktop` variants add an Xfce desktop (built with
@@ -24,7 +31,7 @@ spec:
       # calls), hermes_cli/runtime_provider_custom.py (the model route the
       # boot command writes) and plugin-catalog/hindsight.yaml (the memory
       # provider the boot command installs).
-      image: nousresearch/hermes-agent:v0.23.0
+      image: nousresearch/hermes-agent:v0.23.3
     # PROCESS MODEL. One container runs both the messaging gateway and the
     # dashboard, which is the layout upstream documents for its image
     # (website/docs/user-guide/docker.md, "Running the dashboard": `-e
