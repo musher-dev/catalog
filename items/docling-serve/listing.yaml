@@ -77,7 +77,7 @@ spec:
        can't reach it.
     3. To upload a file instead, send it as multipart form data to
        `POST /v1/convert/file` in a `files` field, with the same header.
-  category: AGENTS
+  category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:
     - document-parsing

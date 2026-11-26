@@ -102,7 +102,7 @@ spec:
     4. Start crawls with `POST /v2/crawl` and read their pages back with
        `GET /v2/crawl/<id>`. The first request after a deploy can take a few
        seconds longer while the browser warms up.
-  category: AGENTS
+  category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:
     - web-scraping

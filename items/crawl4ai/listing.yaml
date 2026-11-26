@@ -78,7 +78,7 @@ spec:
        `POST /crawl` with `{"urls": [...]}` returns full results.
     3. Point an MCP client at `/mcp/sse` with the same token to give an agent
        crawl, Markdown, screenshot and PDF tools.
-  category: AGENTS
+  category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:
     - web-crawler

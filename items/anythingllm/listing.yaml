@@ -96,7 +96,7 @@ spec:
 
     For API access, create a key under **Settings → Tools → Developer API**
     and call `/api/v1` with it as a bearer token.
-  category: AGENTS
+  category: MODELS
   lifecycleStage: BETA
   tags:
     - ai

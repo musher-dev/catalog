@@ -92,7 +92,7 @@ spec:
        `https://<deployment URL>/servers/<server id>/mcp`.
     4. Under **API Tokens**, create a scoped token. Give the agent the
        endpoint and the token, sent as `Authorization: Bearer <token>`.
-  category: AGENTS
+  category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:
     - mcp
