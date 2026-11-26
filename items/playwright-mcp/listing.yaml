@@ -74,7 +74,7 @@ spec:
        the snapshot.
     3. Use `/sse` instead of `/mcp` only for clients that support just the
        legacy SSE transport.
-  category: AGENTS
+  category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:
     - mcp

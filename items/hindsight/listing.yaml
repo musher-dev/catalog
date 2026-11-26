@@ -60,7 +60,7 @@ spec:
        first time something is written to it.
 
     MCP clients connect to `/mcp/<bank-id>/` with the same key.
-  category: AGENTS
+  category: DATABASES
   lifecycleStage: BETA
   tags:
     - memory

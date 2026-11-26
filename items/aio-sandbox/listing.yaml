@@ -88,7 +88,7 @@ spec:
        the `cdp_url` that `GET /v1/browser/info` returns.
     4. To watch the browser, open
        `/vnc/index.html?autoconnect=true&api_key=<key>`.
-  category: AGENTS
+  category: DEVELOPER_TOOLS
   lifecycleStage: BETA
   tags:
     - sandbox

@@ -96,7 +96,7 @@ spec:
        staging database moved to Frankfurt in March". It calls `add_memory`.
     4. After a minute, ask "Where is the staging database?". The agent calls
        `search_memory_facts` and answers from the graph.
-  category: AGENTS
+  category: DATABASES
   lifecycleStage: BETA
   tags:
     - agent-memory
