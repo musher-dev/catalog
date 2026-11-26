@@ -255,6 +255,14 @@ spec:
       caption: The home screen
 ```
 
+`spec.category` names what you deploy. An item is `AGENTS` when what you deploy
+is an agent, or something that runs, routes or assembles agents: a gateway, an
+orchestrator or a builder — listing v2's "agents, agent gateways and
+orchestrators, and builders that assemble agents". A tool that agents use (a
+crawler, a browser, a sandbox, a memory store, an MCP server) and a chat UI over
+models are not agents, so they take the category of what they are:
+`DEVELOPER_TOOLS`, `DATABASES` or `MODELS`.
+
 A multi-service item adds more entries under `spec.nodes` — unique node
 names, one `components/<name>.yaml` per reference — and binds a consumer's input
 to a producer's output with `{node, output}`. The two ends agree on
